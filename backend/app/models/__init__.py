@@ -4,6 +4,7 @@ from app.models.category import Category
 from app.models.chat_session import ChatSession
 from app.models.chunk import Chunk
 from app.models.document import Document
+from app.models.memory_fact import MemoryFact
 from app.models.message import Message
 from app.models.session_file import SessionFile
 from app.models.todo import Todo
@@ -14,6 +15,7 @@ __all__ = [
     "ChatSession",
     "Chunk",
     "Document",
+    "MemoryFact",
     "Message",
     "SessionFile",
     "Todo",

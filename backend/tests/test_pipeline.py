@@ -24,8 +24,8 @@ class FakeEmbeddings:
 
 
 @pytest.fixture
-def vector_store(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.rag.vector_store.settings.QDRANT_PATH", str(tmp_path / "qdrant"))
+def vector_store():
+    """Qdrant 实例（8 维；目录由 conftest 隔离）。"""
     return VectorStore(dimension=8)
 
 

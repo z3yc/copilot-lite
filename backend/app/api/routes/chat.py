@@ -22,8 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent import Orchestrator
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.db import get_session
 from app.core.llm import get_llm
+from app.memory import get_memory_service
 from app.models import ChatSession, Message, User
 from app.tools import registry
 
@@ -104,10 +106,28 @@ async def _load_session_file_context(db: AsyncSession, session_id) -> list[dict]
     ]
 
 
-async def _build_context(db: AsyncSession, session_id, history: list[dict]) -> list[dict]:
-    """组装上下文：会话附件（system）+ 历史消息。"""
+async def _build_context(
+    db: AsyncSession, session_id, history: list[dict], user_message: str, user_id
+) -> list[dict]:
+    """组装上下文：会话附件（system）+ 长期记忆（system）+ 历史消息。
+
+    记忆召回按当前问题执行（向量检索，无 LLM 成本），
+    等价于"会话开始注入 + 话题切换自动补充"的混合策略。
+    """
+    parts: list[dict] = []
     file_ctx = await _load_session_file_context(db, session_id)
-    return (file_ctx or []) + history
+    if file_ctx:
+        parts.extend(file_ctx)
+    memories = await get_memory_service().recall(db, user_id, user_message)
+    if memories:
+        parts.append(
+            {
+                "role": "system",
+                "content": "关于用户的长期记忆（回答时自然参考，但不要提及\"记忆\"一词）：\n"
+                + "\n".join(f"- {m}" for m in memories),
+            }
+        )
+    return parts + history
 
 
 async def _run_agent(db: AsyncSession, history: list[dict], message: str, user_id) -> str:
@@ -130,6 +150,28 @@ async def _persist(db: AsyncSession, session_id, user_msg: str, reply: str) -> N
     await db.commit()
 
 
+async def _background_extract_memories(session_id, user_id) -> None:
+    """会话结束后台提取记忆（独立会话，不阻塞响应）。"""
+    try:
+        from app.core.db import async_session_factory
+
+        async with async_session_factory() as db:
+            history = await _load_history(db, session_id)
+            msgs = [{"role": m["role"], "content": m["content"]} for m in history]
+            await get_memory_service().extract_from_session(db, user_id, session_id, msgs)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("后台记忆提取失败: %s", exc)
+
+
+def _schedule_memory_extract(session_id, user_id) -> None:
+    """异步调度记忆提取（不阻塞响应返回；测试环境关闭）。"""
+    if not settings.MEMORY_EXTRACT_ENABLED:
+        return
+    import asyncio
+
+    asyncio.create_task(_background_extract_memories(session_id, user_id))
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
@@ -138,9 +180,12 @@ async def chat(
 ) -> ChatResponse:
     """非流式对话。"""
     session = await _resolve_session(db, req.session_id, req.message, user)
-    history = await _build_context(db, session.id, await _load_history(db, session.id))
+    history = await _build_context(
+        db, session.id, await _load_history(db, session.id), req.message, user.id
+    )
     reply = await _run_agent(db, history, req.message, user.id)
     await _persist(db, session.id, req.message, reply)
+    _schedule_memory_extract(session.id, user.id)
     return ChatResponse(session_id=str(session.id), reply=reply)
 
 
@@ -156,7 +201,9 @@ async def chat_stream(
     工具调用轮在后台执行（不阻塞、不产生用户可见文本）。
     """
     session = await _resolve_session(db, req.session_id, req.message, user)
-    history = await _build_context(db, session.id, await _load_history(db, session.id))
+    history = await _build_context(
+        db, session.id, await _load_history(db, session.id), req.message, user.id
+    )
 
     # Key 检查提前到响应前（错误可返回 HTTP 状态码）
     try:
@@ -188,5 +235,6 @@ async def chat_stream(
         # 3. 完成事件 + 持久化
         yield _sse("done", {})
         await _persist(db, session.id, req.message, "".join(reply_parts))
+        _schedule_memory_extract(session.id, user.id)
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

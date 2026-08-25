@@ -27,12 +27,9 @@ class FakeEmbeddings:
 
 
 @pytest.fixture
-async def vector_store(tmp_path, monkeypatch):
-    """临时 Qdrant 本地实例（8 维以匹配伪嵌入）。"""
-    monkeypatch.setattr("app.rag.vector_store.settings.QDRANT_PATH", str(tmp_path / "qdrant"))
-    vs = VectorStore(dimension=8)
-    yield vs
-    # Qdrant 本地模式的文件句柄由 GC 管理，无需显式清理
+def vector_store():
+    """Qdrant 实例（8 维匹配伪嵌入；目录由 conftest 隔离）。"""
+    return VectorStore(dimension=8)
 
 
 @pytest.fixture

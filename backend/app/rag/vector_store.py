@@ -34,18 +34,26 @@ class SearchHit:
     meta: dict
 
 
+@lru_cache
+def get_qdrant_client() -> QdrantClient:
+    """Qdrant 客户端共享单例。
+
+    关键：Qdrant 本地模式（path）同一目录只允许一个客户端实例，
+    多个 collection（文档/记忆）必须共享同一 client，否则目录锁冲突。
+    """
+    if settings.QDRANT_URL and not settings.QDRANT_URL.startswith("http://localhost:6333"):
+        logger.info("Qdrant 远程模式: %s", settings.QDRANT_URL)
+        return QdrantClient(url=settings.QDRANT_URL)
+    logger.info("Qdrant 本地模式: %s", settings.QDRANT_PATH)
+    return QdrantClient(path=settings.QDRANT_PATH)
+
+
 class VectorStore:
-    """Qdrant 向量库封装。"""
+    """Qdrant 向量库封装（共享客户端，按 collection 隔离）。"""
 
     def __init__(self, collection: str = COLLECTION_NAME, dimension: int = 512) -> None:
         self.collection = collection
-        # 本地模式（path）优先；配置了远程 URL 时使用远程（云端部署）
-        if settings.QDRANT_URL and not settings.QDRANT_URL.startswith("http://localhost:6333"):
-            self._client = QdrantClient(url=settings.QDRANT_URL)
-            logger.info("Qdrant 远程模式: %s", settings.QDRANT_URL)
-        else:
-            self._client = QdrantClient(path=settings.QDRANT_PATH)
-            logger.info("Qdrant 本地模式: %s", settings.QDRANT_PATH)
+        self._client = get_qdrant_client()
         self._ensure_collection(dimension)
 
     def _ensure_collection(self, dimension: int = 512) -> None:
@@ -103,8 +111,16 @@ class VectorStore:
 
     async def delete_by_document(self, document_id: uuid.UUID) -> None:
         """删除某文档的全部向量点。"""
+        await self._delete_by_filter("document_id", str(document_id))
+
+    async def delete_by_memory(self, memory_id: str) -> None:
+        """删除某条记忆的向量点。"""
+        await self._delete_by_filter("memory_id", memory_id)
+
+    async def _delete_by_filter(self, key: str, value: str) -> None:
+        """按 payload 字段值过滤删除。"""
         qfilter = qm.Filter(
-            must=[qm.FieldCondition(key="document_id", match=qm.MatchValue(value=str(document_id)))]
+            must=[qm.FieldCondition(key=key, match=qm.MatchValue(value=value))]
         )
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(

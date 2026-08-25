@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     RAG_TOP_K: int = 5  # 向量/BM25 各自召回数
     RAG_RERANK_TOP_K: int = 3  # 融合后精排保留数
 
+    # 长期记忆
+    MEMORY_TOP_K: int = 5  # 每次召回记忆条数
+    MEMORY_EXTRACT_ENABLED: bool = True  # 会话结束后台提取开关（测试环境关闭）
+
 
 @lru_cache
 def get_settings() -> Settings:

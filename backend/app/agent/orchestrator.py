@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.base import BaseAgent
 from app.core.config import settings
-from app.core.llm import LLMClient
+from app.core.llm import LLMClient, ToolCall
 from app.tools.base import ToolContext, ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -104,3 +104,82 @@ class Orchestrator(BaseAgent):
                 )
 
         return "（已达到最大工具调用轮数，请简化请求后重试）"
+
+    async def run_stream(
+        self,
+        session: AsyncSession,
+        user_id,
+        history: list[dict],
+        user_message: str,
+    ):
+        """流式执行一次对话：逐 token 产出最终回复文本。
+
+        与 run() 行为一致（ReAct + 工具调用），但最终文本轮使用模型流式接口，
+        实时产出增量。约定（DeepSeek 行为）：工具调用轮 content 为空，
+        纯文本轮 tool_calls 为空，二者互斥——据此实时转发文本。
+        """
+        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages.extend(history[-HISTORY_WINDOW:])
+        messages.append({"role": "user", "content": user_message})
+
+        ctx = ToolContext(session=session, user_id=user_id)
+
+        for _ in range(self.max_turns):
+            tool_calls: dict[int, dict] = {}
+            stream = await self.llm.stream_raw(messages, tools=self.registry.schemas())
+
+            # 逐 chunk 处理：转发文本增量 / 收集工具调用
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
+                if delta and delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        entry = tool_calls.setdefault(
+                            tc.index, {"id": tc.id or "", "name": "", "arguments": ""}
+                        )
+                        if tc.id:
+                            entry["id"] = tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                entry["name"] += tc.function.name
+                            if tc.function.arguments:
+                                entry["arguments"] += tc.function.arguments
+
+            if not tool_calls:
+                return  # 纯文本轮完成
+
+            # 工具轮：追加 assistant tool_calls 声明并执行
+            calls = [
+                ToolCall(id=e["id"], name=e["name"], arguments=e["arguments"])
+                for e in tool_calls.values()
+            ]
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": c.id,
+                            "type": "function",
+                            "function": {"name": c.name, "arguments": c.arguments},
+                        }
+                        for c in calls
+                    ],
+                }
+            )
+            for c in calls:
+                logger.info("调用工具: %s(%s)", c.name, c.arguments)
+                tool_result = await self.registry.execute(c.name, c.arguments, ctx)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": c.id,
+                        "name": c.name,
+                        "content": tool_result,
+                    }
+                )
+
+        yield "（已达到最大工具调用轮数，请简化请求后重试）"

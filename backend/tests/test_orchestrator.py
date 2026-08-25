@@ -80,3 +80,101 @@ async def test_max_turns_guard(db_session) -> None:
     orch = Orchestrator(llm=fake, registry=registry, max_turns=2)
     reply = await orch.run(db_session, DEFAULT_USER_ID, [], "继续")
     assert "最大工具调用轮数" in reply
+
+
+# ---------------- 流式编排（run_stream） ----------------
+
+from types import SimpleNamespace
+
+
+class _SD:
+    """模拟流式 delta：content 或 tool_calls。"""
+
+    def __init__(self, content: str | None = None, tool_calls: list | None = None) -> None:
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+class _SC:
+    def __init__(self, delta: _SD) -> None:
+        self.choices = [SimpleNamespace(delta=delta)]
+
+
+class _Stream:
+    def __init__(self, chunks: list) -> None:
+        self._chunks = chunks
+
+    def __aiter__(self):
+        self._it = iter(self._chunks)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._it)
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
+
+
+class StreamFakeLLM:
+    """流式假模型：rounds 为 [("text", str) | ("tool", ToolCall...), ...]。"""
+
+    def __init__(self, rounds: list) -> None:
+        self.rounds = list(rounds)
+
+    async def stream_raw(self, messages, tools=None, temperature=0.7):
+        kind, payload = self.rounds.pop(0)
+        if kind == "text":
+            text = payload
+            return _Stream([_SC(_SD(text[i : i + 3])) for i in range(0, len(text), 3)])
+        # 工具轮：模拟 tool_calls delta
+        chunks = []
+        for tc in payload:
+            fn = SimpleNamespace(name=tc.name, arguments=tc.arguments)
+            tc_delta = SimpleNamespace(index=0, id=tc.id, function=fn)
+            chunks.append(_SC(_SD(tool_calls=[tc_delta])))
+        return _Stream(chunks)
+
+    async def chat(self, messages, tools=None, temperature=0.7):
+        raise AssertionError("流式测试不应调用非流式 chat")
+
+    async def close(self) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_run_stream_with_tool_and_text(db_session) -> None:
+    """流式循环：先工具轮（todo_create），后文本轮，逐 token 产出。"""
+    fake = StreamFakeLLM(
+        [
+            ("tool", [ToolCall(id="s1", name="todo_create", arguments='{"title": "流式任务"}')]),
+            ("text", "好的，已创建流式任务"),
+        ]
+    )
+    orch = Orchestrator(llm=fake, registry=registry, max_turns=3)
+
+    parts: list[str] = []
+    async for text in orch.run_stream(db_session, DEFAULT_USER_ID, [], "创建任务"):
+        parts.append(text)
+
+    assert "".join(parts) == "好的，已创建流式任务"
+
+    # 工具已实际执行（todo_create 入库）
+    from sqlalchemy import select
+
+    from app.models import Todo
+
+    todos = (await db_session.scalars(select(Todo))).all()
+    assert any(t.title == "流式任务" for t in todos)
+
+
+@pytest.mark.asyncio
+async def test_run_stream_pure_text(db_session) -> None:
+    """纯文本轮：直接流式产出。"""
+    fake = StreamFakeLLM([("text", "你好，我是青木")])
+    orch = Orchestrator(llm=fake, registry=registry, max_turns=3)
+
+    parts: list[str] = []
+    async for text in orch.run_stream(db_session, DEFAULT_USER_ID, [], "你好"):
+        parts.append(text)
+
+    assert "".join(parts) == "你好，我是青木"

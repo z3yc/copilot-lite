@@ -10,6 +10,41 @@ from app.core.llm import ChatResult
 from app.main import app
 
 
+class _FakeDelta:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.tool_calls = None
+
+
+class _FakeChoice:
+    def __init__(self, content: str) -> None:
+        self.delta = _FakeDelta(content)
+
+
+class _FakeChunk:
+    """模拟 openai 流式 chunk。"""
+
+    def __init__(self, content: str) -> None:
+        self.choices = [_FakeChoice(content)]
+
+
+class _FakeStream:
+    """可 await 返回的异步迭代器（模拟 openai 流式对象）。"""
+
+    def __init__(self, chunks: list) -> None:
+        self._chunks = chunks
+
+    def __aiter__(self):
+        self._it = iter(self._chunks)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._it)
+        except StopIteration as exc:
+            raise StopAsyncIteration from exc
+
+
 class FakeLLM:
     """按预设顺序返回响应的假模型。"""
 
@@ -18,6 +53,12 @@ class FakeLLM:
 
     async def chat(self, messages, tools=None, temperature=0.7) -> ChatResult:
         return self.replies.pop(0)
+
+    async def stream_raw(self, messages, tools=None, temperature=0.7):
+        """流式模拟：把回复内容按 3 字符切成 chunk。"""
+        text = self.replies.pop(0).content or ""
+        chunks = [_FakeChunk(text[i : i + 3]) for i in range(0, len(text), 3)]
+        return _FakeStream(chunks)
 
     async def close(self) -> None:
         pass

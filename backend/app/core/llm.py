@@ -81,11 +81,7 @@ class LLMClient:
         tools: list[dict] | None = None,
         temperature: float = 0.7,
     ):
-        """流式对话补全：逐 token 产出内容增量。
-
-        P3 起用于 SSE 打字机效果。注意：流式模式下不解析 tool_calls
-        （工具调用轮由非流式 chat() 处理）。
-        """
+        """流式对话补全：逐 token 产出内容增量（纯文本轮）。"""
         kwargs: dict = {
             "model": self.model,
             "messages": messages,
@@ -101,6 +97,28 @@ class LLMClient:
                 delta = chunk.choices[0].delta
                 if delta.content:
                     yield delta.content
+
+    async def stream_raw(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        temperature: float = 0.7,
+    ):
+        """原始流式响应：返回 chunk 迭代器，供编排器解析 content 与 tool_calls。
+
+        用于 ReAct 流式循环：工具轮（content 为空）与纯文本轮（tool_calls 为空）
+        在 DeepSeek 行为中互斥，可据此实时转发文本。
+        """
+        kwargs: dict = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if tools:
+            kwargs["tools"] = tools
+
+        return await self._client.chat.completions.create(**kwargs)
 
     async def close(self) -> None:
         await self._client.close()

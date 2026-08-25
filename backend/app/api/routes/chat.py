@@ -143,35 +143,43 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_session)) -> Cha
 
 @router.post("/stream")
 async def chat_stream(req: ChatRequest, db: AsyncSession = Depends(get_session)):
-    """SSE 流式对话（前端打字机效果）。
+    """SSE 流式对话（token 级流式，打字机效果）。
 
-    说明：编排器（含工具调用）完整运行后，回复内容按分片经 SSE 下发。
-    模型侧 token 级流式已封装（LLMClient.stream_chat），可无缝升级。
+    编排器以流式模式运行：文本轮逐 token 实时转发（chunk 事件），
+    工具调用轮在后台执行（不阻塞、不产生用户可见文本）。
     """
     session = await _resolve_session(db, req.session_id, req.message)
     history = await _build_context(db, session.id, await _load_history(db, session.id))
 
     # Key 检查提前到响应前（错误可返回 HTTP 状态码）
     try:
-        llm = get_llm()
+        get_llm()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    await llm.close()
 
     async def event_gen() -> AsyncIterator[str]:
         # 1. 先发会话事件
         yield _sse("session", {"session_id": str(session.id)})
-        # 2. 运行编排器（完整执行后分片下发）
+        # 2. token 级流式运行编排器
+        reply_parts: list[str] = []
         try:
-            reply = await _run_agent(db, history, req.message)
+            llm = get_llm()
+            orchestrator = Orchestrator(llm=llm, registry=registry)
+            async for text in orchestrator.run_stream(
+                session=db,
+                user_id=DEFAULT_USER_ID,
+                history=history,
+                user_message=req.message,
+            ):
+                reply_parts.append(text)
+                yield _sse("chunk", {"text": text})
         except HTTPException as exc:
             yield _sse("error", {"detail": exc.detail})
             return
-        # 3. 分片发送回复
-        for i in range(0, len(reply), _CHUNK_SIZE):
-            yield _sse("chunk", {"text": reply[i : i + _CHUNK_SIZE]})
-        # 4. 完成事件 + 持久化
+        finally:
+            await llm.close()
+        # 3. 完成事件 + 持久化
         yield _sse("done", {})
-        await _persist(db, session.id, req.message, reply)
+        await _persist(db, session.id, req.message, "".join(reply_parts))
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

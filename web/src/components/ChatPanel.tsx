@@ -187,17 +187,16 @@ export default function ChatPanel({
               }}
             />
             <div
-              className="bubble"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
-            />
+              className={`bubble ${m.role === "assistant" && !m.content && busy ? "typing" : ""}`}
+            >
+              {m.role === "assistant" && !m.content && busy ? (
+                <span>▍</span>
+              ) : (
+                <span dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
+              )}
+            </div>
           </div>
         ))}
-        {busy && (
-          <div className="msg assistant">
-            <Avatar size={32} icon={<RobotOutlined />} style={{ backgroundColor: "#e8ecff", color: "#4f6ef7" }} />
-            <div className="bubble typing">▍</div>
-          </div>
-        )}
       </div>
 
       {/* 会话附件区 */}

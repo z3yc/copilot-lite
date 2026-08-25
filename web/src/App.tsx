@@ -160,7 +160,13 @@ export default function App() {
           </Sider>
           <Content style={{ display: "flex", overflow: "hidden" }}>
             {showProfile ? (
-              <ProfilePage onBack={() => setShowProfile(false)} />
+              <ProfilePage
+                onBack={() => setShowProfile(false)}
+                onOpenSession={(id) => {
+                  setShowProfile(false);
+                  selectSession(id);
+                }}
+              />
             ) : tab === "chat" ? (
               <ChatPanel
                 sessionId={sessionId}

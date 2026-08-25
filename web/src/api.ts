@@ -1,4 +1,12 @@
-import type { ChatMessage, DocDetail, DocItem, Profile, Session, SessionFile } from "./types";
+import type {
+  ChatMessage,
+  DocDetail,
+  DocItem,
+  Profile,
+  Session,
+  SessionFile,
+  TodoItem,
+} from "./types";
 
 const BASE = "/api/v1";
 const TOKEN_KEY = "kb-token";
@@ -59,6 +67,18 @@ export const fetchMessages = (sessionId: string) =>
   request<ChatMessage[]>(`/sessions/${sessionId}/messages`);
 export const deleteSession = (sessionId: string) =>
   request<{ deleted: string }>(`/sessions/${sessionId}`, { method: "DELETE" });
+
+// ---- 待办 ----
+export const fetchTodos = (status?: string) =>
+  request<TodoItem[]>(`/todos${status ? `?status=${status}` : ""}`);
+export const updateTodo = (id: string, status: string) =>
+  request<TodoItem>(`/todos/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+export const deleteTodo = (id: string) =>
+  request<{ deleted: string }>(`/todos/${id}`, { method: "DELETE" });
 
 // ---- 文档 ----
 export const fetchDocs = (q?: string, type?: string) => {

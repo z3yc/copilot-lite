@@ -1,0 +1,61 @@
+# CI 流水线：提交 / PR 触发
+# - 后端：ruff 检查 + pytest（覆盖率 ≥80%）
+# - 前端：类型检查 + 构建
+#
+# 说明：本仓库托管于 Gitee，此配置同时兼容 GitHub（面试展示用）。
+# Gitee 可对接 Gitee Go 或自建 Runner 复用同一脚本。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (lint + test + coverage)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Test + coverage (>=80%)
+        run: uv run pytest
+
+  frontend:
+    name: Frontend (type check + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check + build
+        run: npm run build

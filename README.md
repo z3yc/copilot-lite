@@ -243,6 +243,18 @@ cd ../web && npm install && npm run dev
 | **P4 工程化** | 11 | Docker Compose + 配置化 + 测试 + CI | **M4：一键本地启动** |
 | **P5 部署+面试** | 12 | 云端部署 + README 完善 + 面试问答准备 | **M5：云上可演示** |
 
+### 后续规划（Post-MVP，架构已预留扩展点）
+
+| 方向 | 说明 | 已预留的口子 |
+|---|---|---|
+| **多智能体编排** | RouterAgent 意图路由 + 子 Agent 分工（知识库 / 工具 / 记忆 Agent） | `BaseAgent` 抽象协议（`app/agent/base.py`） |
+| **Agent-as-Tool** | 子 Agent 注册为工具，由调度 Agent 通过既有协议调用 | `ToolRegistry.execute()` 无需改动即可支持 |
+| **长期记忆** | 事实提取 → 向量化 → 相关性召回注入 | `MEMORY_FACT` 模型已在 ER 图规划 |
+| **流式输出** | SSE 逐字返回，Web UI 打字机效果 | 编排器返回后由 API 层包装 |
+| **LangGraph 可选集成** | 若多 Agent 状态机复杂度上升，可平滑引入 | BaseAgent 协议契约清晰，迁移成本低 |
+
+> 设计原则：**不为未来过度设计，但为未来留好接口**。所有扩展点均有文档说明，面试可展示架构前瞻性。
+
 ---
 
 ## 面试要点

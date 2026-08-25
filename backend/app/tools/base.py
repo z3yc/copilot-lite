@@ -5,6 +5,12 @@
 - 工具参数 JSON Schema 从函数签名自动生成（类型映射 + 必填推断）；
 - ToolContext 注入运行上下文（数据库会话、当前用户），工具函数无感使用；
 - execute() 统一完成 JSON 参数解析 → 调用 → 结果序列化，异常兜底。
+
+多智能体扩展点（Post-MVP，见 README 路线图"后续规划"）：
+- Agent-as-Tool：子 Agent 可注册为工具（name=agent 名，func=agent.run 的包装），
+  由调度 Agent 通过既有 execute() 协议调用，无需新增机制；
+- 工具即能力边界：领域能力（知识库检索/代码执行等）均以工具注册，
+  后续 RouterAgent 只做意图路由，能力仍由注册表统一管理。
 """
 
 import inspect

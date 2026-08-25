@@ -13,6 +13,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.base import BaseAgent
 from app.core.config import settings
 from app.core.llm import LLMClient
 from app.tools.base import ToolContext, ToolRegistry
@@ -32,8 +33,12 @@ SYSTEM_PROMPT = """你是 Copilot-Lite，一个个人专属 AI 智能助理。
 HISTORY_WINDOW = 20
 
 
-class Orchestrator:
-    """编排一次多轮对话（含工具调用）。"""
+class Orchestrator(BaseAgent):
+    """编排一次多轮对话（含工具调用）。
+
+    当前为单 Agent 实现；未来多智能体场景下，本类可演化为
+    "工具型子 Agent"，由 RouterAgent 统一调度（见 base.py 扩展说明）。
+    """
 
     def __init__(
         self,

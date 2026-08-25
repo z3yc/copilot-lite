@@ -297,3 +297,35 @@ graph LR
     LLM["DeepSeek API"] -.-> LAPI
     LLM -.-> CAP
 ```
+
+---
+
+## 7. 多智能体扩展设计（Post-MVP 规划）
+
+> 当前实现为单 Agent（Orchestrator）；以下为预留的演进方向，代码已通过
+> `BaseAgent` 抽象协议（`app/agent/base.py`）与 Agent-as-Tool 模式留好扩展点，
+> 不写死现有架构。
+
+```mermaid
+graph TB
+    subgraph Current["当前（P1 已实现）"]
+        C1["Orchestrator<br/>(BaseAgent 实现)"]
+        C2["ToolRegistry<br/>Todo 工具"]
+        C1 --> C2
+    end
+
+    subgraph Future["未来多智能体形态"]
+        R["RouterAgent<br/>意图路由（BaseAgent）"]
+        KA["KnowledgeAgent<br/>知识库问答"]
+        TA["ToolAgent<br/>个人管理/开发工具"]
+        MA["MemoryAgent<br/>长期记忆读写"]
+        REG["ToolRegistry<br/>（复用现有协议）"]
+        R --> KA
+        R --> TA
+        R --> MA
+        KA -. Agent-as-Tool .-> REG
+        TA --> REG
+    end
+
+    Current -. 平滑演进 .-> Future
+```

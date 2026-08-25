@@ -17,6 +17,7 @@
 - [配置说明](#配置说明)
 - [开发路线图](#开发路线图)
 - [面试要点](#面试要点)
+- [🧭 开发交接手册](docs/DEV_GUIDE.md)
 - [变更记录](docs/CHANGELOG.md)
 - [调试排障记录](docs/DEBUGGING.md)
 - [License](#license)

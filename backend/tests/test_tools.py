@@ -56,3 +56,58 @@ async def test_execute_unknown_tool(db_session) -> None:
     ctx = ToolContext(session=db_session, user_id=DEFAULT_USER_ID)
     result = await registry.execute("no_such_tool", "{}", ctx)
     assert "不存在" in result
+
+
+@pytest.mark.asyncio
+async def test_todo_create_with_category_tags(db_session) -> None:
+    """todo_create 支持分类与标签。"""
+    from app.models import Category
+
+    cat = Category(user_id=DEFAULT_USER_ID, name="工作", color="#4f6ef7")
+    db_session.add(cat)
+    await db_session.commit()
+    await db_session.refresh(cat)
+
+    ctx = ToolContext(session=db_session, user_id=DEFAULT_USER_ID)
+    result = await registry.execute(
+        "todo_create",
+        '{"title": "写报告", "category": "工作", "tags": ["汇报"]}',
+        ctx,
+    )
+    assert '"title": "写报告"' in result
+    assert '"tags": ["汇报"]' in result
+
+
+@pytest.mark.asyncio
+async def test_todo_update(db_session) -> None:
+    """todo_update 修改任意字段。"""
+    ctx = ToolContext(session=db_session, user_id=DEFAULT_USER_ID)
+    created = await registry.execute("todo_create", '{"title": "原标题"}', ctx)
+    todo_id = created.split('"id": "')[1].split('"')[0]
+
+    updated = await registry.execute(
+        "todo_update",
+        f'{{"todo_id": "{todo_id}", "title": "新标题", "priority": 1}}',
+        ctx,
+    )
+    assert '"title": "新标题"' in updated
+    assert '"priority": 1' in updated
+
+
+@pytest.mark.asyncio
+async def test_todo_list_by_category(db_session) -> None:
+    """todo_list 支持分类过滤。"""
+    from app.models import Category
+
+    cat = Category(user_id=DEFAULT_USER_ID, name="学习", color="#f08c00")
+    db_session.add(cat)
+    await db_session.commit()
+    await db_session.refresh(cat)
+
+    ctx = ToolContext(session=db_session, user_id=DEFAULT_USER_ID)
+    await registry.execute("todo_create", '{"title": "学Python", "category": "学习"}', ctx)
+    await registry.execute("todo_create", '{"title": "买菜"}', ctx)
+
+    listed = await registry.execute("todo_list", '{"category": "学习"}', ctx)
+    assert "学Python" in listed
+    assert "买菜" not in listed

@@ -11,7 +11,8 @@ from app.core.config import settings
 from app.core.constants import DEFAULT_USER_ID, DEFAULT_USERNAME
 from app.core.db import Base, async_session_factory, engine
 from app.core.logging import setup_logging
-from app.models import User
+from app.models import Category, User
+from app.models.category import DEFAULT_CATEGORIES
 
 setup_logging(settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -26,6 +27,24 @@ async def _seed_default_user() -> None:
             logger.info("已创建默认用户: %s", DEFAULT_USERNAME)
 
 
+async def _seed_categories() -> None:
+    """为没有分类的用户补齐默认 4 类（工作/生活/学习/其他）。"""
+    from sqlalchemy import select
+
+
+    async with async_session_factory() as session:
+        users = (await session.scalars(select(User.id))).all()
+        for uid in users:
+            exists = await session.scalar(
+                select(Category.id).where(Category.user_id == uid).limit(1)
+            )
+            if exists is None:
+                for c in DEFAULT_CATEGORIES:
+                    session.add(Category(user_id=uid, **c))
+                logger.info("已为用户 %s 补齐默认分类", uid)
+        await session.commit()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """应用生命周期。
@@ -38,6 +57,7 @@ async def lifespan(_: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
         logger.info("本地模式：数据表已就绪")
     await _seed_default_user()
+    await _seed_categories()
     yield
     await engine.dispose()
 

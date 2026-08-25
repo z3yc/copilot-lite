@@ -1,5 +1,7 @@
-"""待办 REST 接口：供 CLI todo 子命令与前端直接管理。"""
+"""待办 REST 接口：完整增删改查 + 分类 + 标签 + AI 快速创建。"""
 
+import json
+import logging
 import uuid
 from datetime import date
 
@@ -10,9 +12,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.db import get_session
-from app.models import Todo, User
+from app.core.llm import get_llm
+from app.models import Category, Todo, User
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/todos", tags=["todos"])
+
+
+class CategoryOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    color: str
+
+    model_config = {"from_attributes": True}
 
 
 class TodoOut(BaseModel):
@@ -21,6 +33,10 @@ class TodoOut(BaseModel):
     status: str
     priority: int
     due_date: str | None = None
+    category_id: str | None = None
+    category_name: str | None = None
+    category_color: str | None = None
+    tags: list[str] = []
 
     @classmethod
     def from_model(cls, t: Todo) -> "TodoOut":
@@ -30,6 +46,8 @@ class TodoOut(BaseModel):
             status=t.status,
             priority=t.priority,
             due_date=t.due_date.isoformat() if t.due_date else None,
+            category_id=str(t.category_id) if t.category_id else None,
+            tags=list(t.tags or []),
         )
 
 
@@ -37,24 +55,60 @@ class TodoCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     priority: int = Field(default=3, ge=1, le=5)
     due_date: str | None = None
+    category_id: str | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class TodoUpdate(BaseModel):
-    status: str = Field(pattern="^(pending|done)$")
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    status: str | None = Field(default=None, pattern="^(pending|done)$")
+    priority: int | None = Field(default=None, ge=1, le=5)
+    due_date: str | None = None
+    category_id: str | None = None
+    tags: list[str] | None = None
+
+
+async def _attach_category(db: AsyncSession, out: TodoOut, user_id) -> TodoOut:
+    """补充分类名称与颜色。"""
+    if out.category_id:
+        cat = await db.get(Category, uuid.UUID(out.category_id))
+        if cat and cat.user_id == user_id:
+            out.category_name = cat.name
+            out.category_color = cat.color
+    return out
+
+
+@router.get("/categories", response_model=list[CategoryOut])
+async def list_categories(
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[CategoryOut]:
+    """当前用户的分类列表。"""
+    stmt = select(Category).where(Category.user_id == user.id).order_by(Category.sort_order)
+    cats = (await db.scalars(stmt)).all()
+    return [CategoryOut.model_validate(c) for c in cats]
 
 
 @router.get("", response_model=list[TodoOut])
 async def list_todos(
     status: str | None = None,
+    category_id: str | None = None,
+    tag: str | None = None,
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> list[TodoOut]:
+    """待办列表；支持按状态 / 分类 / 标签过滤。"""
     stmt = select(Todo).where(Todo.user_id == user.id)
     if status:
         stmt = stmt.where(Todo.status == status)
+    if category_id:
+        stmt = stmt.where(Todo.category_id == uuid.UUID(category_id))
     stmt = stmt.order_by(Todo.created_at.desc())
     todos = (await db.scalars(stmt)).all()
-    return [TodoOut.from_model(t) for t in todos]
+    if tag:
+        # 内存过滤（个人量级足够，且 SQLite/PG 行为一致）
+        todos = [t for t in todos if tag in (t.tags or [])]
+    return [await _attach_category(db, TodoOut.from_model(t), user.id) for t in todos]
 
 
 @router.post("", response_model=TodoOut)
@@ -68,11 +122,13 @@ async def create_todo(
         title=req.title,
         priority=req.priority,
         due_date=date.fromisoformat(req.due_date) if req.due_date else None,
+        category_id=uuid.UUID(req.category_id) if req.category_id else None,
+        tags=req.tags,
     )
     db.add(todo)
     await db.commit()
     await db.refresh(todo)
-    return TodoOut.from_model(todo)
+    return await _attach_category(db, TodoOut.from_model(todo), user.id)
 
 
 @router.patch("/{todo_id}", response_model=TodoOut)
@@ -82,13 +138,27 @@ async def update_todo(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> TodoOut:
+    """全字段编辑（仅更新传入的字段）。"""
     todo = await db.get(Todo, uuid.UUID(todo_id))
     if todo is None or todo.user_id != user.id:
         raise HTTPException(status_code=404, detail="待办不存在")
-    todo.status = req.status
+
+    if req.title is not None:
+        todo.title = req.title
+    if req.status is not None:
+        todo.status = req.status
+    if req.priority is not None:
+        todo.priority = req.priority
+    if req.due_date is not None:
+        todo.due_date = date.fromisoformat(req.due_date) if req.due_date else None
+    if req.category_id is not None:
+        todo.category_id = uuid.UUID(req.category_id) if req.category_id else None
+    if req.tags is not None:
+        todo.tags = req.tags
+
     await db.commit()
     await db.refresh(todo)
-    return TodoOut.from_model(todo)
+    return await _attach_category(db, TodoOut.from_model(todo), user.id)
 
 
 @router.delete("/{todo_id}")
@@ -103,3 +173,66 @@ async def delete_todo(
     await db.delete(todo)
     await db.commit()
     return {"deleted": todo_id}
+
+
+# ---------------- AI 快速创建 ----------------
+
+_AI_PARSE_PROMPT = """你是待办解析助手。把用户的自然语言输入解析为严格 JSON，不要输出其他内容：
+{"title": "任务标题(必填)", "priority": 1到5整数(默认3，数字越大优先级越低), "due_date": "YYYY-MM-DD或null", "category": "工作/生活/学习/其他或null", "tags": ["标签字符串数组，可为空"]}
+示例输入："明天下午3点买菜 生活 标签:采购"
+输出：{"title": "买菜", "priority": 3, "due_date": "2026-08-26", "category": "生活", "tags": ["采购"]}"""
+
+
+class AiCreateRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/ai-create", response_model=TodoOut)
+async def ai_create_todo(
+    req: AiCreateRequest,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> TodoOut:
+    """AI 快速创建：自然语言 → LLM 结构化解析 → 创建待办。
+
+    解析失败时降级为"整句作为标题"，保证功能可用。
+    """
+    try:
+        llm = get_llm()
+        try:
+            result = await llm.chat(
+                [
+                    {"role": "system", "content": _AI_PARSE_PROMPT},
+                    {"role": "user", "content": req.text},
+                ]
+            )
+            parsed = json.loads((result.content or "{}").strip())
+        finally:
+            await llm.close()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (json.JSONDecodeError, TypeError, KeyError) as exc:
+        logger.warning("AI 解析待办失败，降级处理: %s", exc)
+        parsed = {}
+
+    # 分类名 → id
+    category_id = None
+    cat_name = parsed.get("category")
+    if cat_name:
+        cat = await db.scalar(
+            select(Category).where(Category.user_id == user.id, Category.name == cat_name)
+        )
+        category_id = str(cat.id) if cat else None
+
+    todo = Todo(
+        user_id=user.id,
+        title=str(parsed.get("title") or req.text).strip()[:255],
+        priority=int(parsed.get("priority") or 3),
+        due_date=date.fromisoformat(parsed["due_date"]) if parsed.get("due_date") else None,
+        category_id=uuid.UUID(category_id) if category_id else None,
+        tags=[str(t) for t in (parsed.get("tags") or [])][:10],
+    )
+    db.add(todo)
+    await db.commit()
+    await db.refresh(todo)
+    return await _attach_category(db, TodoOut.from_model(todo), user.id)

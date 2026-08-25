@@ -61,6 +61,15 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_session)
     db.add(user)
     await db.commit()
     await db.refresh(user)
+
+    # 为新用户创建默认分类（工作/生活/学习/其他）
+    from app.models import Category
+    from app.models.category import DEFAULT_CATEGORIES
+
+    for c in DEFAULT_CATEGORIES:
+        db.add(Category(user_id=user.id, **c))
+    await db.commit()
+
     return _auth_response(user)
 
 

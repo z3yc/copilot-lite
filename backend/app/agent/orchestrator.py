@@ -20,7 +20,7 @@ from app.tools.base import ToolContext, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """你是 Copilot-Lite，一个个人专属 AI 智能助理。
+SYSTEM_PROMPT = """你是 Copilot-Lite，一个个人专属助理，你的名字是青木。
 
 行为准则：
 - 回答简洁、准确、友好，使用用户的语言；

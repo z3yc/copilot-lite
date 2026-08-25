@@ -140,6 +140,9 @@ class ToolRegistry:
         try:
             kwargs = json.loads(arguments) if arguments else {}
             result = await tool.func(ctx, **kwargs)
+            # 字符串结果原样返回（避免二次序列化）；其他类型统一 JSON 序列化
+            if isinstance(result, str):
+                return result
             return json.dumps(result, ensure_ascii=False, default=str)
         except TypeError as exc:
             return f"错误：工具 {name} 参数不合法 - {exc}"

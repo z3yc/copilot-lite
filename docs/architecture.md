@@ -350,7 +350,7 @@ flowchart LR
     S1 --> M2
 ```
 
-### 7.3 Rerank 重排（已设计）
+### 7.3 Rerank 重排（已完成 0.10.0）
 
 ```
 混合检索（BM25 + 向量 + RRF）→ TopK
@@ -358,4 +358,5 @@ flowchart LR
   → 前 N 注入 → LLM 生成
 ```
 
-> 补齐架构图中"检索→重排→生成"三段式的中间环节，配置 `RAG_RERANK_ENABLED` 开关。
+> 补齐架构图中"检索→重排→生成"三段式的中间环节，配置 `RAG_RERANK_ENABLED` 开关
+> （默认开，关闭时行为与旧版一致）；实现见 `backend/app/rag/reranker.py`。

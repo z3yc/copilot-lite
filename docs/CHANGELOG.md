@@ -4,6 +4,22 @@
 
 ---
 
+## [0.10.0] · 2026-08-25 · Rerank 重排（检索链路增强）
+
+### ✨ 新增
+- **Rerank 精排**：混合检索（BM25+向量+RRF）后接入 **bge-reranker-base** 交叉编码器
+  二次精排，补齐"检索 → 重排 → 生成"链路（`backend/app/rag/reranker.py`）；
+- **链路设计**：向量/BM25 各自召回（`RAG_TOP_K`）→ RRF 融合出候选
+  （`RAG_RERANK_CANDIDATE_K`）→ 精排取前 N 注入 LLM（`RAG_RERANK_TOP_N`）；
+- **配置开关**：`RAG_RERANK_ENABLED`（默认开）——关闭时行为与旧版完全一致，
+  可 A/B 对比精排效果；
+- **异步封装**：同步 ONNX 推理走线程池不阻塞事件循环；模型懒加载 + hf-mirror 镜像复用
+  （fastembed 0.8 类名 `TextCrossEncoder`，高版本同能力入口为 `TextReranking`）；
+- 测试：新增 8 用例（排序截断/空与单候选短路/单例懒加载/链路接入/开关关闭），
+  共 **60 用例**，覆盖率 **80.69%**（Fake 重排器，不下载模型）。
+
+---
+
 ## [0.9.0] · 2026-08-25 · 长期记忆系统
 
 ### ✨ 新增

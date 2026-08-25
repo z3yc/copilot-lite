@@ -58,6 +58,8 @@ Copilot-Lite 是一个 **个人专属的 AI 智能助理**，定位为"第二大
 - **多格式解析 Pipeline**：Markdown / PDF / DOCX / 代码仓库 / 网页；
 - **智能分块**：按标题层级、代码结构、语义边界分块，携带元数据；
 - **混合检索**：BM25 关键词检索 + 向量语义检索 + Rerank 重排；
+- **Rerank 精排**：bge-reranker-base 本地交叉编码器，混合检索后二次精排
+  （`RAG_RERANK_ENABLED` 开关可对比效果）；
 - **引用溯源**：每个回答附来源文档与片段位置；
 - **权限控制**：文档级可见性设计，敏感数据脱敏示例。
 
@@ -197,7 +199,7 @@ copilot-lite/
 │   │   ├── api/              # 路由层（chat/sessions/documents/todos）
 │   │   ├── core/             # 配置、LLM 客户端、日志、常量
 │   │   ├── agent/            # BaseAgent 抽象 + ReAct 编排器
-│   │   ├── rag/              # 解析、分块、嵌入、检索、摄取
+│   │   ├── rag/              # 解析、分块、嵌入、检索、重排、摄取
 │   │   ├── tools/            # 工具注册表 + Todo/kb_search
 │   │   └── models/           # 数据模型（含 SessionFile）
 │   ├── tests/                # 34 用例，覆盖率 ≥80%
@@ -286,9 +288,9 @@ uv run ruff check .  # 代码规范
 
 | 方向 | 说明 | 状态 |
 |---|---|---|
-| **① 长期记忆** | 会话结束 LLM 批量提取事实/偏好 → 向量化 → 混合召回（会话开始 + 话题切换）→ **可视化管理页** | 🔭 已设计 |
-| **② Rerank 重排** | bge-reranker 本地模型，混合检索后精排，补齐"检索→重排→生成"链路 | 🔭 已设计 |
-| **③ LangGraph 多 Agent** | Supervisor 路由（知识库/工具/通用 Agent），与手写引擎并存可切换 | 🔭 已设计 |
+| **① 长期记忆** | 会话结束 LLM 批量提取事实/偏好 → 向量化 → 混合召回（会话开始 + 话题切换）→ **可视化管理页** | ✅ 已完成（0.9.0） |
+| **② Rerank 重排** | bge-reranker 本地模型，混合检索后精排，补齐"检索→重排→生成"链路 | ✅ 已完成（0.10.0） |
+| **③ LangGraph 多 Agent** | Supervisor 路由（知识库/工具/通用 Agent），与手写引擎并存可切换 | 🔭 已设计（下一步） |
 | Agent-as-Tool | 子 Agent 注册为工具复用 ToolRegistry | 预留 |
 | 流式增强 | 已实现（token 级 SSE） | ✅ 完成 |
 

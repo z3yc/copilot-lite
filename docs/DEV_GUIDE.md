@@ -20,10 +20,10 @@
 
 | 项 | 状态 |
 |---|---|
-| **分支** | `feature/agent-enhancements`（长期记忆已完成并推送）· `main` 稳定 |
-| 已完成 | P0-P4 全量 + 认证 + 个人中心 + 待办工作区 + **长期记忆（①）** |
-| 待办 | **② Rerank 重排** → **③ LangGraph 多 Agent**（详见第 5 节） |
-| 测试 | 52 用例全绿，覆盖率 80.34%（门槛 80%，`uv run pytest`） |
+| **分支** | `feature/agent-enhancements`（长期记忆 + Rerank 已完成并推送）· `main` 稳定 |
+| 已完成 | P0-P4 全量 + 认证 + 个人中心 + 待办工作区 + **长期记忆（①）+ Rerank 重排（②）** |
+| 待办 | **③ LangGraph 多 Agent**（详见第 5 节） |
+| 测试 | 60 用例全绿，覆盖率 80.69%（门槛 80%，`uv run pytest`） |
 | 代码规范 | ruff 全绿（`uv run ruff check .`） |
 
 ## 3. 环境与启动
@@ -75,23 +75,10 @@ web/src/
 ### ✅ ① 长期记忆 —— 已完成（勿重复）
 见 `docs/CHANGELOG.md` 0.9.0 与 `backend/app/memory/service.py`。
 
-### 🔭 ② Rerank 重排（下一步）
+### ✅ ② Rerank 重排 —— 已完成（勿重复）
+见 `docs/CHANGELOG.md` 0.10.0、`backend/app/rag/reranker.py` 与 `retriever.py`（`hybrid_search` 末尾接入，`RAG_RERANK_ENABLED` 开关）。
 
-**目标**：混合检索后加 bge-reranker 精排，补齐"检索→重排→生成"链路。
-
-**设计**（已确认，见 `PLAN.md` 5.1）：
-```
-混合检索（BM25+向量+RRF）→ TopK → bge-reranker 精排 → 前 N 注入 → LLM
-```
-
-**实施步骤**：
-1. `backend/app/rag/reranker.py`：封装 fastembed 的 `TextReranking`（模型 `BAAI/bge-reranker-base`，复用 hf-mirror setdefault），`async rerank(query, passages, top_n) -> list[(index, score)]`，线程池包装不阻塞事件循环；
-2. `retriever.py`：`hybrid_search` 末尾接入 rerank（配置开关 `RAG_RERANK_ENABLED`，默认开；`RAG_RERANK_TOP_N`）；
-3. `core/config.py` 加配置项；
-4. 测试：mock reranker（固定分数），验证检索链路接入 + 开关关闭时行为不变；
-5. 更新文档（README/CHANGELOG 0.10.0/PLAN ②完成）。
-
-### 🔭 ③ LangGraph 多 Agent（最后，工作量最大）
+### 🔭 ③ LangGraph 多 Agent（下一步）
 
 **目标**：Supervisor 路由（知识库 Agent / 工具 Agent / 通用 Agent），与手写引擎并存可切换。
 

@@ -72,6 +72,45 @@ async def _load_history(db: AsyncSession, session_id) -> list[dict]:
     return [{"role": m.role, "content": m.content} for m in msgs]
 
 
+# 每个附件注入上下文的文本上限
+_MAX_FILE_CONTEXT = 1500
+# 最多注入的附件数
+_MAX_FILES = 5
+
+
+async def _load_session_file_context(db: AsyncSession, session_id) -> list[dict] | None:
+    """加载会话附件，作为 system 上下文注入（仅本次会话，不进知识库）。"""
+    from app.models import SessionFile
+
+    stmt = (
+        select(SessionFile)
+        .where(SessionFile.session_id == session_id)
+        .order_by(SessionFile.created_at)
+    )
+    files = (await db.scalars(stmt)).all()
+    if not files:
+        return None
+    parts = [
+        f"【{f.filename}】\n{f.content[:_MAX_FILE_CONTEXT]}"
+        for f in files[:_MAX_FILES]
+    ]
+    return [
+        {
+            "role": "system",
+            "content": (
+                "本次会话中用户上传了以下文件，回答相关问题时请优先基于这些内容，"
+                "并注明来自哪个文件：\n" + "\n\n".join(parts)
+            ),
+        }
+    ]
+
+
+async def _build_context(db: AsyncSession, session_id, history: list[dict]) -> list[dict]:
+    """组装上下文：会话附件（system）+ 历史消息。"""
+    file_ctx = await _load_session_file_context(db, session_id)
+    return (file_ctx or []) + history
+
+
 async def _run_agent(db: AsyncSession, history: list[dict], message: str) -> str:
     try:
         llm = get_llm()
@@ -96,7 +135,7 @@ async def _persist(db: AsyncSession, session_id, user_msg: str, reply: str) -> N
 async def chat(req: ChatRequest, db: AsyncSession = Depends(get_session)) -> ChatResponse:
     """非流式对话。"""
     session = await _resolve_session(db, req.session_id, req.message)
-    history = await _load_history(db, session.id)
+    history = await _build_context(db, session.id, await _load_history(db, session.id))
     reply = await _run_agent(db, history, req.message)
     await _persist(db, session.id, req.message, reply)
     return ChatResponse(session_id=str(session.id), reply=reply)
@@ -110,7 +149,7 @@ async def chat_stream(req: ChatRequest, db: AsyncSession = Depends(get_session))
     模型侧 token 级流式已封装（LLMClient.stream_chat），可无缝升级。
     """
     session = await _resolve_session(db, req.session_id, req.message)
-    history = await _load_history(db, session.id)
+    history = await _build_context(db, session.id, await _load_history(db, session.id))
 
     # Key 检查提前到响应前（错误可返回 HTTP 状态码）
     try:

@@ -17,6 +17,7 @@
 - [配置说明](#配置说明)
 - [开发路线图](#开发路线图)
 - [面试要点](#面试要点)
+- [变更记录](docs/CHANGELOG.md)
 - [License](#license)
 
 ---
@@ -60,9 +61,19 @@ Copilot-Lite 是一个 **个人专属的 AI 智能助理**，定位为"第二大
 
 ### 4. 双入口 + 配置化部署
 - **CLI**（typer + rich）：快速提问、快速管理，适合日常高频使用；
-- **Web UI**（React + Vite + TS）：流式对话、知识库管理、设置面板；
+- **Web UI**（React + Vite + TS + **Ant Design**）：流式对话、知识库管理、设置面板；
 - 前端与 CLI 共用同一套后端 API，客户端只是壳；
 - 一个配置文件控制 **本地模式 / 云端模式 / 模型切换 / 服务器规格**。
+
+### 5. 会话级附件（对话上传与知识库隔离）
+- 对话中上传的文件（文档 / PDF / 代码）**仅存在于本次会话**，不进入全局知识库；
+- 附件内容注入本次对话上下文，可针对文件提问并注明来源；
+- 知识库文档走独立摄取流水线，两条路径完全隔离。
+
+### 6. 现代化 Web 体验
+- **Ant Design** 组件库（专业级 UI，主题色可定制）；
+- 知识库**分类视图**（笔记/PDF/Word/代码/网页，带数量）+ **内容级搜索**；
+- **暗色模式**（CSS 变量 + antd darkAlgorithm，偏好记忆）。
 
 ---
 
@@ -79,7 +90,7 @@ Copilot-Lite 是一个 **个人专属的 AI 智能助理**，定位为"第二大
 | 缓存 | Redis | 会话缓存 / 限流 / 队列 |
 | 混合检索 | BM25 + 向量 + Rerank | 关键词与语义互补 |
 | 文档解析 | markdown-it / pypdf / python-docx / BeautifulSoup | 多格式 Pipeline |
-| 前端 | React + Vite + TypeScript | 主流全栈需求 |
+| 前端 | React + Vite + TS + **Ant Design** | 主流全栈需求，专业组件库 |
 | CLI | typer + rich | Python 生态标准 CLI 方案 |
 | 部署 | Docker Compose + Nginx | 配置文件切换本地/云端 |
 
@@ -152,35 +163,31 @@ graph TB
 
 ## 项目结构
 
-> 当前为规划阶段骨架，随开发推进逐步填充。
-
 ```
 copilot-lite/
 ├── README.md                 # 项目说明（本文件）
+├── PLAN.md                   # 工作计划与进度清单
 ├── docs/
-│   └── architecture.md       # 架构文档 + Mermaid 图
-├── backend/                  # FastAPI 后端（规划）
+│   ├── architecture.md       # 架构文档 + Mermaid 图
+│   └── CHANGELOG.md          # 变更记录（0.1.0 → 0.6.0）
+├── 知识点/                   # 学习沉淀（RAG 详解 / 面试问答）
+├── backend/                  # FastAPI 后端
 │   ├── app/
 │   │   ├── main.py           # 应用入口
-│   │   ├── api/              # 路由层
-│   │   ├── core/             # 配置、安全、依赖
-│   │   ├── agent/            # 对话编排、记忆、工具调度
-│   │   ├── rag/              # 解析、分块、检索
-│   │   ├── tools/            # 工具实现 + 注册表
-│   │   └── models/           # 数据模型
-│   ├── tests/
-│   ├── pyproject.toml
-│   └── Dockerfile
-├── cli/                      # CLI 客户端（规划）
-│   └── copilot_cli/
-├── web/                      # React 前端（规划）
-│   ├── src/
-│   ├── package.json
-│   └── Dockerfile
-├── deploy/                   # 部署编排（规划）
-│   ├── docker-compose.yml
-│   ├── .env.example
-│   └── nginx.conf
+│   │   ├── api/              # 路由层（chat/sessions/documents/todos）
+│   │   ├── core/             # 配置、LLM 客户端、日志、常量
+│   │   ├── agent/            # BaseAgent 抽象 + ReAct 编排器
+│   │   ├── rag/              # 解析、分块、嵌入、检索、摄取
+│   │   ├── tools/            # 工具注册表 + Todo/kb_search
+│   │   └── models/           # 数据模型（含 SessionFile）
+│   ├── tests/                # 34 用例，覆盖率 ≥80%
+│   ├── alembic/              # 数据库迁移
+│   └── pyproject.toml
+├── cli/                      # CLI 客户端（chat / ask / todo）
+├── web/                      # React + Vite + Ant Design 前端
+├── deploy/                   # 云端部署（compose/Dockerfile/Nginx/DEPLOY.md）
+├── .github/workflows/        # CI 流水线
+├── scripts/                  # 一键启动 / 批量上传脚本
 └── .gitignore
 ```
 

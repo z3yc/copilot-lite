@@ -85,3 +85,36 @@ async def test_chat_requires_key(monkeypatch) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post("/api/v1/chat", json={"message": "你好"})
     assert resp.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_sse(monkeypatch) -> None:
+    """SSE 流式：session → chunk... → done 事件序列。"""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    fake = FakeLLM([ChatResult(content="你好，这是流式回复的测试内容。" * 3)])
+    monkeypatch.setattr(chat_module, "get_llm", lambda: fake)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:  # noqa: SIM117
+        async with client.stream(
+            "POST", "/api/v1/chat/stream", json={"message": "你好"}
+        ) as resp:
+            assert resp.status_code == 200
+            assert resp.headers["content-type"].startswith("text/event-stream")
+            events: list[str] = []
+            session_id: str | None = None
+            async for line in resp.aiter_lines():
+                if line.startswith("event: "):
+                    events.append(line[7:])
+                elif line.startswith("data: ") and "session_id" in line:
+                    import json as _json
+
+                    session_id = _json.loads(line[6:])["session_id"]
+
+    # 事件序列校验
+    assert events[0] == "session"
+    assert events[-1] == "done"
+    assert "chunk" in events
+    assert session_id

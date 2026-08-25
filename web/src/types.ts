@@ -21,6 +21,18 @@ export interface DocItem {
   created_at?: string;
 }
 
+export interface ChunkDetail {
+  chunk_index: number;
+  content: string;
+  headings: string[];
+  page?: number | null;
+}
+
+export interface DocDetail extends DocItem {
+  error?: string | null;
+  chunks: ChunkDetail[];
+}
+
 export interface TodoItem {
   id: string;
   title: string;

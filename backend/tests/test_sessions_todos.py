@@ -1,4 +1,4 @@
-"""会话管理与 Todo REST API 测试。"""
+"""会话管理、Todo REST 与文档详情接口测试。"""
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -10,6 +10,39 @@ from app.main import app
 async def _setup_tables() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+@pytest.mark.asyncio
+async def test_document_detail_chunks() -> None:
+    """文档详情：返回分块列表与标题路径。"""
+    await _setup_tables()
+    from app.core.constants import DEFAULT_USER_ID
+    from app.models import Chunk, Document
+
+    async with async_session_factory() as db:
+        doc = Document(user_id=DEFAULT_USER_ID, title="测试.md", source_type="md", status="ready")
+        db.add(doc)
+        await db.commit()
+        await db.refresh(doc)
+        db.add(
+            Chunk(
+                document_id=doc.id,
+                chunk_index=0,
+                content="分块内容A",
+                meta={"headings": ["第一章"]},
+            )
+        )
+        await db.commit()
+        doc_id = str(doc.id)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get(f"/api/v1/documents/{doc_id}/chunks")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["chunk_count"] == 1
+        assert data["chunks"][0]["headings"] == ["第一章"]
+        assert data["chunks"][0]["content"] == "分块内容A"
 
 
 @pytest.mark.asyncio

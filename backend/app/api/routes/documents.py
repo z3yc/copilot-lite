@@ -124,6 +124,42 @@ async def get_document(doc_id: str, db: AsyncSession = Depends(get_session)) -> 
     return await _to_out(db, doc)
 
 
+class ChunkOut(BaseModel):
+    chunk_index: int
+    content: str
+    headings: list[str] = []
+    page: int | None = None
+
+
+class DocumentDetail(DocumentOut):
+    error: str | None = None
+    chunks: list[ChunkOut] = []
+
+
+@router.get("/{doc_id}/chunks", response_model=DocumentDetail)
+async def get_document_detail(
+    doc_id: str, db: AsyncSession = Depends(get_session)
+) -> DocumentDetail:
+    """文档详情：基础信息 + 摄取失败原因 + 分块列表（含标题路径/页码）。"""
+    doc = await _get_doc(db, doc_id)
+    stmt = select(Chunk).where(Chunk.document_id == doc.id).order_by(Chunk.chunk_index)
+    chunks = (await db.scalars(stmt)).all()
+
+    detail = DocumentDetail.model_validate(doc)
+    detail.chunk_count = len(chunks)
+    detail.error = (doc.extra or {}).get("error")
+    detail.chunks = [
+        ChunkOut(
+            chunk_index=c.chunk_index,
+            content=c.content,
+            headings=c.meta.get("headings", []) if c.meta else [],
+            page=c.meta.get("page") if c.meta else None,
+        )
+        for c in chunks
+    ]
+    return detail
+
+
 @router.delete("/{doc_id}")
 async def delete_document(doc_id: str, db: AsyncSession = Depends(get_session)) -> dict:
     """删除文档（PostgreSQL 分块 + Qdrant 向量 + 原件）。"""

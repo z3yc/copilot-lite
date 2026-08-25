@@ -1,4 +1,4 @@
-import type { ChatMessage, DocItem, Session } from "./types";
+import type { ChatMessage, DocDetail, DocItem, Session } from "./types";
 
 const BASE = "/api/v1";
 
@@ -20,6 +20,8 @@ export const deleteSession = (sessionId: string) =>
 
 // ---- 文档 ----
 export const fetchDocs = () => request<DocItem[]>("/documents");
+export const fetchDocDetail = (docId: string) =>
+  request<DocDetail>(`/documents/${docId}/chunks`);
 export const deleteDoc = (docId: string) =>
   request<{ deleted: string }>(`/documents/${docId}`, { method: "DELETE" });
 

@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     # ---- 日志 ----
     LOG_LEVEL: str = "INFO"
 
+    # ---- 大模型（DeepSeek，兼容 OpenAI SDK）----
+    DEEPSEEK_API_KEY: str = ""  # 从 .env 读取，必填
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
+    DEEPSEEK_MODEL: str = "deepseek-chat"
+
+    # Agent 循环参数
+    AGENT_MAX_TURNS: int = 5  # ReAct 循环最大轮数
+
     # ---- 预留（后续里程碑启用）----
     REDIS_URL: str = "redis://localhost:6379/0"
     QDRANT_URL: str = "http://localhost:6333"

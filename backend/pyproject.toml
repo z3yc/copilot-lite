@@ -13,6 +13,9 @@ dependencies = [
     "aiosqlite>=0.20",
     "asyncpg>=0.29",
     "alembic>=1.13",
+    "openai>=3.3.1",
+    "typer>=0.27.1",
+    "rich>=15.0.0",
 ]
 
 [dependency-groups]
@@ -37,3 +40,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
+# B008: FastAPI 依赖注入 Depends() 作为默认参数是官方推荐写法
+ignore = ["B008"]

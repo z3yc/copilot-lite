@@ -1,6 +1,27 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  Button,
+  Card,
+  Collapse,
+  Empty,
+  Popconfirm,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+  Upload,
+  message,
+} from "antd";
+import {
+  DeleteOutlined,
+  InboxOutlined,
+  ReloadOutlined,
+} from "@ant-design/icons";
 import { deleteDoc, fetchDocDetail, fetchDocs, uploadDocs } from "../api";
 import type { DocDetail, DocItem } from "../types";
+
+const { Text, Paragraph } = Typography;
+const { Dragger } = Upload;
 
 const SOURCE_LABEL: Record<string, string> = {
   md: "📄 笔记",
@@ -9,6 +30,15 @@ const SOURCE_LABEL: Record<string, string> = {
   code: "💻 代码",
   web: "🌐 网页",
 };
+
+const ACCEPT =
+  ".md,.txt,.pdf,.docx,.py,.js,.ts,.tsx,.jsx,.java,.go,.rs,.c,.cpp,.sql,.html,.htm";
+
+function StatusTag({ status }: { status: string }) {
+  if (status === "ready") return <Tag color="success">已就绪</Tag>;
+  if (status === "parsing") return <Tag color="processing">摄取中</Tag>;
+  return <Tag color="error">失败</Tag>;
+}
 
 export default function KbPanel() {
   const [docs, setDocs] = useState<DocItem[]>([]);
@@ -41,7 +71,7 @@ export default function KbPanel() {
     try {
       setDetail(await fetchDocDetail(id));
     } catch (err) {
-      alert(`加载详情失败: ${err}`);
+      message.error(`加载详情失败: ${err}`);
     } finally {
       setLoadingDetail(false);
     }
@@ -51,10 +81,11 @@ export default function KbPanel() {
     if (!files || files.length === 0) return;
     setUploading(true);
     try {
-      await uploadDocs(Array.from(files));
+      const results = await uploadDocs(Array.from(files));
+      message.success(`上传成功 ${results.length} 个文档`);
       await load();
     } catch (err) {
-      alert(`上传失败: ${err}`);
+      message.error(`上传失败: ${err}`);
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -62,110 +93,151 @@ export default function KbPanel() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm("删除该文档？其分块与向量将一并清理。")) return;
     try {
       await deleteDoc(id);
       if (expandedId === id) {
         setExpandedId(null);
         setDetail(null);
       }
+      message.success("已删除");
       load();
     } catch (err) {
-      alert(`删除失败: ${err}`);
+      message.error(`删除失败: ${err}`);
     }
   };
 
   return (
     <div className="kb-panel">
-      <header className="chat-header">
-        <span className="brand">📚 知识库</span>
-        <button
-          className="btn ghost"
+      <div className="kb-toolbar">
+        <Space>
+          <Text strong style={{ fontSize: 16 }}>
+            📚 知识库管理
+          </Text>
+          <Button size="small" icon={<ReloadOutlined />} onClick={load} />
+        </Space>
+        <Button
+          type="primary"
+          icon={<InboxOutlined />}
           onClick={() => fileRef.current?.click()}
-          disabled={uploading}
+          loading={uploading}
         >
-          {uploading ? "上传中…" : "⬆ 上传文档"}
-        </button>
+          {uploading ? "上传中…" : "上传文档"}
+        </Button>
         <input
           ref={fileRef}
           type="file"
           multiple
           hidden
-          accept=".md,.txt,.pdf,.docx,.py,.js,.ts,.tsx,.jsx,.java,.go,.rs,.c,.cpp,.sql,.html,.htm"
+          accept={ACCEPT}
           onChange={(e) => onUpload(e.target.files)}
         />
-      </header>
+      </div>
 
-      <div className="kb-list">
-        {docs.length === 0 && (
-          <div className="dim empty">知识库为空，点击右上角上传文档</div>
-        )}
-        {docs.map((d) => (
-          <div key={d.id} className="doc-card">
-            <div className="doc-item" onClick={() => toggleDetail(d.id)}>
-              <div className="doc-icon">{SOURCE_LABEL[d.source_type] ?? "📄"}</div>
-              <div className="doc-info">
-                <div className="doc-title">{d.title}</div>
-                <div className="doc-meta">
-                  {d.chunk_count} 个分块 ·{" "}
-                  {d.status === "ready" ? (
-                    <span className="ok">✅ 已就绪</span>
-                  ) : d.status === "parsing" ? (
-                    <span className="busy">⏳ 摄取中</span>
-                  ) : (
-                    <span className="err">❌ 失败</span>
-                  )}
-                  <span className="expand-hint">
-                    {expandedId === d.id ? "▲ 收起" : "▼ 详情"}
-                  </span>
+      <div className="kb-body">
+        {docs.length === 0 ? (
+          <Empty description="知识库为空，点击右上角上传文档">
+            <Upload
+              multiple
+              accept={ACCEPT}
+              showUploadList={false}
+              beforeUpload={(file) => {
+                onUpload([file] as unknown as FileList);
+                return false;
+              }}
+            >
+              <Dragger style={{ padding: 24 }}>
+                <p style={{ fontSize: 40, margin: 0 }}>📥</p>
+                <Text>点击或拖拽文档到此处上传</Text>
+                <div className="dim" style={{ fontSize: 12 }}>
+                  支持 Markdown / PDF / Word / 代码 / 网页
                 </div>
-              </div>
-              <button
-                className="doc-del"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  remove(d.id);
-                }}
-                title="删除"
+              </Dragger>
+            </Upload>
+          </Empty>
+        ) : (
+          <div className="kb-list">
+            {docs.map((d) => (
+              <Card
+                key={d.id}
+                size="small"
+                className="doc-card"
+                onClick={() => toggleDetail(d.id)}
+                hoverable
+                title={
+                  <Space>
+                    <span style={{ fontSize: 16 }}>
+                      {SOURCE_LABEL[d.source_type] ?? "📄"}
+                    </span>
+                    <Text strong ellipsis style={{ maxWidth: 300 }}>
+                      {d.title}
+                    </Text>
+                  </Space>
+                }
+                extra={
+                  <Space size={8}>
+                    <StatusTag status={d.status} />
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {d.chunk_count} 分块
+                    </Text>
+                    <Popconfirm
+                      title="删除该文档？其分块与向量将一并清理。"
+                      onConfirm={() => remove(d.id)}
+                    >
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </Popconfirm>
+                  </Space>
+                }
               >
-                ✕
-              </button>
-            </div>
-
-            {expandedId === d.id && (
-              <div className="doc-detail">
-                {loadingDetail && <div className="dim">加载中…</div>}
-                {detail && (
-                  <>
-                    {detail.error && (
-                      <div className="detail-error">⚠️ 摄取失败：{detail.error}</div>
+                {expandedId === d.id && (
+                  <div onClick={(e) => e.stopPropagation()}>
+                    {loadingDetail && <Spin size="small" />}
+                    {detail && (
+                      <>
+                        {detail.error && (
+                          <Text type="danger">⚠️ 摄取失败：{detail.error}</Text>
+                        )}
+                        <Collapse
+                          size="small"
+                          items={detail.chunks.map((c) => ({
+                            key: c.chunk_index,
+                            label: (
+                              <Space size={8}>
+                                <Tag color="geekblue">#{c.chunk_index}</Tag>
+                                {c.headings.length > 0 && (
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    📁 {c.headings.join(" > ")}
+                                  </Text>
+                                )}
+                                {c.page != null && (
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    📄 第{c.page}页
+                                  </Text>
+                                )}
+                              </Space>
+                            ),
+                            children: (
+                              <Paragraph
+                                style={{ fontSize: 13, margin: 0, whiteSpace: "pre-wrap" }}
+                              >
+                                {c.content}
+                              </Paragraph>
+                            ),
+                          }))}
+                        />
+                      </>
                     )}
-                    <div className="detail-summary dim">
-                      共 {detail.chunks.length} 个分块，点击可复制内容
-                    </div>
-                    {detail.chunks.length === 0 && (
-                      <div className="dim">该文档暂无分块内容。</div>
-                    )}
-                    {detail.chunks.map((c) => (
-                      <div key={c.chunk_index} className="chunk-card">
-                        <div className="chunk-head">
-                          <span className="chunk-idx">#{c.chunk_index}</span>
-                          {c.headings.length > 0 && (
-                            <span className="chunk-path">
-                              📁 {c.headings.join(" > ")}
-                            </span>
-                          )}
-                          {c.page != null && <span className="chunk-page">📄 第{c.page}页</span>}
-                        </div>
-                        <div className="chunk-content">{c.content}</div>
-                      </div>
-                    ))}
-                  </>
+                  </div>
                 )}
-              </div>
-            )}
+              </Card>
+            ))}
           </div>
-        ))}
+        )}
       </div>
     </div>
   );

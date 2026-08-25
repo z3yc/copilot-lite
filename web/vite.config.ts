@@ -15,5 +15,15 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+    chunkSizeWarningLimit: 900, // antd 按需引入为后续优化项
+    // 按库拆分 chunk，减小首屏体积与告警
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          antd: ["antd", "@ant-design/icons"],
+          react: ["react", "react-dom"],
+        },
+      },
+    },
   },
 });

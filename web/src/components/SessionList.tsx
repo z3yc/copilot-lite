@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
+import { Button, Empty, List, Popconfirm, Spin, Typography } from "antd";
+import {
+  DeleteOutlined,
+  MessageOutlined,
+  PlusOutlined,
+} from "@ant-design/icons";
 import { deleteSession, fetchSessions } from "../api";
 import type { Session } from "../types";
+
+const { Text } = Typography;
 
 interface Props {
   activeId: string | null;
@@ -27,56 +35,78 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
   }, [activeId]);
 
   const remove = async (id: string) => {
-    if (!confirm("删除该会话？历史消息将一并删除。")) return;
     try {
       await deleteSession(id);
       if (activeId === id) onNew();
       load();
     } catch (err) {
-      alert(`删除失败: ${err}`);
+      console.error("删除失败", err);
     }
   };
 
   return (
-    <aside className="sidebar">
-      <button className="btn primary new-btn" onClick={onNew}>
-        ＋ 新会话
-      </button>
+    <div className="session-pane">
+      <Button
+        type="primary"
+        block
+        icon={<PlusOutlined />}
+        onClick={onNew}
+        style={{ marginBottom: 10 }}
+      >
+        新会话
+      </Button>
 
-      <div className="session-list">
-        {loading && <div className="dim">加载中…</div>}
-        {!loading && sessions.length === 0 && (
-          <div className="dim">暂无会话</div>
-        )}
-        {sessions.map((s) => (
-          <div
-            key={s.id}
-            className={`session-item ${s.id === activeId ? "active" : ""}`}
-            onClick={() => onSelect(s.id)}
-          >
-            <div className="session-title">{s.title || "未命名会话"}</div>
-            <div className="session-meta">
-              {s.message_count} 条消息
-              <span
-                className="session-del"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  remove(s.id);
-                }}
-                title="删除会话"
-              >
-                ✕
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="sidebar-footer dim">
-        <a href="#kb" onClick={(e) => e.preventDefault()}>
-          Copilot-Lite v0.1.0
-        </a>
-      </div>
-    </aside>
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 24 }}>
+          <Spin size="small" />
+        </div>
+      ) : sessions.length === 0 ? (
+        <Empty description="暂无会话" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      ) : (
+        <List
+          className="session-list"
+          dataSource={sessions}
+          renderItem={(s) => (
+            <List.Item
+              className={`session-item ${s.id === activeId ? "active" : ""}`}
+              onClick={() => onSelect(s.id)}
+              style={{ cursor: "pointer", padding: "10px 12px" }}
+              actions={[
+                <Popconfirm
+                  key="del"
+                  title="删除该会话？"
+                  onConfirm={(e) => {
+                    e?.stopPropagation();
+                    remove(s.id);
+                  }}
+                  onCancel={(e) => e?.stopPropagation()}
+                >
+                  <Button
+                    type="text"
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </Popconfirm>,
+              ]}
+            >
+              <div style={{ minWidth: 0 }}>
+                <Text
+                  strong={s.id === activeId}
+                  ellipsis
+                  style={{ display: "block", fontSize: 13 }}
+                >
+                  {s.title || "未命名会话"}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  <MessageOutlined /> {s.message_count} 条消息
+                </Text>
+              </div>
+            </List.Item>
+          )}
+        />
+      )}
+    </div>
   );
 }

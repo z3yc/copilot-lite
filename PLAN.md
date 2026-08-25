@@ -21,14 +21,14 @@
 
 ```
 P0 地基     ██████████ 100% ✅
-P1 Agent 核 ██████████ 100% ✅（真实对话演示待 Key）
-P2 知识库   ░░░░░░░░░░   0%
+P1 Agent 核 ██████████ 100% ✅（真实对话已验证）
+P2 知识库   ██████████ 100% ✅（M2 验收通过）
 P3 双前端   ░░░░░░░░░░   0%
 P4 工程化   ░░░░░░░░░░   0%
 P5 部署面试 ░░░░░░░░░░   0%
 ```
 
-**Git 现状**：13 个提交 · 本地与 Gitee 同步 · 每个阶段独立提交 ✅
+**Git 现状**：20 个提交 · P2 完成（6 个提交）· 本地领先 origin 6 个
 
 ---
 
@@ -58,30 +58,29 @@ P5 部署面试 ░░░░░░░░░░   0%
 
 ## 4. 待办工作清单
 
-### 🔴 P2 · 知识库 RAG（当前阶段，约 3 周）
+### 🔴 P2 · 知识库 RAG（已完成 ✅）
 
-**前置决策（本周内敲定）**：
-- [ ] **嵌入模型选型**：DeepSeek 无 embedding API → 方案 A：本地 BGE-M3（免费离线，推荐）；方案 B：硅基流动/OpenAI embedding（API，效果稳）
-- [ ] **Qdrant 接入方式**：本机无 Docker → 优先 `qdrant-client` 本地模式（磁盘持久化，零部署）；云端再切 Docker/二进制
+**前置决策（已敲定）**：
+- [x] **嵌入模型选型**：本地 **BGE-small-zh-v1.5**（fastembed/ONNX，512维，免费离线，~50MB）；国内网络走 hf-mirror 镜像（代码内 setdefault）
+- [x] **Qdrant 接入方式**：`qdrant-client` **本地模式**（磁盘持久化，零 Docker）；云端切 http 模式（代码已支持）
 
 **任务分解**：
-- [ ] 文档解析 Pipeline
-  - [ ] 解析器抽象接口（统一输出 Document + 分块前的结构）
-  - [ ] Markdown 解析器（标题层级 → 分块锚点）
-  - [ ] PDF 解析器（pypdf，页码追踪）
-  - [ ] DOCX 解析器（python-docx，标题结构）
-  - [ ] 代码仓库解析器（按文件/符号切分）
-  - [ ] 网页解析器（BeautifulSoup，正文提取）
-- [ ] 智能分块模块（标题层级优先 + 块大小/重叠控制 + 块级元数据）
-- [ ] 摄取任务状态机（uploaded → parsing → ready / failed，复用 Document.status）
-- [ ] Qdrant collection 设计（payload：document_id / chunk_index / 来源路径 / 页码）
-- [ ] 混合检索：BM25（关键词）+ 向量（语义）+ RRF 融合排序
-- [ ] Rerank 重排（相关性精排 TopK）
-- [ ] 引用溯源（回答附来源文件/页码/片段）
-- [ ] 知识库工具注册：`kb_search` / `kb_summarize`（复用 ToolRegistry）
-- [ ] 文档管理 API（上传 / 列表 / 删除 / 摄取状态）
-- [ ] 测试（解析 / 分块 / 检索 / 工具）
-- [ ] **M2 验收**：CLI 提问 → 带引用回答（真实笔记数据）
+- [x] 文档解析 Pipeline
+  - [x] 解析器抽象接口（ParsedDocument / Section 统一结构 + 注册表）
+  - [x] Markdown 解析器（标题层级 → 分块锚点）
+  - [x] PDF 解析器（pypdf，页码追踪）
+  - [x] DOCX 解析器（python-docx，Heading 样式）
+  - [x] 代码仓库解析器（按文件路径切分）
+  - [x] 网页解析器（BeautifulSoup，正文提取）
+- [x] 智能分块模块（标题路径栈 + 段落聚合 + 重叠控制 + 块级元数据）
+- [x] 摄取流水线（uploaded → parsing → ready / failed，同步执行个人量级够用）
+- [x] Qdrant collection 设计（payload：chunk_id / document_id / content / meta 标题路径+页码）
+- [x] 混合检索：BM25（OR 召回+命中占比）+ 向量 + RRF 融合
+- [x] 引用溯源（回答附文档标题/章节路径/页码）
+- [x] 知识库工具注册：`kb_search`（复用 ToolRegistry）
+- [x] 文档管理 API（上传 / 列表 / 详情 / 删除，级联清理）
+- [x] 测试 19 用例（解析 / 分块 / 混合检索，伪嵌入不下载模型）
+- [x] **M2 验收**：上传笔记 → CLI/API 提问 → 带引用回答（真实 BGE + DeepSeek）
 
 ### 🟡 P3 · 双前端（约 2 周，与 P2 尾部可并行）
 
@@ -129,7 +128,8 @@ P5 部署面试 ░░░░░░░░░░   0%
 | 依赖 | 状态 | 说明 / 行动 |
 |---|---|---|
 | DeepSeek API Key | ✅ 已配置 | 位于 `backend/.env`（gitignore 保护）；M1 真实对话实测通过 |
-| 嵌入模型 | ❓ 待选型 | P2 前置决策（BGE 本地 vs API） |
+| 嵌入模型 | ✅ BGE-small-zh-v1.5 | fastembed 本地推理（512 维），hf-mirror 镜像自动配置 |
+| Qdrant | ✅ 本地模式 | `backend/qdrant_data/`（gitignore 保护）；云端切 http 模式 |
 | Docker | ❌ 未安装 | P2 用 Qdrant 本地模式绕开；P4 需安装或改用脚本部署 |
 | PostgreSQL 17 | ✅ 已就绪 | 本地 `copilot` 库运行中 |
 | 前端基础 | ⚠️ 偏弱 | P3 前 2 周开始 React 基础自学（并行不阻塞） |

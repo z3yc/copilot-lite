@@ -38,12 +38,13 @@ pnpm-debug.log*
 secrets/
 
 # ===== 本地数据（知识库原件 / 向量库快照 / 数据库） =====
-data/*
+data/
 !data/.gitkeep
 local-data/
 *.sqlite
 *.db
 qdrant/
+qdrant_data/
 pgdata/
 redis-data/
 

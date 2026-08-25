@@ -41,7 +41,14 @@ class Settings(BaseSettings):
 
     # ---- 预留（后续里程碑启用）----
     REDIS_URL: str = "redis://localhost:6379/0"
+
+    # ---- 知识库（P2）----
+    # Qdrant 本地模式（磁盘持久化，无需服务器）；云端可切换为 http(s) 地址
+    QDRANT_PATH: str = "./qdrant_data"
     QDRANT_URL: str = "http://localhost:6333"
+    # 检索参数
+    RAG_TOP_K: int = 5  # 向量/BM25 各自召回数
+    RAG_RERANK_TOP_K: int = 3  # 融合后精排保留数
 
 
 @lru_cache

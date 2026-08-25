@@ -24,11 +24,11 @@ P0 地基     ██████████ 100% ✅
 P1 Agent 核 ██████████ 100% ✅（真实对话已验证）
 P2 知识库   ██████████ 100% ✅（M2 验收通过）
 P3 双前端   ██████████ 100% ✅（M3 验收通过）
-P4 工程化   ░░░░░░░░░░   0%
+P4 工程化   ██████████ 100% ✅（M4 本地验收通过）
 P5 部署面试 ░░░░░░░░░░   0%
 ```
 
-**Git 现状**：25 个提交 · P3 完成（4 个提交）· 本地领先 origin 4 个
+**Git 现状**：30 个提交 · P4 完成（4 个提交）· 本地领先 origin 4 个
 
 ---
 
@@ -93,13 +93,14 @@ P5 部署面试 ░░░░░░░░░░   0%
 - [x] 配套：会话管理 API + Todo REST API（CLI 与前端共用）
 - [x] **M3 验收**：Web 完整可用（localhost:5173 浏览器演示，22 测试全绿）
 
-### 🟢 P4 · 工程化（约 1 周）
+### 🟢 P4 · 工程化（已完成 ✅）
 
-- [ ] Docker Compose 编排（backend + PostgreSQL + Qdrant + Redis + Nginx）
-- [ ] 配置化收口（deploy/.env 模板 + 服务器规格自适应）
-- [ ] 测试补全（覆盖率报告，关键路径 80%+）
-- [ ] CI 流水线（提交触发 lint + test）
-- [ ] **M4 验收**：`docker compose up` 一键启动
+- [x] 测试补全 + 覆盖率门槛：31 用例，**83%**（fail-under=80 强制）
+- [x] CI 流水线：`.github/workflows/ci.yml`（后端 lint+test+coverage / 前端 typecheck+build）
+- [x] 配置化收口：`deploy/.env.example` 完整模板（RUN_MODE/DATABASE/QDRANT/模型）
+- [x] Docker Compose 预留：postgres+qdrant+redis+backend+web（`deploy/`，云端实测）
+- [x] 一键启动脚本：`scripts/dev_start.ps1`（无 Docker 本地全服务启动）
+- [x] **M4 验收**：一键脚本启动前后端 + 浏览器访问（本地版）；Docker 编排云端待实测（P5）
 
 ### 🔵 P5 · 部署 + 面试（约 2 周）
 

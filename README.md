@@ -188,30 +188,41 @@ copilot-lite/
 
 ## 快速开始
 
-> 后端（P0 已实现）：开发模式 SQLite 零依赖，无需 Docker 即可跑通。CLI/Web 随里程碑逐步开放。
+> 全栈（P0-P3 已实现）：开发模式无需 Docker，一键启动前后端。P4 已具备 CI 与云端部署编排（预留）。
+
+### 方式一：一键启动（推荐）
+
+```powershell
+# Windows（自动装依赖 → 迁移 → 启动后端+前端 → 打开浏览器）
+powershell -ExecutionPolicy Bypass -File scripts\dev_start.ps1
+```
+
+浏览器访问 http://localhost:5173 （Web UI）· http://127.0.0.1:8000/docs （API 文档）
+
+### 方式二：手动启动
 
 ```bash
-# 0. 准备
-git clone <repo-url> && cd copilot-lite
-
-# 1. 启动后端（开发模式）
+# 1. 后端（终端 1）
 cd backend
 uv sync                              # 安装依赖（Python 3.12）
-uv run uvicorn app.main:app --reload # 访问 http://127.0.0.1:8000/docs
+uv run alembic upgrade head          # 数据库迁移
+uv run uvicorn app.main:app --reload
 
-# 2. 运行测试与代码检查
-uv run pytest
-uv run ruff check .
+# 2. 前端（终端 2）
+cd web && npm install && npm run dev # 访问 http://localhost:5173
 
-# 3. 数据库迁移（表结构变更时）
-uv run alembic revision --autogenerate -m "描述"
-uv run alembic upgrade head
+# 3. CLI（终端 3，可选）
+cd cli && uv sync
+uv run copilot chat                  # 交互式对话
+uv run copilot todo list             # 直接管理待办
+```
 
-# 4. CLI 直接聊天（P1 里程碑后可用）
-copilot "帮我总结一下我最近的工作笔记"
+### 测试与检查
 
-# 5. Web UI（P3 里程碑后可用）
-cd ../web && npm install && npm run dev
+```bash
+cd backend
+uv run pytest        # 31 用例，覆盖率 ≥80%（未达标即失败）
+uv run ruff check .  # 代码规范
 ```
 
 ---

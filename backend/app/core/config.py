@@ -1,16 +1,23 @@
 """应用配置：基于 pydantic-settings，支持 .env 与环境变量覆盖。
 
 优先级：环境变量 > .env 文件 > 代码默认值。
+
+.env 路径固定为 backend/.env（基于本文件位置解析），
+与进程启动目录解耦——无论在哪个目录启动后端都能读到配置。
 """
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# backend/app/core/config.py → parents[0]=core, [1]=app, [2]=backend
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )

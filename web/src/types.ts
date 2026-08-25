@@ -33,6 +33,13 @@ export interface DocDetail extends DocItem {
   chunks: ChunkDetail[];
 }
 
+export interface SessionFile {
+  id: string;
+  filename: string;
+  size: number;
+  created_at?: string;
+}
+
 export interface TodoItem {
   id: string;
   title: string;

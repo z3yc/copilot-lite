@@ -5,6 +5,7 @@ import {
   Button,
   Input,
   Space,
+  Tag,
   Tooltip,
   Typography,
   Upload,
@@ -16,8 +17,14 @@ import {
   SendOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { streamChat, uploadDocs } from "../api";
-import type { ChatMessage } from "../types";
+import {
+  createSession,
+  deleteSessionFile,
+  fetchSessionFiles,
+  streamChat,
+  uploadSessionFile,
+} from "../api";
+import type { ChatMessage, SessionFile } from "../types";
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -52,6 +59,7 @@ export default function ChatPanel({
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
+  const [files, setFiles] = useState<SessionFile[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -59,8 +67,48 @@ export default function ChatPanel({
   }, [initialMessages, sessionId]);
 
   useEffect(() => {
+    if (sessionId) {
+      fetchSessionFiles(sessionId)
+        .then(setFiles)
+        .catch(() => setFiles([]));
+    } else {
+      setFiles([]);
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, busy]);
+
+  // 确保存在会话（上传附件需要 session_id）
+  const ensureSession = async (): Promise<string> => {
+    if (sessionId) return sessionId;
+    const s = await createSession();
+    onSessionCreated(s.id);
+    return s.id;
+  };
+
+  const onUploadFile = async (file: File) => {
+    try {
+      const sid = await ensureSession();
+      const sf = await uploadSessionFile(sid, file);
+      setFiles((prev) => [...prev, sf]);
+      message.success(`已添加「${sf.filename}」到本次对话，可以提问相关内容了`);
+    } catch (err) {
+      message.error(`上传失败: ${err}`);
+    }
+  };
+
+  const onDeleteFile = async (fileId: string) => {
+    if (!sessionId) return;
+    try {
+      await deleteSessionFile(sessionId, fileId);
+      setFiles((prev) => prev.filter((f) => f.id !== fileId));
+      message.info("已移除附件");
+    } catch (err) {
+      message.error(`删除失败: ${err}`);
+    }
+  };
 
   const send = async () => {
     const text = input.trim();
@@ -152,19 +200,32 @@ export default function ChatPanel({
         )}
       </div>
 
+      {/* 会话附件区 */}
+      {files.length > 0 && (
+        <div className="file-bar">
+          <span className="dim" style={{ fontSize: 12 }}>
+            本次对话附件：
+          </span>
+          {files.map((f) => (
+            <Tag
+              key={f.id}
+              closable
+              onClose={() => onDeleteFile(f.id)}
+              style={{ fontSize: 12 }}
+            >
+              📎 {f.filename}
+            </Tag>
+          ))}
+        </div>
+      )}
+
       <div className="input-bar">
-        <Tooltip title="上传文档/代码到知识库，上传后可提问相关内容">
+        <Tooltip title="上传文件到本次对话（不进知识库），可针对文件提问">
           <Upload
-            multiple
             accept={ACCEPT}
             showUploadList={false}
             beforeUpload={async (file) => {
-              try {
-                const results = await uploadDocs([file]);
-                message.success(`已上传「${results[0]?.title}」到知识库，可以提问了`);
-              } catch (err) {
-                message.error(`上传失败: ${err}`);
-              }
+              await onUploadFile(file);
               return false;
             }}
           >
@@ -173,7 +234,7 @@ export default function ChatPanel({
         </Tooltip>
         <TextArea
           value={input}
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行；或点击左侧📎上传文件"
+          placeholder="输入消息，Enter 发送，Shift+Enter 换行；或点击左侧📎上传文件到本次对话"
           autoSize={{ minRows: 1, maxRows: 4 }}
           onChange={(e) => setInput(e.target.value)}
           onPressEnter={(e) => {

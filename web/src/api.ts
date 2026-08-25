@@ -1,4 +1,4 @@
-import type { ChatMessage, DocDetail, DocItem, Session } from "./types";
+import type { ChatMessage, DocDetail, DocItem, Session, SessionFile } from "./types";
 
 const BASE = "/api/v1";
 
@@ -42,6 +42,19 @@ export async function uploadDocs(files: File[]): Promise<DocItem[]> {
   return results;
 }
 
+// ---- 会话附件（仅本次对话，不进知识库）----
+export const createSession = () =>
+  request<Session>("/sessions", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } });
+export const fetchSessionFiles = (sessionId: string) =>
+  request<SessionFile[]>(`/sessions/${sessionId}/files`);
+export const deleteSessionFile = (sessionId: string, fileId: string) =>
+  request<{ deleted: string }>(`/sessions/${sessionId}/files/${fileId}`, { method: "DELETE" });
+
+export async function uploadSessionFile(sessionId: string, file: File): Promise<SessionFile> {
+  const form = new FormData();
+  form.append("file", file);
+  return request<SessionFile>(`/sessions/${sessionId}/files`, { method: "POST", body: form });
+}
 // ---- SSE 流式对话 ----
 export interface StreamHandlers {
   onSession: (sessionId: string) => void;

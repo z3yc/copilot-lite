@@ -143,6 +143,16 @@ body {
   background: var(--panel);
 }
 
+/* 会话附件栏 */
+.file-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 8px 20px 0;
+  background: var(--panel);
+}
+
 /* ===== 会话列表 ===== */
 .session-pane {
   flex: 1;

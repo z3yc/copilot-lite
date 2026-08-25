@@ -28,7 +28,7 @@ P4 工程化   ██████████ 100% ✅（M4 本地验收通过�
 P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端待实测）
 ```
 
-**Git 现状**：69 个提交 · 功能增强已并入（antd UI/分类/搜索/暗色/会话附件/记忆/Rerank）· 详细见 [docs/CHANGELOG.md](docs/CHANGELOG.md)
+**Git 现状**：71 个提交 · 功能增强已并入（antd UI/分类/搜索/暗色/会话附件/记忆/Rerank/LangGraph 多 Agent）· 详细见 [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 ---
 
@@ -104,7 +104,7 @@ P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端�
 - [x] 文档详情展开（分块内容 + 标题路径 + 失败原因）
 - [x] **用户认证系统**：注册/登录/JWT + 数据按用户隔离 + 个人中心（可交互 4 Tab）
 - [x] **完整待办工作区**：侧边栏待办 Tab、AI 快速添加、分类+标签、时间分组高亮、全字段编辑
-- 当前测试：**60 用例**，覆盖率 **80.69%**
+- 当前测试：**75 用例**，覆盖率 **81.48%**
 
 ### 🟢 P4 · 工程化（已完成 ✅）
 
@@ -150,7 +150,7 @@ P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端�
 | 实现 | `backend/app/rag/reranker.py` + `retriever.hybrid_search` 末尾接入（线程池异步） | ✅ |
 | 测试 | 8 用例（Fake 重排器：链路接入/开关关闭/排序截断），共 60 用例，覆盖率 80.69% | ✅ |
 
-**③ LangGraph 多 Agent（下一步，架构亮点，用户指定用框架）**
+### ✅ ③ LangGraph 多 Agent（已完成 0.11.0）
 
 ```
 START → Supervisor（LLM 意图判断）→ 条件路由
@@ -160,11 +160,14 @@ START → Supervisor（LLM 意图判断）→ 条件路由
 → 汇总 → END
 ```
 
-| 环节 | 设计 |
-|---|---|
-| 依赖 | `langgraph` + `langchain-openai`（DeepSeek 兼容 OpenAI） |
-| 引擎接入 | **并存模式**：LangGraph（默认）+ 手写 Orchestrator（配置 `AGENT_ENGINE` 切换，面试可对比） |
-| 工具复用 | 现有 ToolRegistry 适配为 LangGraph 工具 |
+| 环节 | 设计 | 状态 |
+|---|---|---|
+| 依赖 | `langgraph` + `langchain-openai`（DeepSeek 兼容 OpenAI） | ✅ |
+| 引擎接入 | **并存模式**：LangGraph（默认）+ 手写 Orchestrator（配置 `AGENT_ENGINE` 切换） | ✅ |
+| 工具复用 | 现有 ToolRegistry 适配为 LangGraph 工具（bind_tools，执行仍走 registry） | ✅ |
+| 流式 | `graph.astream_events` 过滤叶子节点输出，SSE 接口不变 | ✅ |
+| 实现 | `backend/app/agent/langgraph_engine.py`（StateGraph + Supervisor JSON 路由 + 关键词兜底） | ✅ |
+| 测试 | 15 用例（图结构/路由/工具/兜底/最大轮数/流式/引擎切换/API），共 75 用例，覆盖率 81.48% | ✅ |
 
 ### 实施顺序与预估
 
@@ -172,7 +175,7 @@ START → Supervisor（LLM 意图判断）→ 条件路由
 |---|---|---|
 | 1️⃣ | 长期记忆（后端 + 前端管理页） | ✅ 已完成 0.9.0 |
 | 2️⃣ | Rerank（检索链路增强） | ✅ 已完成 0.10.0 |
-| 3️⃣ | LangGraph 多 Agent（图 + 引擎切换 + 测试） | 中大（下一步） |
+| 3️⃣ | LangGraph 多 Agent（图 + 引擎切换 + 测试） | ✅ 已完成 0.11.0 |
 
 ### 关键风险预案
 

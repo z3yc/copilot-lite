@@ -175,9 +175,24 @@ body {
 .kb-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
   max-width: 900px;
   margin: 0 auto;
+}
+.kb-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kb-group-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #4a5065;
+  border-left: 3px solid #4f6ef7;
+  padding: 4px 2px 4px 10px;
+}
+.kb-group-title .dim {
+  font-weight: 400;
 }
 .doc-card {
   cursor: pointer;

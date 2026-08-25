@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Card,
   Collapse,
   Empty,
+  Input,
   Popconfirm,
+  Segmented,
   Space,
   Spin,
   Tag,
@@ -22,13 +24,14 @@ import type { DocDetail, DocItem } from "../types";
 
 const { Text, Paragraph } = Typography;
 const { Dragger } = Upload;
+const { Search } = Input;
 
-const SOURCE_LABEL: Record<string, string> = {
-  md: "📄 笔记",
-  pdf: "📕 PDF",
-  docx: "📘 Word",
-  code: "💻 代码",
-  web: "🌐 网页",
+const SOURCE_META: Record<string, { label: string; icon: string }> = {
+  md: { label: "笔记", icon: "📄" },
+  pdf: { label: "PDF", icon: "📕" },
+  docx: { label: "Word", icon: "📘" },
+  code: { label: "代码", icon: "💻" },
+  web: { label: "网页", icon: "🌐" },
 };
 
 const ACCEPT =
@@ -46,6 +49,8 @@ export default function KbPanel() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DocDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [activeCat, setActiveCat] = useState<string>("all");
+  const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
@@ -59,6 +64,47 @@ export default function KbPanel() {
   useEffect(() => {
     load();
   }, []);
+
+  // 分类统计（数量徽标）
+  const catCount = useMemo(() => {
+    const map = new Map<string, number>();
+    docs.forEach((d) => map.set(d.source_type, (map.get(d.source_type) ?? 0) + 1));
+    return map;
+  }, [docs]);
+
+  // 分类选项：全部 + 实际存在的类型
+  const catOptions = useMemo(() => {
+    const opts: { label: string; value: string }[] = [
+      { label: `全部 (${docs.length})`, value: "all" },
+    ];
+    Object.entries(SOURCE_META).forEach(([key, meta]) => {
+      const n = catCount.get(key) ?? 0;
+      opts.push({ label: `${meta.icon} ${meta.label} (${n})`, value: key });
+    });
+    return opts;
+  }, [catCount, docs.length]);
+
+  // 过滤：分类 + 搜索
+  const filtered = useMemo(() => {
+    const kw = search.trim().toLowerCase();
+    return docs.filter(
+      (d) =>
+        (activeCat === "all" || d.source_type === activeCat) &&
+        (!kw || d.title.toLowerCase().includes(kw))
+    );
+  }, [docs, activeCat, search]);
+
+  // 按类型分组展示
+  const groups = useMemo(() => {
+    const g = new Map<string, DocItem[]>();
+    filtered.forEach((d) => {
+      const meta = SOURCE_META[d.source_type] ?? { label: "其他", icon: "📄" };
+      const key = `${meta.icon} ${meta.label}`;
+      if (!g.has(key)) g.set(key, []);
+      g.get(key)!.push(d);
+    });
+    return Array.from(g.entries());
+  }, [filtered]);
 
   const toggleDetail = async (id: string) => {
     if (expandedId === id) {
@@ -115,25 +161,42 @@ export default function KbPanel() {
           </Text>
           <Button size="small" icon={<ReloadOutlined />} onClick={load} />
         </Space>
-        <Button
-          type="primary"
-          icon={<InboxOutlined />}
-          onClick={() => fileRef.current?.click()}
-          loading={uploading}
-        >
-          {uploading ? "上传中…" : "上传文档"}
-        </Button>
-        <input
-          ref={fileRef}
-          type="file"
-          multiple
-          hidden
-          accept={ACCEPT}
-          onChange={(e) => onUpload(e.target.files)}
-        />
+        <Space>
+          <Search
+            placeholder="搜索文档标题"
+            allowClear
+            style={{ width: 200 }}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Button
+            type="primary"
+            icon={<InboxOutlined />}
+            onClick={() => fileRef.current?.click()}
+            loading={uploading}
+          >
+            {uploading ? "上传中…" : "上传文档"}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            hidden
+            accept={ACCEPT}
+            onChange={(e) => onUpload(e.target.files)}
+          />
+        </Space>
       </div>
 
       <div className="kb-body">
+        {/* 分类筛选 */}
+        <div style={{ marginBottom: 12 }}>
+          <Segmented
+            options={catOptions}
+            value={activeCat}
+            onChange={(v) => setActiveCat(v as string)}
+          />
+        </div>
+
         {docs.length === 0 ? (
           <Empty description="知识库为空，点击右上角上传文档">
             <Upload
@@ -154,87 +217,102 @@ export default function KbPanel() {
               </Dragger>
             </Upload>
           </Empty>
+        ) : filtered.length === 0 ? (
+          <Empty description="没有匹配的文档，换个关键词试试" />
         ) : (
           <div className="kb-list">
-            {docs.map((d) => (
-              <Card
-                key={d.id}
-                size="small"
-                className="doc-card"
-                onClick={() => toggleDetail(d.id)}
-                hoverable
-                title={
-                  <Space>
-                    <span style={{ fontSize: 16 }}>
-                      {SOURCE_LABEL[d.source_type] ?? "📄"}
-                    </span>
-                    <Text strong ellipsis style={{ maxWidth: 300 }}>
-                      {d.title}
-                    </Text>
-                  </Space>
-                }
-                extra={
-                  <Space size={8}>
-                    <StatusTag status={d.status} />
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {d.chunk_count} 分块
-                    </Text>
-                    <Popconfirm
-                      title="删除该文档？其分块与向量将一并清理。"
-                      onConfirm={() => remove(d.id)}
+            {groups.map(([groupName, items]) => (
+              <div key={groupName} className="kb-group">
+                <div className="kb-group-title">
+                  {groupName}
+                  <span className="dim">（{items.length} 个文档）</span>
+                </div>
+                {items.map((d) => {
+                  const meta = SOURCE_META[d.source_type] ?? { label: "其他", icon: "📄" };
+                  return (
+                    <Card
+                      key={d.id}
+                      size="small"
+                      className="doc-card"
+                      onClick={() => toggleDetail(d.id)}
+                      hoverable
+                      title={
+                        <Space>
+                          <span style={{ fontSize: 16 }}>{meta.icon}</span>
+                          <Text strong ellipsis style={{ maxWidth: 320 }}>
+                            {d.title}
+                          </Text>
+                        </Space>
+                      }
+                      extra={
+                        <Space size={8}>
+                          <StatusTag status={d.status} />
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {d.chunk_count} 分块
+                          </Text>
+                          <Popconfirm
+                            title="删除该文档？其分块与向量将一并清理。"
+                            onConfirm={() => remove(d.id)}
+                          >
+                            <Button
+                              type="text"
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </Popconfirm>
+                        </Space>
+                      }
                     >
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </Popconfirm>
-                  </Space>
-                }
-              >
-                {expandedId === d.id && (
-                  <div onClick={(e) => e.stopPropagation()}>
-                    {loadingDetail && <Spin size="small" />}
-                    {detail && (
-                      <>
-                        {detail.error && (
-                          <Text type="danger">⚠️ 摄取失败：{detail.error}</Text>
-                        )}
-                        <Collapse
-                          size="small"
-                          items={detail.chunks.map((c) => ({
-                            key: c.chunk_index,
-                            label: (
-                              <Space size={8}>
-                                <Tag color="geekblue">#{c.chunk_index}</Tag>
-                                {c.headings.length > 0 && (
-                                  <Text type="secondary" style={{ fontSize: 12 }}>
-                                    📁 {c.headings.join(" > ")}
-                                  </Text>
-                                )}
-                                {c.page != null && (
-                                  <Text type="secondary" style={{ fontSize: 12 }}>
-                                    📄 第{c.page}页
-                                  </Text>
-                                )}
-                              </Space>
-                            ),
-                            children: (
-                              <Paragraph
-                                style={{ fontSize: 13, margin: 0, whiteSpace: "pre-wrap" }}
-                              >
-                                {c.content}
-                              </Paragraph>
-                            ),
-                          }))}
-                        />
-                      </>
-                    )}
-                  </div>
-                )}
-              </Card>
+                      {expandedId === d.id && (
+                        <div onClick={(e) => e.stopPropagation()}>
+                          {loadingDetail && <Spin size="small" />}
+                          {detail && (
+                            <>
+                              {detail.error && (
+                                <Text type="danger">⚠️ 摄取失败：{detail.error}</Text>
+                              )}
+                              <Collapse
+                                size="small"
+                                items={detail.chunks.map((c) => ({
+                                  key: c.chunk_index,
+                                  label: (
+                                    <Space size={8}>
+                                      <Tag color="geekblue">#{c.chunk_index}</Tag>
+                                      {c.headings.length > 0 && (
+                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                          📁 {c.headings.join(" > ")}
+                                        </Text>
+                                      )}
+                                      {c.page != null && (
+                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                          📄 第{c.page}页
+                                        </Text>
+                                      )}
+                                    </Space>
+                                  ),
+                                  children: (
+                                    <Paragraph
+                                      style={{
+                                        fontSize: 13,
+                                        margin: 0,
+                                        whiteSpace: "pre-wrap",
+                                      }}
+                                    >
+                                      {c.content}
+                                    </Paragraph>
+                                  ),
+                                }))}
+                              />
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })}
+              </div>
             ))}
           </div>
         )}

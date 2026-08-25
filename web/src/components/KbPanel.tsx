@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -57,15 +57,19 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
   const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // 加载（含内容级搜索关键词，300ms 防抖）
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchDocs(search.trim() || undefined)
-        .then(setDocs)
-        .catch((err) => console.error("加载知识库失败", err));
-    }, search ? 300 : 0);
-    return () => clearTimeout(timer);
+  // 加载（分类 + 内容级搜索，300ms 防抖）
+  const loadDocs = useCallback(() => {
+    const kw = search.trim();
+    const type = activeCat !== "all" ? activeCat : undefined;
+    return fetchDocs(kw || undefined, type)
+      .then(setDocs)
+      .catch((err) => console.error("加载知识库失败", err));
   }, [search, activeCat]);
+
+  useEffect(() => {
+    const timer = setTimeout(loadDocs, search ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [loadDocs, search]);
 
   const toggleDetail = async (id: string) => {
     if (expandedId === id) {
@@ -91,7 +95,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
       const results = await uploadDocs(Array.from(files));
       message.success(`上传成功 ${results.length} 个文档`);
       setSearch("");
-      fetchDocs().then(setDocs).catch(() => {});
+      loadDocs();
     } catch (err) {
       message.error(`上传失败: ${err}`);
     } finally {
@@ -135,7 +139,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
           <Text strong style={{ fontSize: 16 }}>
             📚 知识库管理
           </Text>
-          <Button size="small" icon={<ReloadOutlined />} onClick={() => fetchDocs().then(setDocs)} />
+          <Button size="small" icon={<ReloadOutlined />} onClick={loadDocs} />
         </Space>
         <Space>
           <Search

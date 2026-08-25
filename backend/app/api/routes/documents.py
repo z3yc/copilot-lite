@@ -113,9 +113,15 @@ async def upload_document(
 
 @router.get("", response_model=list[DocumentOut])
 async def list_documents(
-    q: str | None = None, db: AsyncSession = Depends(get_session)
+    q: str | None = None,
+    type: str | None = None,
+    db: AsyncSession = Depends(get_session),
 ) -> list[DocumentOut]:
-    """文档列表；q 参数支持内容级搜索（标题或分块内容包含关键词）。"""
+    """文档列表。
+
+    q:    内容级搜索关键词（标题或分块内容包含）
+    type: 按来源类型过滤（md / pdf / docx / code / web）
+    """
     stmt = select(Document)
     if q and q.strip():
         from sqlalchemy import or_
@@ -125,6 +131,8 @@ async def list_documents(
         stmt = stmt.where(
             or_(Document.title.ilike(kw), Document.id.in_(content_hits))
         )
+    if type:
+        stmt = stmt.where(Document.source_type == type)
     stmt = stmt.order_by(Document.created_at.desc())
     docs = (await db.scalars(stmt)).all()
     return [await _to_out(db, d) for d in docs]

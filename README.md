@@ -18,6 +18,7 @@
 - [开发路线图](#开发路线图)
 - [面试要点](#面试要点)
 - [变更记录](docs/CHANGELOG.md)
+- [调试排障记录](docs/DEBUGGING.md)
 - [License](#license)
 
 ---

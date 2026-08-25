@@ -52,6 +52,15 @@ export interface Profile {
   chunk_count: number;
 }
 
+export interface MemoryItem {
+  id: string;
+  fact: string;
+  category: string;
+  category_label: string;
+  confidence: number;
+  created_at?: string;
+}
+
 export interface TodoItem {
   id: string;
   title: string;

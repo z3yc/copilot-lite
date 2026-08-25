@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   DocDetail,
   DocItem,
+  MemoryItem,
   Profile,
   Session,
   SessionFile,
@@ -61,6 +62,11 @@ export const changePassword = (oldPassword: string, newPassword: string) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
   });
+
+// ---- 长期记忆 ----
+export const fetchMemories = () => request<MemoryItem[]>("/memories");
+export const deleteMemory = (id: string) =>
+  request<{ deleted: string }>(`/memories/${id}`, { method: "DELETE" });
 
 // ---- 会话 ----
 export const fetchSessions = () => request<Session[]>("/sessions");

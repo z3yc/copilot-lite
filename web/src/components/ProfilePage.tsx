@@ -27,18 +27,21 @@ import {
   MessageOutlined,
   RobotOutlined,
   TagsOutlined,
+  BulbOutlined,
 } from "@ant-design/icons";
 import {
   changePassword,
   clearToken,
+  deleteMemory,
   deleteSession,
   deleteTodo,
+  fetchMemories,
   fetchProfile,
   fetchSessions,
   fetchTodos,
   updateTodo,
 } from "../api";
-import type { Profile, Session, TodoItem } from "../types";
+import type { MemoryItem, Profile, Session, TodoItem } from "../types";
 
 const { Title, Text } = Typography;
 
@@ -57,11 +60,14 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   // 我的待办
   const [todos, setTodos] = useState<TodoItem[]>([]);
+  // 我的记忆
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
 
   const loadData = useCallback(() => {
     fetchProfile().then(setProfile).catch(() => {});
     fetchSessions().then(setSessions).catch(() => {});
     fetchTodos().then(setTodos).catch(() => {});
+    fetchMemories().then(setMemories).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -109,6 +115,16 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
       message.success("已删除");
     } catch (err) {
       message.error(`删除失败: ${err}`);
+    }
+  };
+
+  const removeMemory = async (id: string) => {
+    try {
+      await deleteMemory(id);
+      setMemories((prev) => prev.filter((m) => m.id !== id));
+      message.success("已忘记这条记忆");
+    } catch (err) {
+      message.error(`操作失败: ${err}`);
     }
   };
 
@@ -267,6 +283,55 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                           description={`优先级 ${t.priority}${
                             t.due_date ? ` · 截止 ${t.due_date}` : ""
                           }`}
+                        />
+                      </List.Item>
+                    )}
+                  />
+                )}
+              </Card>
+            ),
+          },
+          {
+            key: "memories",
+            label: "🧠 我的记忆",
+            children: (
+              <Card className="profile-card">
+                <div className="dim" style={{ marginBottom: 8 }}>
+                  助手从对话中自动记住的关于你的事实与偏好（可删除错误记忆）
+                </div>
+                {memories.length === 0 ? (
+                  <Empty description="还没有记忆——多聊聊天，助手会记住你的偏好" />
+                ) : (
+                  <List
+                    dataSource={memories}
+                    renderItem={(m) => (
+                      <List.Item
+                        actions={[
+                          <Popconfirm
+                            key="del"
+                            title="忘记这条记忆？"
+                            onConfirm={() => removeMemory(m.id)}
+                          >
+                            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                          </Popconfirm>,
+                        ]}
+                      >
+                        <List.Item.Meta
+                          avatar={<BulbOutlined style={{ fontSize: 20, color: "#4f6ef7" }} />}
+                          title={m.fact}
+                          description={
+                            <Space size={8}>
+                              <Tag color="geekblue">{m.category_label}</Tag>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                置信度 {(m.confidence * 100).toFixed(0)}%
+                              </Text>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                {m.created_at
+                                  ? new Date(m.created_at).toLocaleString("zh-CN")
+                                  : ""}
+                              </Text>
+                            </Space>
+                          }
                         />
                       </List.Item>
                     )}

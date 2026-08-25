@@ -183,3 +183,9 @@ class Orchestrator(BaseAgent):
                 )
 
         yield "（已达到最大工具调用轮数，请简化请求后重试）"
+
+    async def close(self) -> None:
+        """释放底层 LLM 客户端连接（与 LangGraph 引擎同一运行协议）。"""
+        close = getattr(self.llm, "close", None)
+        if close is not None:
+            await close()

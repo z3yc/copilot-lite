@@ -48,6 +48,8 @@ class Settings(BaseSettings):
 
     # Agent 循环参数
     AGENT_MAX_TURNS: int = 5  # ReAct 循环最大轮数
+    # Agent 引擎：langgraph（多 Agent 路由，默认）/ handwritten（手写 ReAct，可对比）
+    AGENT_ENGINE: str = "langgraph"
 
     # ---- 预留（后续里程碑启用）----
     REDIS_URL: str = "redis://localhost:6379/0"

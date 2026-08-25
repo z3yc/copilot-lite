@@ -23,6 +23,8 @@ dependencies = [
     "beautifulsoup4>=4.15.0",
     "python-multipart>=0.0.32",
     "pyjwt>=2.13.0",
+    "langgraph>=1.2.11",
+    "langchain-openai>=1.6.0",
 ]
 
 [dependency-groups]

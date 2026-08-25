@@ -65,6 +65,12 @@ export const changePassword = (oldPassword: string, newPassword: string) =>
 
 // ---- 长期记忆 ----
 export const fetchMemories = () => request<MemoryItem[]>("/memories");
+export const updateMemory = (id: string, fact: string, category: string) =>
+  request<MemoryItem>(`/memories/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fact, category }),
+  });
 export const deleteMemory = (id: string) =>
   request<{ deleted: string }>(`/memories/${id}`, { method: "DELETE" });
 

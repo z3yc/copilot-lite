@@ -8,8 +8,10 @@ import {
   Form,
   Input,
   List,
+  Modal,
   Popconfirm,
   Row,
+  Select,
   Space,
   Spin,
   Statistic,
@@ -20,14 +22,15 @@ import {
 } from "antd";
 import {
   ArrowLeftOutlined,
+  BulbOutlined,
   CheckOutlined,
   DeleteOutlined,
+  EditOutlined,
   FileTextOutlined,
   LockOutlined,
   MessageOutlined,
   RobotOutlined,
   TagsOutlined,
-  BulbOutlined,
 } from "@ant-design/icons";
 import {
   changePassword,
@@ -39,6 +42,7 @@ import {
   fetchProfile,
   fetchSessions,
   fetchTodos,
+  updateMemory,
   updateTodo,
 } from "../api";
 import type { MemoryItem, Profile, Session, TodoItem } from "../types";
@@ -125,6 +129,28 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
       message.success("已忘记这条记忆");
     } catch (err) {
       message.error(`操作失败: ${err}`);
+    }
+  };
+
+  // 记忆编辑弹窗
+  const [editMemory, setEditMemory] = useState<MemoryItem | null>(null);
+  const [memForm] = Form.useForm();
+
+  const openEditMemory = (m: MemoryItem) => {
+    setEditMemory(m);
+    memForm.setFieldsValue({ fact: m.fact, category: m.category });
+  };
+
+  const submitMemoryEdit = async () => {
+    if (!editMemory) return;
+    const values = await memForm.validateFields();
+    try {
+      const updated = await updateMemory(editMemory.id, values.fact, values.category);
+      setMemories((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+      message.success("记忆已更新");
+      setEditMemory(null);
+    } catch (err) {
+      message.error(`更新失败: ${err}`);
     }
   };
 
@@ -307,6 +333,13 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                     renderItem={(m) => (
                       <List.Item
                         actions={[
+                          <Button
+                            key="edit"
+                            type="text"
+                            size="small"
+                            icon={<EditOutlined />}
+                            onClick={() => openEditMemory(m)}
+                          />,
                           <Popconfirm
                             key="del"
                             title="忘记这条记忆？"
@@ -426,6 +459,34 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           },
         ]}
       />
+
+      {/* 记忆编辑弹窗 */}
+      <Modal
+        title="编辑记忆"
+        open={!!editMemory}
+        onOk={submitMemoryEdit}
+        onCancel={() => setEditMemory(null)}
+        destroyOnClose
+      >
+        <Form form={memForm} layout="vertical">
+          <Form.Item
+            name="fact"
+            label="记忆内容"
+            rules={[{ required: true, message: "请输入记忆内容" }]}
+          >
+            <Input.TextArea rows={2} maxLength={300} placeholder="修正记忆描述" />
+          </Form.Item>
+          <Form.Item name="category" label="分类">
+            <Select
+              options={[
+                { value: "preference", label: "偏好" },
+                { value: "fact", label: "事实" },
+                { value: "background", label: "背景" },
+              ]}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

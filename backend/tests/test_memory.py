@@ -138,6 +138,32 @@ async def test_delete_removes(db_session) -> None:
 
 
 @pytest.mark.asyncio
+async def test_update_memory(db_session) -> None:
+    """编辑记忆：修正事实与分类。"""
+    from sqlalchemy import select
+
+    svc = MemoryService(embeddings=FakeEmbeddings512())
+    await svc._store(
+        db_session,
+        DEFAULT_USER_ID,
+        uuid.uuid4(),
+        "我在准备后端面试",
+        {"category": "background"},
+    )
+    row = (await db_session.scalars(select(MemoryFact))).all()[0]
+
+    ok = await svc.update(db_session, DEFAULT_USER_ID, row.id, "我在准备前端面试", "fact")
+    assert ok is True
+    await db_session.refresh(row)
+    assert row.fact == "我在准备前端面试"
+    assert row.category == "fact"
+
+    # 越权/不存在返回 False
+    not_ok = await svc.update(db_session, DEFAULT_USER_ID, uuid.uuid4(), "x", "fact")
+    assert not_ok is False
+
+
+@pytest.mark.asyncio
 async def test_memories_api(authed_headers: dict) -> None:
     """记忆 API：列表与删除。"""
 

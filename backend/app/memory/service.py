@@ -169,6 +169,46 @@ class MemoryService:
             logger.warning("记忆向量删除失败: %s", exc)
         return True
 
+    # ---------- 编辑 ----------
+
+    async def update(
+        self,
+        db: AsyncSession,
+        user_id,
+        memory_id: uuid.UUID,
+        fact: str,
+        category: str = "fact",
+    ) -> bool:
+        """编辑记忆：修正事实内容与分类（同步更新向量）。"""
+        row = await db.get(MemoryFact, memory_id)
+        if row is None or row.user_id != user_id:
+            return False
+        row.fact = fact.strip()[:300]
+        row.category = category if category in ("preference", "fact", "background") else "fact"
+        await db.commit()
+
+        # 更新向量（先删旧点，再写新向量）
+        try:
+            await self.vector_store.delete_by_memory(str(memory_id))
+            vec = (await self.embeddings.embed([row.fact]))[0]
+            await self.vector_store.upsert(
+                [
+                    (
+                        row.id,
+                        vec,
+                        {
+                            "memory_id": str(row.id),
+                            "user_id": str(user_id),
+                            "content": row.fact,
+                            "category": row.category,
+                        },
+                    )
+                ]
+            )
+        except Exception as exc:  # noqa: BLE001  向量更新失败不影响表更新
+            logger.warning("记忆向量更新失败: %s", exc)
+        return True
+
 
 @lru_cache
 def get_memory_service() -> MemoryService:

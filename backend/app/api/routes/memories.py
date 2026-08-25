@@ -1,9 +1,9 @@
-"""长期记忆管理接口：列表 / 删除。"""
+"""长期记忆管理接口：列表 / 编辑 / 删除。"""
 
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,6 +54,26 @@ async def list_memories(
     )
     rows = (await db.scalars(stmt)).all()
     return [_to_out(m) for m in rows]
+
+
+class MemoryUpdate(BaseModel):
+    fact: str = Field(min_length=1, max_length=300)
+    category: str = Field(default="fact", pattern="^(preference|fact|background)$")
+
+
+@router.patch("/{memory_id}", response_model=MemoryOut)
+async def update_memory(
+    memory_id: str,
+    req: MemoryUpdate,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> MemoryOut:
+    """编辑记忆：修正事实内容/分类（同步更新向量）。"""
+    ok = await get_memory_service().update(db, user.id, uuid.UUID(memory_id), req.fact, req.category)
+    if not ok:
+        raise HTTPException(status_code=404, detail="记忆不存在")
+    row = await db.get(MemoryFact, uuid.UUID(memory_id))
+    return _to_out(row)
 
 
 @router.delete("/{memory_id}")

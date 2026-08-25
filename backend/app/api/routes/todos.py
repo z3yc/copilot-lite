@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.constants import DEFAULT_USER_ID
+from app.api.deps import get_current_user
 from app.core.db import get_session
-from app.models import Todo
+from app.models import Todo, User
 
 router = APIRouter(prefix="/todos", tags=["todos"])
 
@@ -45,9 +45,11 @@ class TodoUpdate(BaseModel):
 
 @router.get("", response_model=list[TodoOut])
 async def list_todos(
-    status: str | None = None, db: AsyncSession = Depends(get_session)
+    status: str | None = None,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> list[TodoOut]:
-    stmt = select(Todo).where(Todo.user_id == DEFAULT_USER_ID)
+    stmt = select(Todo).where(Todo.user_id == user.id)
     if status:
         stmt = stmt.where(Todo.status == status)
     stmt = stmt.order_by(Todo.created_at.desc())
@@ -56,9 +58,13 @@ async def list_todos(
 
 
 @router.post("", response_model=TodoOut)
-async def create_todo(req: TodoCreate, db: AsyncSession = Depends(get_session)) -> TodoOut:
+async def create_todo(
+    req: TodoCreate,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> TodoOut:
     todo = Todo(
-        user_id=DEFAULT_USER_ID,
+        user_id=user.id,
         title=req.title,
         priority=req.priority,
         due_date=date.fromisoformat(req.due_date) if req.due_date else None,
@@ -70,9 +76,14 @@ async def create_todo(req: TodoCreate, db: AsyncSession = Depends(get_session)) 
 
 
 @router.patch("/{todo_id}", response_model=TodoOut)
-async def update_todo(todo_id: str, req: TodoUpdate, db: AsyncSession = Depends(get_session)) -> TodoOut:
+async def update_todo(
+    todo_id: str,
+    req: TodoUpdate,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> TodoOut:
     todo = await db.get(Todo, uuid.UUID(todo_id))
-    if todo is None:
+    if todo is None or todo.user_id != user.id:
         raise HTTPException(status_code=404, detail="待办不存在")
     todo.status = req.status
     await db.commit()
@@ -81,9 +92,13 @@ async def update_todo(todo_id: str, req: TodoUpdate, db: AsyncSession = Depends(
 
 
 @router.delete("/{todo_id}")
-async def delete_todo(todo_id: str, db: AsyncSession = Depends(get_session)) -> dict:
+async def delete_todo(
+    todo_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
     todo = await db.get(Todo, uuid.UUID(todo_id))
-    if todo is None:
+    if todo is None or todo.user_id != user.id:
         raise HTTPException(status_code=404, detail="待办不存在")
     await db.delete(todo)
     await db.commit()

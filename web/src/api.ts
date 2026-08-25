@@ -1,15 +1,50 @@
 import type { ChatMessage, DocDetail, DocItem, Session, SessionFile } from "./types";
 
 const BASE = "/api/v1";
+const TOKEN_KEY = "kb-token";
+
+// ---- 认证令牌管理 ----
+export const getToken = () => localStorage.getItem(TOKEN_KEY);
+export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t);
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(`${BASE}${path}`, init);
+  const headers = new Headers(init?.headers);
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const resp = await fetch(`${BASE}${path}`, { ...init, headers });
+  if (resp.status === 401) {
+    // 登录过期：清除令牌并通知应用回到登录页
+    clearToken();
+    window.dispatchEvent(new Event("auth-expired"));
+    throw new Error("登录已过期，请重新登录");
+  }
   if (!resp.ok) {
     const detail = await resp.text();
     throw new Error(`请求失败 ${resp.status}: ${detail.slice(0, 200)}`);
   }
   return resp.json() as Promise<T>;
 }
+
+// ---- 认证 ----
+export interface AuthResp {
+  token: string;
+  user: { id: string; username: string; role: string };
+}
+
+export const login = (username: string, password: string) =>
+  request<AuthResp>("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+export const register = (username: string, password: string) =>
+  request<AuthResp>("/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
 
 // ---- 会话 ----
 export const fetchSessions = () => request<Session[]>("/sessions");

@@ -10,9 +10,9 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.constants import DEFAULT_USER_ID
+from app.api.deps import get_current_user
 from app.core.db import get_session
-from app.models import Chunk, Document
+from app.models import Chunk, Document, User
 from app.rag import (
     IngestError,
     get_embedding_service,
@@ -67,6 +67,7 @@ class DocumentOut(BaseModel):
 async def upload_document(
     file: UploadFile,
     db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> DocumentOut:
     """上传文档并触发摄取（解析→分块→嵌入→入库）。"""
     content = await file.read()
@@ -75,7 +76,7 @@ async def upload_document(
 
     source_type = _detect_source_type(file.filename or "")
     document = Document(
-        user_id=DEFAULT_USER_ID,
+        user_id=user.id,
         title=file.filename or "未命名文档",
         source_type=source_type,
         status="uploaded",
@@ -116,13 +117,14 @@ async def list_documents(
     q: str | None = None,
     type: str | None = None,
     db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> list[DocumentOut]:
-    """文档列表。
+    """文档列表（当前用户）。
 
     q:    内容级搜索关键词（标题或分块内容包含）
     type: 按来源类型过滤（md / pdf / docx / code / web）
     """
-    stmt = select(Document)
+    stmt = select(Document).where(Document.user_id == user.id)
     if q and q.strip():
         from sqlalchemy import or_
 
@@ -139,8 +141,12 @@ async def list_documents(
 
 
 @router.get("/{doc_id}", response_model=DocumentOut)
-async def get_document(doc_id: str, db: AsyncSession = Depends(get_session)) -> DocumentOut:
-    doc = await _get_doc(db, doc_id)
+async def get_document(
+    doc_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> DocumentOut:
+    doc = await _get_doc(db, doc_id, user)
     return await _to_out(db, doc)
 
 
@@ -158,10 +164,12 @@ class DocumentDetail(DocumentOut):
 
 @router.get("/{doc_id}/chunks", response_model=DocumentDetail)
 async def get_document_detail(
-    doc_id: str, db: AsyncSession = Depends(get_session)
+    doc_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> DocumentDetail:
     """文档详情：基础信息 + 摄取失败原因 + 分块列表（含标题路径/页码）。"""
-    doc = await _get_doc(db, doc_id)
+    doc = await _get_doc(db, doc_id, user)
     stmt = select(Chunk).where(Chunk.document_id == doc.id).order_by(Chunk.chunk_index)
     chunks = (await db.scalars(stmt)).all()
 
@@ -181,9 +189,13 @@ async def get_document_detail(
 
 
 @router.delete("/{doc_id}")
-async def delete_document(doc_id: str, db: AsyncSession = Depends(get_session)) -> dict:
+async def delete_document(
+    doc_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
     """删除文档（PostgreSQL 分块 + Qdrant 向量 + 原件）。"""
-    doc = await _get_doc(db, doc_id)
+    doc = await _get_doc(db, doc_id, user)
     # 1. 删除 Qdrant 向量
     await get_vector_store().delete_by_document(doc.id)
     # 2. 删除分块与文档（级联）
@@ -199,9 +211,10 @@ async def delete_document(doc_id: str, db: AsyncSession = Depends(get_session)) 
     return {"deleted": doc_id}
 
 
-async def _get_doc(db: AsyncSession, doc_id: str) -> Document:
+async def _get_doc(db: AsyncSession, doc_id: str, user: User) -> Document:
+    """定位文档并校验归属（越权返回 404）。"""
     doc = await db.get(Document, uuid.UUID(doc_id))
-    if doc is None:
+    if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="文档不存在")
     return doc
 

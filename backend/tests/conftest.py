@@ -4,16 +4,38 @@
 """
 
 import os
+import uuid as _uuid
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_copilot.db"
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-import app.models  # noqa: F401  注册模型
-from app.core.db import Base
+import app.models
+from app.core.db import Base, engine
+from app.main import app
 
 _TEST_DB = "test_copilot.db"
+
+
+@pytest.fixture
+async def authed_headers() -> dict:
+    """建表 + 注册测试用户，返回 Authorization 头与用户 id。"""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/auth/register",
+            json={
+                "username": f"u{_uuid.uuid4().hex[:8]}",
+                "password": "secret123",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+    return {"Authorization": f"Bearer {data['token']}", "uid": data["user"]["id"]}
 
 
 @pytest.fixture(autouse=True)

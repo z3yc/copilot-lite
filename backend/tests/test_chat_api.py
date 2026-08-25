@@ -1,11 +1,11 @@
-"""聊天 API 集成测试：FakeLLM 替换真实模型。"""
+"""聊天 API 集成测试（需认证）：FakeLLM 替换真实模型。"""
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 import app.api.routes.chat as chat_module
-from app.core.db import Base, async_session_factory, engine
+from app.core.db import async_session_factory
 from app.core.llm import ChatResult
 from app.main import app
 
@@ -65,18 +65,14 @@ class FakeLLM:
 
 
 @pytest.mark.asyncio
-async def test_chat_creates_session_and_persists(monkeypatch) -> None:
+async def test_chat_creates_session_and_persists(monkeypatch, authed_headers: dict) -> None:
     """POST /chat：新会话创建、消息持久化、返回回复。"""
-    # 准备测试库表结构（lifespan 不会在测试中触发）
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
     fake = FakeLLM([ChatResult(content="你好！我是你的 AI 助理")])
     monkeypatch.setattr(chat_module, "get_llm", lambda: fake)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/api/v1/chat", json={"message": "你好"})
+        resp = await client.post("/api/v1/chat", json={"message": "你好"}, headers=authed_headers)
     assert resp.status_code == 200
     data = resp.json()
     assert data["reply"] == "你好！我是你的 AI 助理"
@@ -92,19 +88,20 @@ async def test_chat_creates_session_and_persists(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_continues_session(monkeypatch) -> None:
+async def test_chat_continues_session(monkeypatch, authed_headers: dict) -> None:
     """携带 session_id 时续接同一会话。"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
     fake = FakeLLM([ChatResult(content="第一轮"), ChatResult(content="第二轮")])
     monkeypatch.setattr(chat_module, "get_llm", lambda: fake)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        r1 = await client.post("/api/v1/chat", json={"message": "第一条"})
+        r1 = await client.post("/api/v1/chat", json={"message": "第一条"}, headers=authed_headers)
         sid = r1.json()["session_id"]
-        r2 = await client.post("/api/v1/chat", json={"message": "第二条", "session_id": sid})
+        r2 = await client.post(
+            "/api/v1/chat",
+            json={"message": "第二条", "session_id": sid},
+            headers=authed_headers,
+        )
 
     assert r2.status_code == 200
     assert r2.json()["session_id"] == sid
@@ -112,11 +109,8 @@ async def test_chat_continues_session(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_requires_key(monkeypatch) -> None:
+async def test_chat_requires_key(monkeypatch, authed_headers: dict) -> None:
     """未配置 API Key 时返回 503 与清晰提示。"""
-    # 路由会先创建会话再检查 Key，因此需要表结构
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
     def _no_key():
         raise RuntimeError("未配置 DEEPSEEK_API_KEY：请在 backend/.env 中设置")
@@ -124,23 +118,20 @@ async def test_chat_requires_key(monkeypatch) -> None:
     monkeypatch.setattr(chat_module, "get_llm", _no_key)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/api/v1/chat", json={"message": "你好"})
+        resp = await client.post("/api/v1/chat", json={"message": "你好"}, headers=authed_headers)
     assert resp.status_code == 503
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_sse(monkeypatch) -> None:
+async def test_chat_stream_sse(monkeypatch, authed_headers: dict) -> None:
     """SSE 流式：session → chunk... → done 事件序列。"""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
     fake = FakeLLM([ChatResult(content="你好，这是流式回复的测试内容。" * 3)])
     monkeypatch.setattr(chat_module, "get_llm", lambda: fake)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:  # noqa: SIM117
         async with client.stream(
-            "POST", "/api/v1/chat/stream", json={"message": "你好"}
+            "POST", "/api/v1/chat/stream", json={"message": "你好"}, headers=authed_headers
         ) as resp:
             assert resp.status_code == 200
             assert resp.headers["content-type"].startswith("text/event-stream")

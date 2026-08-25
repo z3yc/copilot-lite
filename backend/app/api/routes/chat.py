@@ -21,17 +21,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent import Orchestrator
-from app.core.constants import DEFAULT_USER_ID
+from app.api.deps import get_current_user
 from app.core.db import get_session
 from app.core.llm import get_llm
-from app.models import ChatSession, Message
+from app.models import ChatSession, Message, User
 from app.tools import registry
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-# 流式分片大小（字符）
-_CHUNK_SIZE = 40
 
 
 class ChatRequest(BaseModel):
@@ -48,14 +45,16 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-async def _resolve_session(db: AsyncSession, session_id: str | None, title: str) -> ChatSession:
-    """定位或创建会话。"""
+async def _resolve_session(
+    db: AsyncSession, session_id: str | None, title: str, user: User
+) -> ChatSession:
+    """定位（校验归属）或创建会话。"""
     if session_id:
         session = await db.get(ChatSession, uuid.UUID(session_id))
-        if session is None:
+        if session is None or session.user_id != user.id:
             raise HTTPException(status_code=404, detail="会话不存在")
         return session
-    session = ChatSession(user_id=DEFAULT_USER_ID, title=title[:30])
+    session = ChatSession(user_id=user.id, title=title[:30])
     db.add(session)
     await db.commit()
     await db.refresh(session)
@@ -111,7 +110,7 @@ async def _build_context(db: AsyncSession, session_id, history: list[dict]) -> l
     return (file_ctx or []) + history
 
 
-async def _run_agent(db: AsyncSession, history: list[dict], message: str) -> str:
+async def _run_agent(db: AsyncSession, history: list[dict], message: str, user_id) -> str:
     try:
         llm = get_llm()
     except RuntimeError as exc:
@@ -119,7 +118,7 @@ async def _run_agent(db: AsyncSession, history: list[dict], message: str) -> str
     orchestrator = Orchestrator(llm=llm, registry=registry)
     try:
         return await orchestrator.run(
-            session=db, user_id=DEFAULT_USER_ID, history=history, user_message=message
+            session=db, user_id=user_id, history=history, user_message=message
         )
     finally:
         await llm.close()
@@ -132,23 +131,31 @@ async def _persist(db: AsyncSession, session_id, user_msg: str, reply: str) -> N
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(req: ChatRequest, db: AsyncSession = Depends(get_session)) -> ChatResponse:
+async def chat(
+    req: ChatRequest,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> ChatResponse:
     """非流式对话。"""
-    session = await _resolve_session(db, req.session_id, req.message)
+    session = await _resolve_session(db, req.session_id, req.message, user)
     history = await _build_context(db, session.id, await _load_history(db, session.id))
-    reply = await _run_agent(db, history, req.message)
+    reply = await _run_agent(db, history, req.message, user.id)
     await _persist(db, session.id, req.message, reply)
     return ChatResponse(session_id=str(session.id), reply=reply)
 
 
 @router.post("/stream")
-async def chat_stream(req: ChatRequest, db: AsyncSession = Depends(get_session)):
+async def chat_stream(
+    req: ChatRequest,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
     """SSE 流式对话（token 级流式，打字机效果）。
 
     编排器以流式模式运行：文本轮逐 token 实时转发（chunk 事件），
     工具调用轮在后台执行（不阻塞、不产生用户可见文本）。
     """
-    session = await _resolve_session(db, req.session_id, req.message)
+    session = await _resolve_session(db, req.session_id, req.message, user)
     history = await _build_context(db, session.id, await _load_history(db, session.id))
 
     # Key 检查提前到响应前（错误可返回 HTTP 状态码）
@@ -167,7 +174,7 @@ async def chat_stream(req: ChatRequest, db: AsyncSession = Depends(get_session))
             orchestrator = Orchestrator(llm=llm, registry=registry)
             async for text in orchestrator.run_stream(
                 session=db,
-                user_id=DEFAULT_USER_ID,
+                user_id=user.id,
                 history=history,
                 user_message=req.message,
             ):

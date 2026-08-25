@@ -1,25 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   App as AntApp,
+  Avatar,
   Button,
   ConfigProvider,
   Layout,
+  Space,
   Tabs,
-  theme,
   Tooltip,
+  theme,
 } from "antd";
 import zhCN from "antd/locale/zh_CN";
-import { BulbOutlined, MoonOutlined } from "@ant-design/icons";
-import { fetchMessages } from "./api";
+import { BulbOutlined, LogoutOutlined, MoonOutlined } from "@ant-design/icons";
+import { clearToken, fetchMessages, getToken } from "./api";
 import ChatPanel from "./components/ChatPanel";
 import DocCategoryNav from "./components/DocCategoryNav";
 import KbPanel from "./components/KbPanel";
+import LoginPage from "./components/LoginPage";
 import SessionList from "./components/SessionList";
 import type { ChatMessage } from "./types";
 
 const { Sider, Content } = Layout;
 
 export default function App() {
+  const [authed, setAuthed] = useState<boolean>(() => !!getToken());
   const [tab, setTab] = useState<"chat" | "kb">("chat");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -28,6 +32,20 @@ export default function App() {
   const [dark, setDark] = useState<boolean>(
     () => localStorage.getItem("kb-theme") === "dark"
   );
+
+  // 令牌过期事件（api.ts 401 时触发）
+  useEffect(() => {
+    const onExpired = () => setAuthed(false);
+    window.addEventListener("auth-expired", onExpired);
+    return () => window.removeEventListener("auth-expired", onExpired);
+  }, []);
+
+  const logout = () => {
+    clearToken();
+    setAuthed(false);
+    setSessionId(null);
+    setMessages([]);
+  };
 
   useEffect(() => {
     document.body.classList.toggle("dark", dark);
@@ -63,6 +81,9 @@ export default function App() {
       }}
     >
       <AntApp>
+        {!authed ? (
+          <LoginPage onSuccess={() => setAuthed(true)} />
+        ) : (
         <Layout style={{ height: "100vh" }}>
           <Sider
             width={280}
@@ -96,15 +117,36 @@ export default function App() {
               <DocCategoryNav activeCat={activeCat} onChange={setActiveCat} />
             )}
             <div style={{ padding: 12, borderTop: "1px solid var(--border)" }}>
-              <Tooltip title={dark ? "切换到亮色模式" : "切换到暗色模式"}>
-                <Button
-                  block
-                  icon={dark ? <BulbOutlined /> : <MoonOutlined />}
-                  onClick={() => setDark(!dark)}
-                >
-                  {dark ? "亮色模式" : "暗色模式"}
-                </Button>
-              </Tooltip>
+              <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                <Space style={{ width: "100%", justifyContent: "space-between" }}>
+                  <Space size={8}>
+                    <Avatar size={28} style={{ backgroundColor: "#4f6ef7" }}>
+                      {(getToken() ? "青" : "U")[0]}
+                    </Avatar>
+                    <span style={{ fontSize: 13, color: "var(--text)" }}>
+                      青木的助理
+                    </span>
+                  </Space>
+                  <Tooltip title="退出登录">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<LogoutOutlined />}
+                      onClick={logout}
+                    />
+                  </Tooltip>
+                </Space>
+                <Tooltip title={dark ? "切换到亮色模式" : "切换到暗色模式"}>
+                  <Button
+                    block
+                    size="small"
+                    icon={dark ? <BulbOutlined /> : <MoonOutlined />}
+                    onClick={() => setDark(!dark)}
+                  >
+                    {dark ? "亮色模式" : "暗色模式"}
+                  </Button>
+                </Tooltip>
+              </Space>
             </div>
           </Sider>
           <Content style={{ display: "flex", overflow: "hidden" }}>
@@ -122,6 +164,7 @@ export default function App() {
             )}
           </Content>
         </Layout>
+        )}
       </AntApp>
     </ConfigProvider>
   );

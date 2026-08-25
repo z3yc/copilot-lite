@@ -10,9 +10,9 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.constants import DEFAULT_USER_ID
+from app.api.deps import get_current_user
 from app.core.db import get_session
-from app.models import ChatSession, Message, SessionFile
+from app.models import ChatSession, Message, SessionFile, User
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -74,9 +74,12 @@ def _extract_text(filename: str, content: bytes) -> str:
 
 
 @router.post("", response_model=SessionOut)
-async def create_session(db: AsyncSession = Depends(get_session)) -> SessionOut:
+async def create_session(
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> SessionOut:
     """创建会话（供前端上传附件等场景预创建）。"""
-    session = ChatSession(user_id=DEFAULT_USER_ID, title="新会话")
+    session = ChatSession(user_id=user.id, title="新会话")
     db.add(session)
     await db.commit()
     await db.refresh(session)
@@ -84,12 +87,15 @@ async def create_session(db: AsyncSession = Depends(get_session)) -> SessionOut:
 
 
 @router.get("", response_model=list[SessionOut])
-async def list_sessions(db: AsyncSession = Depends(get_session)) -> list[SessionOut]:
+async def list_sessions(
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[SessionOut]:
     """当前用户的会话列表（按更新时间倒序）。"""
     stmt = (
         select(ChatSession, func.count(Message.id).label("cnt"))
         .outerjoin(Message, Message.session_id == ChatSession.id)
-        .where(ChatSession.user_id == DEFAULT_USER_ID)
+        .where(ChatSession.user_id == user.id)
         .group_by(ChatSession.id)
         .order_by(ChatSession.updated_at.desc())
     )
@@ -106,9 +112,13 @@ async def list_sessions(db: AsyncSession = Depends(get_session)) -> list[Session
 
 
 @router.get("/{session_id}/messages", response_model=list[MessageOut])
-async def session_messages(session_id: str, db: AsyncSession = Depends(get_session)) -> list[MessageOut]:
+async def session_messages(
+    session_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[MessageOut]:
     """会话的历史消息（按时间正序）。"""
-    session = await _get_session(db, session_id)
+    session = await _get_session(db, session_id, user)
     stmt = (
         select(Message)
         .where(Message.session_id == session.id)
@@ -127,9 +137,13 @@ async def session_messages(session_id: str, db: AsyncSession = Depends(get_sessi
 
 
 @router.delete("/{session_id}")
-async def delete_session(session_id: str, db: AsyncSession = Depends(get_session)) -> dict:
+async def delete_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
     """删除会话（消息与附件级联删除）。"""
-    session = await _get_session(db, session_id)
+    session = await _get_session(db, session_id, user)
     await db.delete(session)
     await db.commit()
     return {"deleted": session_id}
@@ -139,10 +153,13 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_session
 
 @router.post("/{session_id}/files", response_model=SessionFileOut)
 async def upload_session_file(
-    session_id: str, file: UploadFile, db: AsyncSession = Depends(get_session)
+    session_id: str,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> SessionFileOut:
     """上传会话附件：提取文本入库，仅本次会话可见，不进入知识库。"""
-    session = await _get_session(db, session_id)
+    session = await _get_session(db, session_id, user)
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="文件内容为空")
@@ -165,9 +182,13 @@ async def upload_session_file(
 
 
 @router.get("/{session_id}/files", response_model=list[SessionFileOut])
-async def list_session_files(session_id: str, db: AsyncSession = Depends(get_session)) -> list[SessionFileOut]:
+async def list_session_files(
+    session_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[SessionFileOut]:
     """会话附件列表。"""
-    session = await _get_session(db, session_id)
+    session = await _get_session(db, session_id, user)
     stmt = (
         select(SessionFile)
         .where(SessionFile.session_id == session.id)
@@ -187,10 +208,13 @@ async def list_session_files(session_id: str, db: AsyncSession = Depends(get_ses
 
 @router.delete("/{session_id}/files/{file_id}")
 async def delete_session_file(
-    session_id: str, file_id: str, db: AsyncSession = Depends(get_session)
+    session_id: str,
+    file_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
 ) -> dict:
     """删除会话附件。"""
-    await _get_session(db, session_id)
+    await _get_session(db, session_id, user)
     sf = await db.get(SessionFile, uuid.UUID(file_id))
     if sf is None:
         raise HTTPException(status_code=404, detail="附件不存在")
@@ -199,8 +223,9 @@ async def delete_session_file(
     return {"deleted": file_id}
 
 
-async def _get_session(db: AsyncSession, session_id: str) -> ChatSession:
+async def _get_session(db: AsyncSession, session_id: str, user: User) -> ChatSession:
+    """定位会话并校验归属（越权访问返回 404）。"""
     session = await db.get(ChatSession, uuid.UUID(session_id))
-    if session is None:
+    if session is None or session.user_id != user.id:
         raise HTTPException(status_code=404, detail="会话不存在")
     return session

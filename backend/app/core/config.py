@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     # 运行模式：local（本地开发，SQLite 零依赖）/ cloud（云端，PostgreSQL）
     RUN_MODE: str = "local"
 
+    # JWT 签名密钥（生产必须通过 .env 覆盖为强随机值）
+    SECRET_KEY: str = "dev-secret-change-me-in-production"
+
     # ---- 存储 ----
     # 本地默认 SQLite；云端设置为 PostgreSQL，例如：
     # postgresql+asyncpg://user:pass@localhost:5432/copilot

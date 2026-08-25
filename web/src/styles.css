@@ -33,6 +33,23 @@ body {
   height: 100vh;
 }
 
+/* ===== 登录页 ===== */
+.login-wrap {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #eef1ff 0%, #f5f6fa 60%);
+}
+body.dark .login-wrap {
+  background: linear-gradient(135deg, #1a1a2e 0%, #141414 60%);
+}
+.login-card {
+  width: 380px;
+  box-shadow: 0 8px 32px rgba(79, 110, 247, 0.15);
+  border-radius: 16px;
+}
+
 /* ===== 聊天面板 ===== */
 .chat-panel {
   flex: 1;

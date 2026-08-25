@@ -68,3 +68,69 @@ def test_parser_registry() -> None:
     """五种解析器全部注册。"""
     types = sorted(get_parser(t) is not None for t in ["md", "pdf", "docx", "code", "web"])
     assert all(types)
+
+
+def test_code_parser() -> None:
+    """代码解析器：保留文件路径信息。"""
+    parsed = get_parser("code").parse(
+        b"def hello():\n    return 'hi'\n",
+        meta={"file_path": "src/main.py"},
+    )
+    assert parsed.title == "src/main.py"
+    assert parsed.sections[0].heading == "src/main.py"
+    assert "hello" in parsed.sections[0].content
+
+
+def test_web_parser() -> None:
+    """网页解析器：提取标题结构与正文，剔除噪声。"""
+    html = """<html><head><title>测试页面</title></head>
+    <body>
+      <script>var x = 1;</script>
+      <nav>导航</nav>
+      <h1>主标题</h1>
+      <p>这是正文第一段。</p>
+      <h2>小标题</h2>
+      <p>第二段内容。</p>
+    </body></html>"""
+    parsed = get_parser("web").parse(html.encode())
+    assert parsed.title == "测试页面"
+    headings = [s.heading for s in parsed.sections]
+    assert headings == ["主标题", "小标题"]
+    assert "第一段" in parsed.sections[0].content
+    assert "导航" not in parsed.sections[0].content  # nav 已被剔除
+
+
+def test_docx_parser() -> None:
+    """DOCX 解析器：按 Heading 样式切分。"""
+    from io import BytesIO
+
+    from docx import Document as DocxDocument
+
+    doc = DocxDocument()
+    doc.add_heading("标题一", level=1)
+    doc.add_paragraph("标题一的内容。")
+    doc.add_heading("标题二", level=2)
+    doc.add_paragraph("标题二的内容。")
+    buf = BytesIO()
+    doc.save(buf)
+
+    parsed = get_parser("docx").parse(buf.getvalue())
+    headings = [s.heading for s in parsed.sections]
+    assert headings == ["标题一", "标题二"]
+    assert "标题一的内容" in parsed.sections[0].content
+
+
+def test_pdf_parser_blank() -> None:
+    """PDF 解析器：无文本页不产生章节（空白 PDF）。"""
+    from io import BytesIO
+
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    buf = BytesIO()
+    writer.write(buf)
+
+    parsed = get_parser("pdf").parse(buf.getvalue())
+    assert parsed.source_type == "pdf"
+    assert parsed.sections == []

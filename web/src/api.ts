@@ -19,7 +19,8 @@ export const deleteSession = (sessionId: string) =>
   request<{ deleted: string }>(`/sessions/${sessionId}`, { method: "DELETE" });
 
 // ---- 文档 ----
-export const fetchDocs = () => request<DocItem[]>("/documents");
+export const fetchDocs = (q?: string) =>
+  request<DocItem[]>(`/documents${q ? `?q=${encodeURIComponent(q)}` : ""}`);
 export const fetchDocDetail = (docId: string) =>
   request<DocDetail>(`/documents/${docId}/chunks`);
 export const deleteDoc = (docId: string) =>

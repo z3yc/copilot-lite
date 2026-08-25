@@ -6,7 +6,6 @@ import {
   Empty,
   Input,
   Popconfirm,
-  Segmented,
   Space,
   Spin,
   Tag,
@@ -18,6 +17,7 @@ import {
   DeleteOutlined,
   InboxOutlined,
   ReloadOutlined,
+  SearchOutlined,
 } from "@ant-design/icons";
 import { deleteDoc, fetchDocDetail, fetchDocs, uploadDocs } from "../api";
 import type { DocDetail, DocItem } from "../types";
@@ -43,68 +43,29 @@ function StatusTag({ status }: { status: string }) {
   return <Tag color="error">失败</Tag>;
 }
 
-export default function KbPanel() {
+interface Props {
+  activeCat: string;
+  onCatChange: (cat: string) => void;
+}
+
+export default function KbPanel({ activeCat, onCatChange }: Props) {
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DocDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  const [activeCat, setActiveCat] = useState<string>("all");
   const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const load = async () => {
-    try {
-      setDocs(await fetchDocs());
-    } catch (err) {
-      console.error("加载知识库失败", err);
-    }
-  };
-
+  // 加载（含内容级搜索关键词，300ms 防抖）
   useEffect(() => {
-    load();
-  }, []);
-
-  // 分类统计（数量徽标）
-  const catCount = useMemo(() => {
-    const map = new Map<string, number>();
-    docs.forEach((d) => map.set(d.source_type, (map.get(d.source_type) ?? 0) + 1));
-    return map;
-  }, [docs]);
-
-  // 分类选项：全部 + 实际存在的类型
-  const catOptions = useMemo(() => {
-    const opts: { label: string; value: string }[] = [
-      { label: `全部 (${docs.length})`, value: "all" },
-    ];
-    Object.entries(SOURCE_META).forEach(([key, meta]) => {
-      const n = catCount.get(key) ?? 0;
-      opts.push({ label: `${meta.icon} ${meta.label} (${n})`, value: key });
-    });
-    return opts;
-  }, [catCount, docs.length]);
-
-  // 过滤：分类 + 搜索
-  const filtered = useMemo(() => {
-    const kw = search.trim().toLowerCase();
-    return docs.filter(
-      (d) =>
-        (activeCat === "all" || d.source_type === activeCat) &&
-        (!kw || d.title.toLowerCase().includes(kw))
-    );
-  }, [docs, activeCat, search]);
-
-  // 按类型分组展示
-  const groups = useMemo(() => {
-    const g = new Map<string, DocItem[]>();
-    filtered.forEach((d) => {
-      const meta = SOURCE_META[d.source_type] ?? { label: "其他", icon: "📄" };
-      const key = `${meta.icon} ${meta.label}`;
-      if (!g.has(key)) g.set(key, []);
-      g.get(key)!.push(d);
-    });
-    return Array.from(g.entries());
-  }, [filtered]);
+    const timer = setTimeout(() => {
+      fetchDocs(search.trim() || undefined)
+        .then(setDocs)
+        .catch((err) => console.error("加载知识库失败", err));
+    }, search ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [search, activeCat]);
 
   const toggleDetail = async (id: string) => {
     if (expandedId === id) {
@@ -129,7 +90,8 @@ export default function KbPanel() {
     try {
       const results = await uploadDocs(Array.from(files));
       message.success(`上传成功 ${results.length} 个文档`);
-      await load();
+      setSearch("");
+      fetchDocs().then(setDocs).catch(() => {});
     } catch (err) {
       message.error(`上传失败: ${err}`);
     } finally {
@@ -146,11 +108,25 @@ export default function KbPanel() {
         setDetail(null);
       }
       message.success("已删除");
-      load();
+      fetchDocs(search.trim() || undefined).then(setDocs).catch(() => {});
     } catch (err) {
       message.error(`删除失败: ${err}`);
     }
   };
+
+  // 按类型分组展示（搜索/分类已由后端 + 侧边栏过滤，这里仅分组）
+  const groups = useMemo(() => {
+    const g = new Map<string, DocItem[]>();
+    docs.forEach((d) => {
+      const meta = SOURCE_META[d.source_type] ?? { label: "其他", icon: "📄" };
+      const key = `${meta.icon} ${meta.label}`;
+      if (!g.has(key)) g.set(key, []);
+      g.get(key)!.push(d);
+    });
+    return Array.from(g.entries());
+  }, [docs]);
+
+  const hasOtherCats = docs.some((d) => d.source_type !== activeCat);
 
   return (
     <div className="kb-panel">
@@ -159,13 +135,14 @@ export default function KbPanel() {
           <Text strong style={{ fontSize: 16 }}>
             📚 知识库管理
           </Text>
-          <Button size="small" icon={<ReloadOutlined />} onClick={load} />
+          <Button size="small" icon={<ReloadOutlined />} onClick={() => fetchDocs().then(setDocs)} />
         </Space>
         <Space>
           <Search
-            placeholder="搜索文档标题"
+            placeholder="搜索标题或文档内容"
             allowClear
-            style={{ width: 200 }}
+            prefix={<SearchOutlined />}
+            style={{ width: 220 }}
             onChange={(e) => setSearch(e.target.value)}
           />
           <Button
@@ -188,37 +165,49 @@ export default function KbPanel() {
       </div>
 
       <div className="kb-body">
-        {/* 分类筛选 */}
-        <div style={{ marginBottom: 12 }}>
-          <Segmented
-            options={catOptions}
-            value={activeCat}
-            onChange={(v) => setActiveCat(v as string)}
-          />
-        </div>
+        {/* 当前分类提示（点击可清除分类回到全部） */}
+        {activeCat !== "all" && (
+          <div className="kb-cat-hint">
+            当前筛选：
+            <Tag
+              closable
+              color="geekblue"
+              onClose={() => onCatChange("all")}
+            >
+              {SOURCE_META[activeCat]?.icon} {SOURCE_META[activeCat]?.label}
+            </Tag>
+            {hasOtherCats && (
+              <Button type="link" size="small" onClick={() => onCatChange("all")}>
+                查看全部
+              </Button>
+            )}
+          </div>
+        )}
 
         {docs.length === 0 ? (
-          <Empty description="知识库为空，点击右上角上传文档">
-            <Upload
-              multiple
-              accept={ACCEPT}
-              showUploadList={false}
-              beforeUpload={(file) => {
-                onUpload([file] as unknown as FileList);
-                return false;
-              }}
-            >
-              <Dragger style={{ padding: 24 }}>
-                <p style={{ fontSize: 40, margin: 0 }}>📥</p>
-                <Text>点击或拖拽文档到此处上传</Text>
-                <div className="dim" style={{ fontSize: 12 }}>
-                  支持 Markdown / PDF / Word / 代码 / 网页
-                </div>
-              </Dragger>
-            </Upload>
-          </Empty>
-        ) : filtered.length === 0 ? (
-          <Empty description="没有匹配的文档，换个关键词试试" />
+          search ? (
+            <Empty description="没有匹配的文档，换个关键词试试" />
+          ) : (
+            <Empty description="知识库为空，点击右上角上传文档">
+              <Upload
+                multiple
+                accept={ACCEPT}
+                showUploadList={false}
+                beforeUpload={(file) => {
+                  onUpload([file] as unknown as FileList);
+                  return false;
+                }}
+              >
+                <Dragger style={{ padding: 24 }}>
+                  <p style={{ fontSize: 40, margin: 0 }}>📥</p>
+                  <Text>点击或拖拽文档到此处上传</Text>
+                  <div className="dim" style={{ fontSize: 12 }}>
+                    支持 Markdown / PDF / Word / 代码 / 网页
+                  </div>
+                </Dragger>
+              </Upload>
+            </Empty>
+          )
         ) : (
           <div className="kb-list">
             {groups.map(([groupName, items]) => (

@@ -1,40 +1,38 @@
 import { useCallback, useEffect, useState } from "react";
-import { App as AntApp, Card, ConfigProvider, Layout, Statistic, Tabs, theme } from "antd";
+import {
+  App as AntApp,
+  Button,
+  ConfigProvider,
+  Layout,
+  Tabs,
+  theme,
+  Tooltip,
+} from "antd";
 import zhCN from "antd/locale/zh_CN";
-import { FileTextOutlined, MessageOutlined } from "@ant-design/icons";
-import { fetchDocs, fetchMessages } from "./api";
+import { BulbOutlined, MoonOutlined } from "@ant-design/icons";
+import { fetchMessages } from "./api";
 import ChatPanel from "./components/ChatPanel";
+import DocCategoryNav from "./components/DocCategoryNav";
 import KbPanel from "./components/KbPanel";
 import SessionList from "./components/SessionList";
-import type { ChatMessage, DocItem } from "./types";
+import type { ChatMessage } from "./types";
 
 const { Sider, Content } = Layout;
-
-function KbStats() {
-  const [docs, setDocs] = useState<DocItem[]>([]);
-  useEffect(() => {
-    fetchDocs()
-      .then(setDocs)
-      .catch(() => {});
-  }, []);
-  const chunks = docs.reduce((sum, d) => sum + d.chunk_count, 0);
-  return (
-    <div style={{ padding: "0 12px" }}>
-      <Card size="small" style={{ marginBottom: 8 }}>
-        <Statistic title="知识库文档" value={docs.length} prefix={<FileTextOutlined />} />
-      </Card>
-      <Card size="small">
-        <Statistic title="全库分块" value={chunks} prefix={<MessageOutlined />} />
-      </Card>
-    </div>
-  );
-}
 
 export default function App() {
   const [tab, setTab] = useState<"chat" | "kb">("chat");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
+  const [activeCat, setActiveCat] = useState<string>("all");
+  const [dark, setDark] = useState<boolean>(
+    () => localStorage.getItem("kb-theme") === "dark"
+  );
+
+  useEffect(() => {
+    document.body.classList.toggle("dark", dark);
+    localStorage.setItem("kb-theme", dark ? "dark" : "light");
+  }, [dark]);
 
   const selectSession = useCallback(async (id: string) => {
     setTab("chat");
@@ -57,7 +55,7 @@ export default function App() {
     <ConfigProvider
       locale={zhCN}
       theme={{
-        algorithm: theme.defaultAlgorithm,
+        algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: {
           colorPrimary: "#4f6ef7",
           borderRadius: 10,
@@ -70,10 +68,11 @@ export default function App() {
             width={280}
             theme="light"
             style={{
-              borderRight: "1px solid #e4e7ef",
+              borderRight: "1px solid var(--border)",
               display: "flex",
               flexDirection: "column",
               overflow: "hidden",
+              background: "var(--panel)",
             }}
           >
             <div style={{ padding: "12px 12px 0" }}>
@@ -94,8 +93,19 @@ export default function App() {
                 onNew={newSession}
               />
             ) : (
-              <KbStats />
+              <DocCategoryNav activeCat={activeCat} onChange={setActiveCat} />
             )}
+            <div style={{ padding: 12, borderTop: "1px solid var(--border)" }}>
+              <Tooltip title={dark ? "切换到亮色模式" : "切换到暗色模式"}>
+                <Button
+                  block
+                  icon={dark ? <BulbOutlined /> : <MoonOutlined />}
+                  onClick={() => setDark(!dark)}
+                >
+                  {dark ? "亮色模式" : "暗色模式"}
+                </Button>
+              </Tooltip>
+            </div>
           </Sider>
           <Content style={{ display: "flex", overflow: "hidden" }}>
             {tab === "chat" ? (
@@ -108,7 +118,7 @@ export default function App() {
                 setBusy={setBusy}
               />
             ) : (
-              <KbPanel />
+              <KbPanel activeCat={activeCat} onCatChange={setActiveCat} />
             )}
           </Content>
         </Layout>

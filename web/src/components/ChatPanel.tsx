@@ -1,16 +1,29 @@
 import { marked } from "marked";
 import { useEffect, useRef, useState } from "react";
-import { Avatar, Button, Input, Space, Typography } from "antd";
 import {
+  Avatar,
+  Button,
+  Input,
+  Space,
+  Tooltip,
+  Typography,
+  Upload,
+  message,
+} from "antd";
+import {
+  PaperClipOutlined,
   RobotOutlined,
   SendOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { streamChat } from "../api";
+import { streamChat, uploadDocs } from "../api";
 import type { ChatMessage } from "../types";
 
 const { TextArea } = Input;
 const { Text } = Typography;
+
+const ACCEPT =
+  ".md,.txt,.pdf,.docx,.py,.js,.ts,.tsx,.jsx,.java,.go,.rs,.c,.cpp,.sql,.html,.htm";
 
 interface Props {
   sessionId: string | null;
@@ -140,9 +153,27 @@ export default function ChatPanel({
       </div>
 
       <div className="input-bar">
+        <Tooltip title="上传文档/代码到知识库，上传后可提问相关内容">
+          <Upload
+            multiple
+            accept={ACCEPT}
+            showUploadList={false}
+            beforeUpload={async (file) => {
+              try {
+                const results = await uploadDocs([file]);
+                message.success(`已上传「${results[0]?.title}」到知识库，可以提问了`);
+              } catch (err) {
+                message.error(`上传失败: ${err}`);
+              }
+              return false;
+            }}
+          >
+            <Button icon={<PaperClipOutlined />} disabled={busy} />
+          </Upload>
+        </Tooltip>
         <TextArea
           value={input}
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+          placeholder="输入消息，Enter 发送，Shift+Enter 换行；或点击左侧📎上传文件"
           autoSize={{ minRows: 1, maxRows: 4 }}
           onChange={(e) => setInput(e.target.value)}
           onPressEnter={(e) => {

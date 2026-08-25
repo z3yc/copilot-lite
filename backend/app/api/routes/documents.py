@@ -112,8 +112,20 @@ async def upload_document(
 
 
 @router.get("", response_model=list[DocumentOut])
-async def list_documents(db: AsyncSession = Depends(get_session)) -> list[DocumentOut]:
-    stmt = select(Document).order_by(Document.created_at.desc())
+async def list_documents(
+    q: str | None = None, db: AsyncSession = Depends(get_session)
+) -> list[DocumentOut]:
+    """文档列表；q 参数支持内容级搜索（标题或分块内容包含关键词）。"""
+    stmt = select(Document)
+    if q and q.strip():
+        from sqlalchemy import or_
+
+        kw = f"%{q.strip()}%"
+        content_hits = select(Chunk.document_id).where(Chunk.content.ilike(kw))
+        stmt = stmt.where(
+            or_(Document.title.ilike(kw), Document.id.in_(content_hits))
+        )
+    stmt = stmt.order_by(Document.created_at.desc())
     docs = (await db.scalars(stmt)).all()
     return [await _to_out(db, d) for d in docs]
 

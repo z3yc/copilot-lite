@@ -77,3 +77,76 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_session)) -> A
 async def me(user: User = Depends(get_current_user)) -> UserOut:
     """当前登录用户信息。"""
     return UserOut(id=str(user.id), username=user.username, role=user.role)
+
+
+class ProfileOut(UserOut):
+    created_at: str | None = None
+    session_count: int = 0
+    message_count: int = 0
+    todo_count: int = 0
+    doc_count: int = 0
+    chunk_count: int = 0
+
+
+@router.get("/profile", response_model=ProfileOut)
+async def profile(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+) -> ProfileOut:
+    """个人主页数据：账号信息 + 使用统计。"""
+    from sqlalchemy import func
+
+    from app.models import ChatSession, Chunk, Document, Message, Todo
+
+    session_count = await db.scalar(
+        select(func.count()).select_from(ChatSession).where(ChatSession.user_id == user.id)
+    )
+    todo_count = await db.scalar(
+        select(func.count()).select_from(Todo).where(Todo.user_id == user.id)
+    )
+    doc_count = await db.scalar(
+        select(func.count()).select_from(Document).where(Document.user_id == user.id)
+    )
+    chunk_count = await db.scalar(
+        select(func.count())
+        .select_from(Chunk)
+        .join(Document, Chunk.document_id == Document.id)
+        .where(Document.user_id == user.id)
+    )
+    message_count = await db.scalar(
+        select(func.count())
+        .select_from(Message)
+        .join(ChatSession, Message.session_id == ChatSession.id)
+        .where(ChatSession.user_id == user.id)
+    )
+
+    return ProfileOut(
+        id=str(user.id),
+        username=user.username,
+        role=user.role,
+        created_at=user.created_at.isoformat() if user.created_at else None,
+        session_count=session_count or 0,
+        message_count=message_count or 0,
+        todo_count=todo_count or 0,
+        doc_count=doc_count or 0,
+        chunk_count=chunk_count or 0,
+    )
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=6, max_length=64)
+
+
+@router.post("/change-password")
+async def change_password(
+    req: ChangePasswordRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """修改密码（需验证原密码）。"""
+    if not verify_password(req.old_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="原密码错误")
+    user.password_hash = hash_password(req.new_password)
+    await db.commit()
+    return {"ok": True, "message": "密码已更新"}

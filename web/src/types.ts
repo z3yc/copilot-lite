@@ -40,6 +40,18 @@ export interface SessionFile {
   created_at?: string;
 }
 
+export interface Profile {
+  id: string;
+  username: string;
+  role: string;
+  created_at?: string;
+  session_count: number;
+  message_count: number;
+  todo_count: number;
+  doc_count: number;
+  chunk_count: number;
+}
+
 export interface TodoItem {
   id: string;
   title: string;

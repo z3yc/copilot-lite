@@ -17,6 +17,7 @@ import ChatPanel from "./components/ChatPanel";
 import DocCategoryNav from "./components/DocCategoryNav";
 import KbPanel from "./components/KbPanel";
 import LoginPage from "./components/LoginPage";
+import ProfilePage from "./components/ProfilePage";
 import SessionList from "./components/SessionList";
 import type { ChatMessage } from "./types";
 
@@ -29,6 +30,7 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [activeCat, setActiveCat] = useState<string>("all");
+  const [showProfile, setShowProfile] = useState(false);
   const [dark, setDark] = useState<boolean>(
     () => localStorage.getItem("kb-theme") === "dark"
   );
@@ -118,8 +120,15 @@ export default function App() {
             )}
             <div style={{ padding: 12, borderTop: "1px solid var(--border)" }}>
               <Space direction="vertical" style={{ width: "100%" }} size={8}>
-                <Space style={{ width: "100%", justifyContent: "space-between" }}>
-                  <Space size={8}>
+                <Space
+                  style={{ width: "100%", justifyContent: "space-between" }}
+                >
+                  <Space
+                    size={8}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => setShowProfile(true)}
+                    title="个人主页"
+                  >
                     <Avatar size={28} style={{ backgroundColor: "#4f6ef7" }}>
                       {(getToken() ? "青" : "U")[0]}
                     </Avatar>
@@ -150,7 +159,9 @@ export default function App() {
             </div>
           </Sider>
           <Content style={{ display: "flex", overflow: "hidden" }}>
-            {tab === "chat" ? (
+            {showProfile ? (
+              <ProfilePage onBack={() => setShowProfile(false)} />
+            ) : tab === "chat" ? (
               <ChatPanel
                 sessionId={sessionId}
                 initialMessages={messages}

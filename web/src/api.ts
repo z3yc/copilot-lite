@@ -1,4 +1,4 @@
-import type { ChatMessage, DocDetail, DocItem, Session, SessionFile } from "./types";
+import type { ChatMessage, DocDetail, DocItem, Profile, Session, SessionFile } from "./types";
 
 const BASE = "/api/v1";
 const TOKEN_KEY = "kb-token";
@@ -44,6 +44,13 @@ export const register = (username: string, password: string) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
+  });
+export const fetchProfile = () => request<Profile>("/auth/profile");
+export const changePassword = (oldPassword: string, newPassword: string) =>
+  request<{ ok: boolean; message: string }>("/auth/change-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
   });
 
 // ---- 会话 ----

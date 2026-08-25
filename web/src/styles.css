@@ -274,3 +274,15 @@ body.dark .login-wrap {
   color: var(--dim);
   font-size: 13px;
 }
+
+/* ===== 个人主页 ===== */
+.profile-wrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+.profile-card {
+  border-radius: 14px;
+}

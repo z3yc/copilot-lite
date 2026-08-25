@@ -58,7 +58,9 @@ class Settings(BaseSettings):
     QDRANT_URL: str = "http://localhost:6333"
     # 检索参数
     RAG_TOP_K: int = 5  # 向量/BM25 各自召回数
-    RAG_RERANK_TOP_K: int = 3  # 融合后精排保留数
+    RAG_RERANK_CANDIDATE_K: int = 10  # RRF 融合后进入精排的候选数
+    RAG_RERANK_TOP_N: int = 3  # 精排后最终注入 LLM 的前 N 条
+    RAG_RERANK_ENABLED: bool = True  # Rerank 精排开关（可对比效果）
 
     # 长期记忆
     MEMORY_TOP_K: int = 5  # 每次召回记忆条数

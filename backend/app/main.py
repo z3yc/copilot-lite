@@ -8,11 +8,22 @@ from fastapi import FastAPI
 import app.models
 from app.api import api_router
 from app.core.config import settings
-from app.core.db import Base, engine
+from app.core.constants import DEFAULT_USER_ID, DEFAULT_USERNAME
+from app.core.db import Base, async_session_factory, engine
 from app.core.logging import setup_logging
+from app.models import User
 
 setup_logging(settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
+
+
+async def _seed_default_user() -> None:
+    """P1 简化：确保默认用户存在（单用户模式）。"""
+    async with async_session_factory() as session:
+        if await session.get(User, DEFAULT_USER_ID) is None:
+            session.add(User(id=DEFAULT_USER_ID, username=DEFAULT_USERNAME, password_hash=""))
+            await session.commit()
+            logger.info("已创建默认用户: %s", DEFAULT_USERNAME)
 
 
 @asynccontextmanager
@@ -26,6 +37,7 @@ async def lifespan(_: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("本地模式：数据表已就绪")
+    await _seed_default_user()
     yield
     await engine.dispose()
 

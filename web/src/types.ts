@@ -57,5 +57,15 @@ export interface TodoItem {
   title: string;
   status: string;
   priority: number;
-  due_date?: string;
+  due_date?: string | null;
+  category_id?: string | null;
+  category_name?: string | null;
+  category_color?: string | null;
+  tags?: string[];
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  color: string;
 }

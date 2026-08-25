@@ -94,7 +94,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
 
   const completeTodo = async (id: string) => {
     try {
-      await updateTodo(id, "done");
+      await updateTodo(id, { status: "done" });
       fetchTodos().then(setTodos).catch(() => {});
       message.success("已完成");
     } catch (err) {

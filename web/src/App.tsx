@@ -19,13 +19,14 @@ import KbPanel from "./components/KbPanel";
 import LoginPage from "./components/LoginPage";
 import ProfilePage from "./components/ProfilePage";
 import SessionList from "./components/SessionList";
+import TodoPage from "./components/TodoPage";
 import type { ChatMessage } from "./types";
 
 const { Sider, Content } = Layout;
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean>(() => !!getToken());
-  const [tab, setTab] = useState<"chat" | "kb">("chat");
+  const [tab, setTab] = useState<"chat" | "kb" | "todo">("chat");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
@@ -101,11 +102,12 @@ export default function App() {
             <div style={{ padding: "12px 12px 0" }}>
               <Tabs
                 activeKey={tab}
-                onChange={(k) => setTab(k as "chat" | "kb")}
+                onChange={(k) => setTab(k as "chat" | "kb" | "todo")}
                 centered
                 items={[
                   { key: "chat", label: "💬 对话" },
                   { key: "kb", label: "📚 知识库" },
+                  { key: "todo", label: "📋 待办" },
                 ]}
               />
             </div>
@@ -115,8 +117,12 @@ export default function App() {
                 onSelect={selectSession}
                 onNew={newSession}
               />
-            ) : (
+            ) : tab === "kb" ? (
               <DocCategoryNav activeCat={activeCat} onChange={setActiveCat} />
+            ) : (
+              <div className="dim" style={{ textAlign: "center", padding: 24 }}>
+                待办工作区（右侧操作）
+              </div>
             )}
             <div style={{ padding: 12, borderTop: "1px solid var(--border)" }}>
               <Space direction="vertical" style={{ width: "100%" }} size={8}>
@@ -176,8 +182,10 @@ export default function App() {
                 busy={busy}
                 setBusy={setBusy}
               />
-            ) : (
+            ) : tab === "kb" ? (
               <KbPanel activeCat={activeCat} onCatChange={setActiveCat} />
+            ) : (
+              <TodoPage />
             )}
           </Content>
         </Layout>

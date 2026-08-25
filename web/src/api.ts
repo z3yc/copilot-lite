@@ -1,4 +1,5 @@
 import type {
+  Category,
   ChatMessage,
   DocDetail,
   DocItem,
@@ -69,16 +70,44 @@ export const deleteSession = (sessionId: string) =>
   request<{ deleted: string }>(`/sessions/${sessionId}`, { method: "DELETE" });
 
 // ---- 待办 ----
-export const fetchTodos = (status?: string) =>
-  request<TodoItem[]>(`/todos${status ? `?status=${status}` : ""}`);
-export const updateTodo = (id: string, status: string) =>
+export interface TodoPayload {
+  title?: string;
+  status?: string;
+  priority?: number;
+  due_date?: string | null;
+  category_id?: string | null;
+  tags?: string[];
+}
+
+export const fetchTodos = (params?: { status?: string; category_id?: string; tag?: string }) => {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set("status", params.status);
+  if (params?.category_id) qs.set("category_id", params.category_id);
+  if (params?.tag) qs.set("tag", params.tag);
+  const s = qs.toString();
+  return request<TodoItem[]>(`/todos${s ? `?${s}` : ""}`);
+};
+export const fetchCategories = () => request<Category[]>(`/todos/categories`);
+export const createTodo = (data: TodoPayload) =>
+  request<TodoItem>("/todos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+export const updateTodo = (id: string, data: TodoPayload) =>
   request<TodoItem>(`/todos/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(data),
   });
 export const deleteTodo = (id: string) =>
   request<{ deleted: string }>(`/todos/${id}`, { method: "DELETE" });
+export const aiCreateTodo = (text: string) =>
+  request<TodoItem>("/todos/ai-create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
 
 // ---- 文档 ----
 export const fetchDocs = (q?: string, type?: string) => {

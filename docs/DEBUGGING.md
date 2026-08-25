@@ -120,6 +120,17 @@
 - **解决**：CLI 启动时 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`
 - **经验**：Windows GBK 控制台 vs UTF-8 输出的经典冲突。
 
+### 18. 流式回复内容重复（StrictMode 双调用 + 可变更新）
+- **现象**：AI 回复出现大量重复的字段/片段（开发模式下）
+- **排查**：后端接口直接 curl 输出正常 → 锁定前端渲染；定位到 `onChunk` 的 `setMessages` updater
+- **根因**：updater 内 `last.content += chunk` **直接修改了 state 数组中的对象**
+  （`[...prev]` 是浅拷贝，最后一条消息仍是引用）；React 18 `<StrictMode>`
+  在开发模式会**双调用 updater** → 同一 chunk 被追加两次 → 内容重复
+- **解决**：改为**不可变更新** `next[lastIdx] = { ...last, content: last.content + chunk }`；
+  `onError` 分支同步修复
+- **经验**：**React 状态更新必须不可变**——StrictMode 双调用是"照妖镜"，
+  能暴露所有 mutate 的 updater；生产构建不触发，但这是真实隐患
+
 ---
 
 ## 四、排障方法论（面试总结）
@@ -132,4 +143,4 @@
 
 ---
 
-*共 17 条排障记录 · 覆盖环境/后端/前端三类 · 与 docs/CHANGELOG.md 互为补充*
+*共 18 条排障记录 · 覆盖环境/后端/前端三类 · 与 docs/CHANGELOG.md 互为补充*

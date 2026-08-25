@@ -128,10 +128,15 @@ export default function ChatPanel({
         onSessionCreated(sid);
       },
       onChunk: (chunk) => {
+        // 不可变更新：复制最后一条 assistant 消息再追加，
+        // 避免 StrictMode 双调用 updater 时对同一对象重复追加
         setMessages((prev) => {
           const next = [...prev];
-          const last = next[next.length - 1];
-          if (last && last.role === "assistant") last.content += chunk;
+          const lastIdx = next.length - 1;
+          const last = next[lastIdx];
+          if (last && last.role === "assistant") {
+            next[lastIdx] = { ...last, content: last.content + chunk };
+          }
           return next;
         });
       },
@@ -139,9 +144,10 @@ export default function ChatPanel({
       onError: (msg) => {
         setMessages((prev) => {
           const next = [...prev];
-          const last = next[next.length - 1];
+          const lastIdx = next.length - 1;
+          const last = next[lastIdx];
           if (last && last.role === "assistant" && !last.content) {
-            last.content = `⚠️ ${msg}`;
+            next[lastIdx] = { ...last, content: `⚠️ ${msg}` };
           } else {
             next.push({ role: "assistant", content: `⚠️ ${msg}` });
           }

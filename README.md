@@ -187,26 +187,30 @@ copilot-lite/
 
 ## 快速开始
 
-> ⚠️ 待实现，随里程碑推进逐步补充。规划中的命令：
+> 后端（P0 已实现）：开发模式 SQLite 零依赖，无需 Docker 即可跑通。CLI/Web 随里程碑逐步开放。
 
 ```bash
 # 0. 准备
 git clone <repo-url> && cd copilot-lite
-cp deploy/.env.example deploy/.env   # 填入 DEEPSEEK_API_KEY
 
-# 1. 启动基础设施（PostgreSQL / Qdrant / Redis）
-docker compose -f deploy/docker-compose.yml up -d
-
-# 2. 启动后端
+# 1. 启动后端（开发模式）
 cd backend
-poetry install && poetry run uvicorn app.main:app --reload
+uv sync                              # 安装依赖（Python 3.12）
+uv run uvicorn app.main:app --reload # 访问 http://127.0.0.1:8000/docs
 
-# 3. CLI 直接聊天
-pip install -e ../cli
+# 2. 运行测试与代码检查
+uv run pytest
+uv run ruff check .
+
+# 3. 数据库迁移（表结构变更时）
+uv run alembic revision --autogenerate -m "描述"
+uv run alembic upgrade head
+
+# 4. CLI 直接聊天（P1 里程碑后可用）
 copilot "帮我总结一下我最近的工作笔记"
 
-# 4. Web UI（开发模式）
-cd web && npm install && npm run dev
+# 5. Web UI（P3 里程碑后可用）
+cd ../web && npm install && npm run dev
 ```
 
 ---

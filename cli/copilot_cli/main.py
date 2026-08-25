@@ -7,11 +7,18 @@
 """
 
 import os
+import sys
 
 import httpx
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
+
+# Windows 控制台默认 GBK，无法编码 emoji/扩展字符（如 ✅ \u2705）；
+# 强制标准输出为 UTF-8，避免 rich 渲染时 UnicodeEncodeError
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 app = typer.Typer(help="Copilot-Lite 个人 AI 助理")
 console = Console()

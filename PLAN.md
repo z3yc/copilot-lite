@@ -13,7 +13,7 @@
 - [x] 本地可跑通：后端 + 数据库 + CLI/Web
 - [x] 能讲清楚架构：为什么这么设计（面试叙事）
 - [ ] 云上可演示（P5）
-- [ ] 真实对话可用（需 API Key）
+- [x] 真实对话可用（DeepSeek Key 已配置，M1 全流程实测通过）
 
 ---
 
@@ -128,7 +128,7 @@ P5 部署面试 ░░░░░░░░░░   0%
 
 | 依赖 | 状态 | 说明 / 行动 |
 |---|---|---|
-| DeepSeek API Key | ⏳ 待填 | M1 真实对话验收必需；填入 `backend/.env` |
+| DeepSeek API Key | ✅ 已配置 | 位于 `backend/.env`（gitignore 保护）；M1 真实对话实测通过 |
 | 嵌入模型 | ❓ 待选型 | P2 前置决策（BGE 本地 vs API） |
 | Docker | ❌ 未安装 | P2 用 Qdrant 本地模式绕开；P4 需安装或改用脚本部署 |
 | PostgreSQL 17 | ✅ 已就绪 | 本地 `copilot` 库运行中 |

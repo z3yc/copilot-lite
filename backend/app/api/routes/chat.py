@@ -1,13 +1,21 @@
-"""聊天接口：POST /api/v1/chat。
+"""聊天接口：非流式 + SSE 流式。
 
-请求：{"message": "...", "session_id": "可选，续接已有会话"}
-响应：{"session_id": "...", "reply": "..."}
+- POST /api/v1/chat            普通响应 {"session_id", "reply"}
+- POST /api/v1/chat/stream     SSE 流式（打字机效果）
+
+SSE 事件序列：
+    event: session  data: {"session_id": "..."}
+    event: chunk    data: {"text": "..."}    （回复内容分片）
+    event: done     data: {}
 """
 
+import json
 import logging
 import uuid
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +30,9 @@ from app.tools import registry
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+# 流式分片大小（字符）
+_CHUNK_SIZE = 40
+
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
@@ -33,45 +44,95 @@ class ChatResponse(BaseModel):
     reply: str
 
 
-@router.post("", response_model=ChatResponse)
-async def chat(req: ChatRequest, db: AsyncSession = Depends(get_session)) -> ChatResponse:
-    # 1. 定位/创建会话
-    if req.session_id:
-        session = await db.get(ChatSession, uuid.UUID(req.session_id))
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def _resolve_session(db: AsyncSession, session_id: str | None, title: str) -> ChatSession:
+    """定位或创建会话。"""
+    if session_id:
+        session = await db.get(ChatSession, uuid.UUID(session_id))
         if session is None:
             raise HTTPException(status_code=404, detail="会话不存在")
-    else:
-        session = ChatSession(user_id=DEFAULT_USER_ID, title=req.message[:30])
-        db.add(session)
-        await db.commit()
-        await db.refresh(session)
+        return session
+    session = ChatSession(user_id=DEFAULT_USER_ID, title=title[:30])
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    return session
 
-    # 2. 加载历史消息
+
+async def _load_history(db: AsyncSession, session_id) -> list[dict]:
     stmt = (
         select(Message)
-        .where(Message.session_id == session.id)
+        .where(Message.session_id == session_id)
         .order_by(Message.created_at)
     )
-    history_msgs = (await db.scalars(stmt)).all()
-    history = [{"role": m.role, "content": m.content} for m in history_msgs]
+    msgs = (await db.scalars(stmt)).all()
+    return [{"role": m.role, "content": m.content} for m in msgs]
 
-    # 3. 运行 Agent 编排器
+
+async def _run_agent(db: AsyncSession, history: list[dict], message: str) -> str:
     try:
         llm = get_llm()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-
     orchestrator = Orchestrator(llm=llm, registry=registry)
     try:
-        reply = await orchestrator.run(
-            session=db, user_id=DEFAULT_USER_ID, history=history, user_message=req.message
+        return await orchestrator.run(
+            session=db, user_id=DEFAULT_USER_ID, history=history, user_message=message
         )
     finally:
         await llm.close()
 
-    # 4. 持久化消息
-    db.add(Message(session_id=session.id, role="user", content=req.message))
-    db.add(Message(session_id=session.id, role="assistant", content=reply))
+
+async def _persist(db: AsyncSession, session_id, user_msg: str, reply: str) -> None:
+    db.add(Message(session_id=session_id, role="user", content=user_msg))
+    db.add(Message(session_id=session_id, role="assistant", content=reply))
     await db.commit()
 
+
+@router.post("", response_model=ChatResponse)
+async def chat(req: ChatRequest, db: AsyncSession = Depends(get_session)) -> ChatResponse:
+    """非流式对话。"""
+    session = await _resolve_session(db, req.session_id, req.message)
+    history = await _load_history(db, session.id)
+    reply = await _run_agent(db, history, req.message)
+    await _persist(db, session.id, req.message, reply)
     return ChatResponse(session_id=str(session.id), reply=reply)
+
+
+@router.post("/stream")
+async def chat_stream(req: ChatRequest, db: AsyncSession = Depends(get_session)):
+    """SSE 流式对话（前端打字机效果）。
+
+    说明：编排器（含工具调用）完整运行后，回复内容按分片经 SSE 下发。
+    模型侧 token 级流式已封装（LLMClient.stream_chat），可无缝升级。
+    """
+    session = await _resolve_session(db, req.session_id, req.message)
+    history = await _load_history(db, session.id)
+
+    # Key 检查提前到响应前（错误可返回 HTTP 状态码）
+    try:
+        llm = get_llm()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    await llm.close()
+
+    async def event_gen() -> AsyncIterator[str]:
+        # 1. 先发会话事件
+        yield _sse("session", {"session_id": str(session.id)})
+        # 2. 运行编排器（完整执行后分片下发）
+        try:
+            reply = await _run_agent(db, history, req.message)
+        except HTTPException as exc:
+            yield _sse("error", {"detail": exc.detail})
+            return
+        # 3. 分片发送回复
+        for i in range(0, len(reply), _CHUNK_SIZE):
+            yield _sse("chunk", {"text": reply[i : i + _CHUNK_SIZE]})
+        # 4. 完成事件 + 持久化
+        yield _sse("done", {})
+        await _persist(db, session.id, req.message, reply)
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")

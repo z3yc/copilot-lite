@@ -75,6 +75,33 @@ class LLMClient:
 
         return ChatResult(content=msg.content, tool_calls=tool_calls)
 
+    async def stream_chat(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        temperature: float = 0.7,
+    ):
+        """流式对话补全：逐 token 产出内容增量。
+
+        P3 起用于 SSE 打字机效果。注意：流式模式下不解析 tool_calls
+        （工具调用轮由非流式 chat() 处理）。
+        """
+        kwargs: dict = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if tools:
+            kwargs["tools"] = tools
+
+        stream = await self._client.chat.completions.create(**kwargs)
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    yield delta.content
+
     async def close(self) -> None:
         await self._client.close()
 

@@ -302,30 +302,60 @@ graph LR
 
 ## 7. 多智能体扩展设计（Post-MVP 规划）
 
-> 当前实现为单 Agent（Orchestrator）；以下为预留的演进方向，代码已通过
-> `BaseAgent` 抽象协议（`app/agent/base.py`）与 Agent-as-Tool 模式留好扩展点，
-> 不写死现有架构。
+> 当前实现为单 Agent（Orchestrator）；已确定使用 **LangGraph** 框架实现多 Agent
+> 路由（与手写引擎并存可切换），`BaseAgent` 抽象协议（`app/agent/base.py`）
+> 与 Agent-as-Tool 模式留好扩展点。
+
+### 7.1 LangGraph 路由型多 Agent
 
 ```mermaid
-graph TB
-    subgraph Current["当前（P1 已实现）"]
-        C1["Orchestrator<br/>(BaseAgent 实现)"]
-        C2["ToolRegistry<br/>Todo 工具"]
-        C1 --> C2
-    end
-
-    subgraph Future["未来多智能体形态"]
-        R["RouterAgent<br/>意图路由（BaseAgent）"]
-        KA["KnowledgeAgent<br/>知识库问答"]
-        TA["ToolAgent<br/>个人管理/开发工具"]
-        MA["MemoryAgent<br/>长期记忆读写"]
-        REG["ToolRegistry<br/>（复用现有协议）"]
-        R --> KA
-        R --> TA
-        R --> MA
-        KA -. Agent-as-Tool .-> REG
-        TA --> REG
-    end
-
-    Current -. 平滑演进 .-> Future
+graph LR
+    START([START]) --> SUP["Supervisor<br/>LLM 意图判断<br/>（LangGraph 节点）"]
+    SUP -- "知识库问题" --> KBA["🧠 知识库 Agent<br/>混合检索+Rerank+引用回答"]
+    SUP -- "工具请求" --> TLA["🛠️ 工具 Agent<br/>复用 ToolRegistry"]
+    SUP -- "日常对话" --> GEA["💬 通用 Agent"]
+    KBA --> ENDN([END])
+    TLA --> ENDN
+    GEA --> ENDN
 ```
+
+- **引擎接入**：配置 `AGENT_ENGINE=langgraph | handwritten` 切换；
+  LangGraph 引擎默认，手写 Orchestrator 保留（面试可对比两套实现的取舍）。
+- **工具复用**：现有 ToolRegistry 适配为 LangGraph 工具，叙事连贯。
+
+### 7.2 长期记忆系统（已设计）
+
+```mermaid
+flowchart LR
+    subgraph Extract["会话结束批量提取"]
+        E1[整段对话] --> E2["LLM 抽取事实/偏好<br/>（结构化 JSON）"]
+    end
+    subgraph Store["存储"]
+        S1[(MEMORY_FACT 表)]
+        S2[(Qdrant memory 集合)]
+        E2 --> S1
+        E2 -->|向量化| S2
+    end
+    subgraph Recall["混合召回"]
+        R1[会话开始<br/>首句检索 TopK] --> R3[注入 system 上下文]
+        R2[话题切换检测<br/>相似度低时补充] --> R3
+    end
+    S2 --> R1
+    S2 --> R2
+    subgraph Manage["可视化管理"]
+        M1[GET /memories]
+        M2[DELETE /memories/id]
+    end
+    S1 --> M1
+    S1 --> M2
+```
+
+### 7.3 Rerank 重排（已设计）
+
+```
+混合检索（BM25 + 向量 + RRF）→ TopK
+  → bge-reranker 精排（本地模型，复用 hf-mirror）
+  → 前 N 注入 → LLM 生成
+```
+
+> 补齐架构图中"检索→重排→生成"三段式的中间环节，配置 `RAG_RERANK_ENABLED` 开关。

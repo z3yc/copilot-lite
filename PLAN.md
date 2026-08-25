@@ -126,15 +126,59 @@ P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端�
 
 ---
 
-## 5. 后续规划（Post-MVP，口子已留）
+## 5. 后续规划（Post-MVP，已确定三大增强方案）
 
-| 方向 | 说明 | 预留点 |
+### 🔭 三大增强（已设计，待实施）
+
+**① 长期记忆系统（体验 + 面试双赢）**
+
+| 环节 | 设计 |
+|---|---|
+| 提取 | 会话结束时，LLM 从整段对话**批量抽取事实/偏好**（结构化 JSON） |
+| 存储 | 新表 `MEMORY_FACT`（user_id/fact/category/confidence/来源会话）+ Qdrant `memory` collection（向量） |
+| 去重更新 | 向量相似度 > 阈值 → 判定同事实，更新而非重复存 |
+| 召回（混合） | 会话开始注入 TopK；**话题切换检测**（当前问题与已注入记忆相似度低时补充检索） |
+| 可视化管理 | 个人中心"🧠 我的记忆"页：查看 + 手动删除 |
+| API | `GET /memories`、`DELETE /memories/{id}` |
+
+**② Rerank 重排（效果最实在）**
+
+| 环节 | 设计 |
+|---|---|
+| 模型 | 本地 **bge-reranker-base**（fastembed，复用 hf-mirror 配置） |
+| 流程 | 混合检索（BM25+向量+RRF）→ TopK → Rerank 精排 → 前 N 注入 |
+| 配置 | `RAG_RERANK_ENABLED` 开关（可对比效果） |
+
+**③ LangGraph 多 Agent（架构亮点，用户指定用框架）**
+
+```
+START → Supervisor（LLM 意图判断）→ 条件路由
+  ├─ 🧠 知识库 Agent（RAG 检索 + 引用回答）
+  ├─ 🛠️ 工具 Agent（复用现有 ToolRegistry）
+  └─ 💬 通用 Agent（日常对话）
+→ 汇总 → END
+```
+
+| 环节 | 设计 |
+|---|---|
+| 依赖 | `langgraph` + `langchain-openai`（DeepSeek 兼容 OpenAI） |
+| 引擎接入 | **并存模式**：LangGraph（默认）+ 手写 Orchestrator（配置 `AGENT_ENGINE` 切换，面试可对比） |
+| 工具复用 | 现有 ToolRegistry 适配为 LangGraph 工具 |
+
+### 实施顺序与预估
+
+| 顺序 | 方向 | 预估工作量 |
 |---|---|---|
-| 多智能体编排 | RouterAgent + 子 Agent 分工 | `BaseAgent` 协议 |
-| 长期记忆 | 事实提取 → 向量化 → 召回注入 | ER 图 MEMORY_FACT |
-| Agent-as-Tool | 子 Agent 注册为工具 | ToolRegistry 协议 |
-| 流式增强 | SSE 已规划于 P3 | API 层包装 |
-| LangGraph 可选 | 状态机复杂度上升时引入 | BaseAgent 迁移成本低 |
+| 1️⃣ | 长期记忆（后端 + 前端管理页） | 中 |
+| 2️⃣ | Rerank（检索链路增强） | 小 |
+| 3️⃣ | LangGraph 多 Agent（图 + 引擎切换 + 测试） | 中大 |
+
+### 关键风险预案
+
+- LangGraph 与手写引擎边界清晰（配置切换互不干扰）
+- bge-reranker 下载 → 复用 hf-mirror + 禁用 xet
+- 记忆提取成本 → 会话结束批量一次，可控
+- 测试策略 → 记忆提取 mock LLM、rerank mock、LangGraph 图测试
 
 ---
 

@@ -4,7 +4,9 @@
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    # 国内网络：uv 装依赖走清华 PyPI 镜像（用户显式配置可覆盖）
+    UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 
 WORKDIR /app
 

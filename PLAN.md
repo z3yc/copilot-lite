@@ -28,7 +28,7 @@ P4 工程化   ██████████ 100% ✅（M4 本地验收通过�
 P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端待实测）
 ```
 
-**Git 现状**：69 个提交 · 功能增强已并入（antd UI/分类/搜索/暗色/会话附件/记忆/Rerank）· 详细见 [docs/CHANGELOG.md](docs/CHANGELOG.md)
+**Git 现状**：69 个提交 · 功能增强已并入（antd UI/分类/搜索/暗色/会话附件/记忆/Rerank）· 前端 vitest 单测已就绪 · 详细见 [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 ---
 
@@ -104,12 +104,12 @@ P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端�
 - [x] 文档详情展开（分块内容 + 标题路径 + 失败原因）
 - [x] **用户认证系统**：注册/登录/JWT + 数据按用户隔离 + 个人中心（可交互 4 Tab）
 - [x] **完整待办工作区**：侧边栏待办 Tab、AI 快速添加、分类+标签、时间分组高亮、全字段编辑
-- 当前测试：**60 用例**，覆盖率 **80.69%**
+- 当前测试：**后端 75 用例**（覆盖率 81.48%）+ **前端 20 用例**（vitest：api SSE 解析 + 组件冒烟）
 
 ### 🟢 P4 · 工程化（已完成 ✅）
 
 - [x] 测试补全 + 覆盖率门槛：31 用例，**83%**（fail-under=80 强制）
-- [x] CI 流水线：`.github/workflows/ci.yml`（后端 lint+test+coverage / 前端 typecheck+build）
+- [x] CI 流水线：`.github/workflows/ci.yml`（后端 lint+test+coverage / 前端 typecheck+build+test）
 - [x] 配置化收口：`deploy/.env.example` 完整模板（RUN_MODE/DATABASE/QDRANT/模型）
 - [x] Docker Compose 预留：postgres+qdrant+redis+backend+web（`deploy/`，云端实测）
 - [x] 一键启动脚本：`scripts/dev_start.ps1`（无 Docker 本地全服务启动）

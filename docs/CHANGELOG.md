@@ -4,6 +4,23 @@
 
 ---
 
+## [0.10.1] · 2026-08-25 · 修复：工具参数类型容错（Agent 改待办优先级失败）
+
+### 🐛 修复
+- **根因（两层叠加）**：
+  1. `_build_parameters` 不识别 Optional 联合类型——`_TYPE_MAP.get(int | None)` 查不到，
+     `todo_update` 的 `priority: int | None` 在 schema 中被声明为 **`"string"`**，
+     误导 LLM 传字符串 `"5"`；
+  2. 执行器不做类型容错，字符串 `"5"` 直接进 `min(5, "5")` 抛 TypeError，
+     且异常发生在 **commit 之前** → 数据库未更新 → 优先级始终显示旧值；
+- **修复**：① schema 生成支持联合类型剥壳（`int|None`→integer、`list[str]|None`→array）；
+  ② `registry.execute` 按 schema 类型对参数强制转换（`"5"`→5、数组字符串→`json.loads`），
+  转换失败返回友好错误不中断对话；
+- 测试：新增 4 用例（字符串优先级更新且**断言数据库真实落库** / 字符串数组 /
+  非法参数不改数据 / schema 类型映射），共 64 用例，覆盖率 80.28%。
+
+---
+
 ## [0.10.0] · 2026-08-25 · Rerank 重排（检索链路增强）
 
 ### ✨ 新增

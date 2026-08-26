@@ -70,16 +70,16 @@ DATABASE_URL=postgresql+asyncpg://copilot:copilot@postgres:5432/copilot
 QDRANT_URL=http://qdrant:6333
 ```
 
-### 3.3 构建前端静态资源（本地或 CI 产物）
+### 3.3 构建前端静态资源
+
+> web 服务（nginx）挂载 `../web/dist`，**必须先构建出该目录**。
+> 服务器需 Node 18+（vite 5 要求）。
 
 ```bash
-# 在本地开发机执行（已有 node 环境）
-cd web && npm install && npm run build
-# 产物输出到 web/dist，提交或 scp 到服务器
-# （若已在服务器构建：cd /opt/copilot-lite/web && npm ci && npm run build）
+# 在服务器上构建（推荐，保证与后端同机）
+cd /opt/copilot-lite/web && npm ci && npm run build && cd ../deploy
+# 或本地构建后把 web/dist 上传到服务器
 ```
-
-> compose 中 web 服务挂载 `../web/dist`，需保证该目录存在。
 
 ### 3.4 一键启动
 
@@ -88,19 +88,24 @@ cd /opt/copilot-lite/deploy
 docker compose up -d --build
 ```
 
-首次启动会拉取镜像 + 构建后端（uv sync 依赖），约 3-8 分钟。
+首次启动会拉取镜像 + 构建后端（uv sync 依赖），约 3-8 分钟；
+BGE 嵌入 / reranker 模型（约 1.1GB）首次使用从 hf-mirror 下载，
+已挂载 `models` 卷持久化，重建容器不重复下载。
 
 ### 3.5 验证
 
 ```bash
-# 容器状态（全部 running）
+# 容器状态（全部 running/healthy）
 docker compose ps
 
-# 后端健康检查
-curl http://localhost:8000/api/v1/health
+# 后端健康检查（经 nginx 80 端口，backend 仅内网 expose）
+curl http://服务器IP/api/v1/health
 # → {"status":"ok","app":"copilot-lite","version":"0.1.0","run_mode":"cloud"}
 
 # 数据库迁移已由 backend 容器启动命令自动执行（alembic upgrade head）
+
+# 排查：看后端日志
+docker compose logs -f backend
 ```
 
 浏览器访问：**http://服务器IP/** （Nginx → Web UI → API 代理）

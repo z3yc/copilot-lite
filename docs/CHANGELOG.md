@@ -4,6 +4,22 @@
 
 ---
 
+## [0.12.1] · 2026-08-25 · 部署编排加固（Docker 一键部署实测前置修复）
+
+### 🐛 修复
+- **补 `.dockerignore`**：排除 `.venv`/`node_modules`/`qdrant_data`/`web/dist` 等，
+  避免构建上下文巨大（此前缺失会导致 build context 达数百 MB）；
+- **qdrant healthcheck 换零依赖探活**：镜像未内置 curl/wget，改用
+  `bash /dev/tcp`（此前 curl 探活会导致 healthcheck 失败、backend 永远起不来）；
+- **backend healthcheck**：容器内 python urllib 探活 `/api/v1/health`；
+- **模型缓存卷**：`HF_HOME` / `FASTEMBED_CACHE_PATH` 挂载 `models` 卷，
+  BGE 嵌入 + reranker（~1.1GB）重建容器不重复下载；
+- **DEPLOY.md**：验证命令改经 80 端口（backend 仅内网 expose）、
+  前端构建需 Node 18+、补 `docker compose logs` 排查；
+- 注：本机无 Docker，改动为静态审查 + YAML/测试验证，云端首次实测待 P5。
+
+---
+
 ## [0.12.0] · 2026-08-25 · 前端单元测试（vitest）
 
 ### ✨ 新增

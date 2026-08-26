@@ -1,0 +1,25 @@
+# ---- 版本控制 ----
+.git
+.gitignore
+.github
+
+# ---- Python 后端 ----
+backend/.venv
+backend/.env
+backend/**/*.pyc
+backend/**/__pycache__
+backend/.pytest_cache
+backend/qdrant_data
+backend/test_copilot.db
+backend/copilot.db
+backend/htmlcov
+
+# ---- 前端 ----
+web/node_modules
+web/dist
+
+# ---- 本地/其他 ----
+*.log
+.DS_Store
+.idea
+.vscode

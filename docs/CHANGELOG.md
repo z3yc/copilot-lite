@@ -4,6 +4,26 @@
 
 ---
 
+## [0.11.0] · 2026-08-25 · LangGraph 多 Agent（Supervisor 路由）
+
+### ✨ 新增
+- **LangGraph 多 Agent 引擎**（`backend/app/agent/langgraph_engine.py`）：
+  StateGraph 构建 **Supervisor（LLM 意图判断）+ 3 个子 Agent**（知识库 / 工具 / 通用）
+  + 条件边路由，补齐「意图路由 → 能力分发 → 汇总回答」链路；
+- **引擎并存**：`AGENT_ENGINE=langgraph|handwritten` 配置切换（默认 langgraph），
+  两套引擎运行协议一致（run / run_stream / close），SSE 流式接口不变；
+- **工具复用**：ToolRegistry 条目转换为 langchain 工具定义（bind_tools），
+  执行仍走 `registry.execute`（统一参数解析与错误兜底），不重复实现工具逻辑；
+- **路由韧性**：Supervisor 输出 JSON 路由，LLM 失败 / 格式异常时关键词兜底
+  （工具 > 知识库 > 日常），路由不中断；
+- **流式**：`graph.astream_events` 过滤叶子节点 on_chat_model_stream 事件，
+  token 级输出，Supervisor 内部输出不泄漏给用户；
+- 依赖：`langgraph` + `langchain-openai`（DeepSeek 兼容 OpenAI 接口）；
+- 测试：新增 15 用例（图结构/路由分发/工具执行/关键词兜底/最大轮数/流式过滤/
+  引擎切换/API 全链路），共 **75 用例**，覆盖率 **81.48%**（Fake 模型，不触网）。
+
+---
+
 ## [0.10.0] · 2026-08-25 · Rerank 重排（检索链路增强）
 
 ### ✨ 新增

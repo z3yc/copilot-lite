@@ -77,6 +77,17 @@ def _disable_memory_recall(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _handwritten_engine_default(monkeypatch):
+    """测试默认走手写引擎（避免 LangGraph 引擎创建真实 ChatOpenAI/网络请求）。
+
+    与 LangGraph 相关的测试显式设置 AGENT_ENGINE=langgraph 或注入 Fake 模型。
+    """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "AGENT_ENGINE", "handwritten")
+
+
+@pytest.fixture(autouse=True)
 def _disable_rerank(monkeypatch):
     """测试默认关闭 Rerank 精排（避免加载真实 bge-reranker 模型）。
 

@@ -20,10 +20,10 @@
 
 | 项 | 状态 |
 |---|---|
-| **分支** | `feature/agent-enhancements`（长期记忆 + Rerank 已完成并推送）· `main` 稳定 |
-| 已完成 | P0-P4 全量 + 认证 + 个人中心 + 待办工作区 + **长期记忆（①）+ Rerank 重排（②）** |
-| 待办 | **③ LangGraph 多 Agent**（详见第 5 节） |
-| 测试 | 60 用例全绿，覆盖率 80.69%（门槛 80%，`uv run pytest`） |
+| **分支** | `feature/agent-enhancements`（三大增强①②③ 已完成；③ 在 `feature/langgraph-multiagent` 开发待审）· `main` 稳定 |
+| 已完成 | P0-P4 全量 + 认证 + 个人中心 + 待办工作区 + **长期记忆（①）+ Rerank 重排（②）+ LangGraph 多 Agent（③）** |
+| 待办 | 其他路线图项（Agent-as-Tool / Rerank 后置 Query 改写 / 云端部署实测，详见第 5 节） |
+| 测试 | 75 用例全绿，覆盖率 81.48%（门槛 80%，`uv run pytest`） |
 | 代码规范 | ruff 全绿（`uv run ruff check .`） |
 
 ## 3. 环境与启动
@@ -58,7 +58,7 @@ uv run ruff check .
 backend/app/
 ├── main.py            # 入口 + lifespan（建表/seed 默认用户与分类）
 ├── core/              # config(settings)/db/llm(DeepSeek)/security(JWT)/logging/constants
-├── agent/             # base.py(BaseAgent抽象) + orchestrator.py(手写ReAct，含run_stream流式)
+├── agent/             # base.py(BaseAgent抽象) + orchestrator.py(手写ReAct，含run_stream流式) + langgraph_engine.py(多Agent引擎③)
 ├── rag/               # parsers(5格式)/chunking/embeddings(BGE)/vector_store(Qdrant)/retriever(混合检索)/pipeline(摄取)
 ├── memory/            # service.py(长期记忆：提取/存储/召回/编辑/删除)  ← ①已完成
 ├── tools/             # base.py(可插拔注册表) + todo_tool/kb_tool
@@ -78,29 +78,10 @@ web/src/
 ### ✅ ② Rerank 重排 —— 已完成（勿重复）
 见 `docs/CHANGELOG.md` 0.10.0、`backend/app/rag/reranker.py` 与 `retriever.py`（`hybrid_search` 末尾接入，`RAG_RERANK_ENABLED` 开关）。
 
-### 🔭 ③ LangGraph 多 Agent（下一步）
+### ✅ ③ LangGraph 多 Agent —— 已完成（勿重复）
+见 `docs/CHANGELOG.md` 0.11.0 与 `backend/app/agent/langgraph_engine.py`（Supervisor 路由 + 3 子 Agent，`AGENT_ENGINE` 切换，SSE 接口不变）。
 
-**目标**：Supervisor 路由（知识库 Agent / 工具 Agent / 通用 Agent），与手写引擎并存可切换。
-
-**设计**（已确认，见 `PLAN.md` 5.1 与 `docs/architecture.md` 7.1）：
-```
-START → Supervisor(LLM意图判断) → 条件路由
-  ├─ 知识库问题 → 🧠 知识库 Agent（RAG+引用回答）
-  ├─ 工具请求   → 🛠️ 工具 Agent（复用 ToolRegistry）
-  └─ 日常对话   → 💬 通用 Agent
-→ 汇总 → END
-```
-
-**实施步骤**：
-1. 依赖：`uv add langgraph langchain-openai`（DeepSeek 兼容 OpenAI 接口，配置 base_url）；
-2. `backend/app/agent/langgraph_engine.py`：StateGraph 构建（Supervisor 节点 + 3 个子 Agent 节点 + 条件边）；
-3. 工具复用：把现有 ToolRegistry 适配为 langchain 工具（`@tool` 包装）；
-4. 引擎切换：`core/config.py` 加 `AGENT_ENGINE=langgraph|handwritten`（默认 langgraph）；
-5. `chat.py` 按配置选择引擎（保持 SSE 流式接口不变）；
-6. 测试：图结构构建 + 路由逻辑（mock LLM 意图）+ 引擎切换；
-7. 更新文档（README/CHANGELOG/PLAN ③完成 + architecture 图）。
-
-### 其他路线图项（可选项）
+### 其他路线图项（下一步候选）
 - Agent-as-Tool（子 Agent 注册为工具）
 - Rerank 后置 Query 改写（HyDE）
 - 云端部署实测（`deploy/DEPLOY.md`）

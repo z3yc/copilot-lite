@@ -130,18 +130,45 @@ async def _build_context(
     return parts + history
 
 
+def _build_agent():
+    """按配置选择对话引擎：langgraph（多 Agent，默认）/ handwritten（手写 ReAct）。
+
+    LangGraph 引擎内部创建 langchain ChatOpenAI（DeepSeek 兼容 OpenAI 接口）；
+    手写引擎复用 LLMClient（get_llm 入口）。两者运行协议一致：run / run_stream / close。
+    """
+    if settings.AGENT_ENGINE == "langgraph":
+        from app.agent.langgraph_engine import LangGraphEngine
+
+        return LangGraphEngine(registry=registry)
+    return Orchestrator(llm=get_llm(), registry=registry)
+
+
 async def _run_agent(db: AsyncSession, history: list[dict], message: str, user_id) -> str:
     try:
-        llm = get_llm()
+        agent = _build_agent()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    orchestrator = Orchestrator(llm=llm, registry=registry)
     try:
-        return await orchestrator.run(
+        return await agent.run(
             session=db, user_id=user_id, history=history, user_message=message
         )
     finally:
-        await llm.close()
+        await agent.close()
+
+
+async def _run_agent_stream(db: AsyncSession, history: list[dict], message: str, user_id):
+    """按配置选择引擎并流式运行，逐文本增量产出（供 SSE chunk 事件）。"""
+    try:
+        agent = _build_agent()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        async for text in agent.run_stream(
+            session=db, user_id=user_id, history=history, user_message=message
+        ):
+            yield text
+    finally:
+        await agent.close()
 
 
 async def _persist(db: AsyncSession, session_id, user_msg: str, reply: str) -> None:
@@ -197,41 +224,33 @@ async def chat_stream(
 ):
     """SSE 流式对话（token 级流式，打字机效果）。
 
-    编排器以流式模式运行：文本轮逐 token 实时转发（chunk 事件），
-    工具调用轮在后台执行（不阻塞、不产生用户可见文本）。
+    引擎按配置选择（LangGraph 多 Agent 默认 / 手写 ReAct）：
+    模型文本轮逐 token 实时转发（chunk 事件），工具调用轮在后台执行
+    （不阻塞、不产生用户可见文本）。
     """
     session = await _resolve_session(db, req.session_id, req.message, user)
     history = await _build_context(
         db, session.id, await _load_history(db, session.id), req.message, user.id
     )
 
-    # Key 检查提前到响应前（错误可返回 HTTP 状态码）
+    # 引擎/Key 检查提前到响应前（错误可返回 HTTP 状态码）
     try:
-        get_llm()
+        _build_agent()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     async def event_gen() -> AsyncIterator[str]:
         # 1. 先发会话事件
         yield _sse("session", {"session_id": str(session.id)})
-        # 2. token 级流式运行编排器
+        # 2. token 级流式运行引擎
         reply_parts: list[str] = []
         try:
-            llm = get_llm()
-            orchestrator = Orchestrator(llm=llm, registry=registry)
-            async for text in orchestrator.run_stream(
-                session=db,
-                user_id=user.id,
-                history=history,
-                user_message=req.message,
-            ):
+            async for text in _run_agent_stream(db, history, req.message, user.id):
                 reply_parts.append(text)
                 yield _sse("chunk", {"text": text})
         except HTTPException as exc:
             yield _sse("error", {"detail": exc.detail})
             return
-        finally:
-            await llm.close()
         # 3. 完成事件 + 持久化
         yield _sse("done", {})
         await _persist(db, session.id, req.message, "".join(reply_parts))

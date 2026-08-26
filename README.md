@@ -47,6 +47,8 @@ Copilot-Lite 是一个 **个人专属的 AI 智能助理**，定位为"第二大
 
 ### 2. Agent 工具调用（Function Calling）
 - **ReAct 循环 + Function Calling** 双范式；
+- **LangGraph 多 Agent 路由**：Supervisor 意图路由（知识库 / 工具 / 通用 3 个子 Agent），
+  与手写引擎并存，`AGENT_ENGINE` 一键切换；
 - **可插拔工具注册表**：新增一个工具 = 写一个函数 + 一行注册；
 - 内置工具集：
   - 📋 **个人管理**：待办清单（Todo）增删改查
@@ -106,7 +108,7 @@ Copilot-Lite 是一个 **个人专属的 AI 智能助理**，定位为"第二大
 | 后端框架 | Python 3.11+ / FastAPI | 异步、Pydantic 校验、OpenAPI 自动文档 |
 | 对话流式 | SSE / WebSocket | 流式输出打字机效果 |
 | 大模型 | DeepSeek API | 原生支持 Function Calling，成本低 |
-| Agent 编排 | ReAct + Function Calling | 手写编排器 + 工具注册表 |
+| Agent 编排 | LangGraph 多 Agent + ReAct | Supervisor 路由 + 手写引擎并存可切换 |
 | 向量库 | Qdrant | 轻量级、Docker 单机部署、2C4G 可跑 |
 | 关系库 | PostgreSQL | 业务数据（会话 / Todo / 文档元数据） |
 | 缓存 | Redis | 会话缓存 / 限流 / 队列 |
@@ -137,7 +139,7 @@ graph TB
     end
 
     subgraph Agent["Agent 核心层"]
-        ORCH[对话编排器<br/>会话状态机]
+        ORCH[多 Agent 编排器<br/>LangGraph Supervisor 路由<br/>+ 手写 ReAct 可切换]
         MEM[双层记忆<br/>短期摘要 + 长期向量]
         TOOL[工具调度器<br/>注册表 + Function Calling]
         RAG[RAG 检索编排<br/>检索→重排→生成]
@@ -198,7 +200,7 @@ copilot-lite/
 │   │   ├── main.py           # 应用入口
 │   │   ├── api/              # 路由层（chat/sessions/documents/todos）
 │   │   ├── core/             # 配置、LLM 客户端、日志、常量
-│   │   ├── agent/            # BaseAgent 抽象 + ReAct 编排器
+│   │   ├── agent/            # BaseAgent 抽象 + 手写 ReAct + LangGraph 多 Agent 引擎
 │   │   ├── rag/              # 解析、分块、嵌入、检索、重排、摄取
 │   │   ├── tools/            # 工具注册表 + Todo/kb_search
 │   │   └── models/           # 数据模型（含 SessionFile）
@@ -290,7 +292,7 @@ uv run ruff check .  # 代码规范
 |---|---|---|
 | **① 长期记忆** | 会话结束 LLM 批量提取事实/偏好 → 向量化 → 混合召回（会话开始 + 话题切换）→ **可视化管理页** | ✅ 已完成（0.9.0） |
 | **② Rerank 重排** | bge-reranker 本地模型，混合检索后精排，补齐"检索→重排→生成"链路 | ✅ 已完成（0.10.0） |
-| **③ LangGraph 多 Agent** | Supervisor 路由（知识库/工具/通用 Agent），与手写引擎并存可切换 | 🔭 已设计（下一步） |
+| **③ LangGraph 多 Agent** | Supervisor 路由（知识库/工具/通用 Agent），与手写引擎并存可切换 | ✅ 已完成（0.11.0） |
 | Agent-as-Tool | 子 Agent 注册为工具复用 ToolRegistry | 预留 |
 | 流式增强 | 已实现（token 级 SSE） | ✅ 完成 |
 

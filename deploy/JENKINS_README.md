@@ -115,6 +115,9 @@ Jenkins → **Manage Jenkins → Credentials → Global**，添加：
 
 | 现象 | 原因 | 解决 |
 |---|---|---|
+| API 用 `用户名+登录密码` 的 Basic 认证返回 401 | Jenkins 2.5xx 安全加固：**API 认证只接受 API Token，不接受登录密码** | 登录 UI 后 `admin → Configure → API Token` 生成 Token；之后 `Authorization: Basic base64(用户名:Token)` |
+| 表单登录总是跳 `/loginError`（密码明明正确） | 用户 `config.xml` 损坏（如手工改哈希时丢了 `</passwordHash>` 闭合标签），启动日志报 `Failed to load ...config.xml` | 检查 `.jenkins-home/logs` 与启动日志的 `SEVERE hudson.model.User#loadFromUserConfigFile`；修复 XML 后重启 |
+| 手工编辑用户配置后不生效 | Jenkins 启动时会重新加载/序列化用户配置 | 改 `.jenkins-home/users/*/config.xml` 前先停 Jenkins，改完再启动；保持 XML 结构完整，可用 `python -m xml.dom.minidom 文件` 校验 |
 | `uv` / `npm` 不是内部或外部命令 | Windows 服务 PATH 不含用户目录 | 核对 `Jenkinsfile` 顶部 PATH 行与本机实际安装路径一致 |
 | 构建一直停在 Checkout | Gitee 令牌失效 / 权限不足 | Jenkins → Credentials 更新 `gitee-token` |
 | `pytest` 覆盖率失败 | 未达 80% 门槛 | 后端补测试；门槛在 `backend/pyproject.toml` addopts |

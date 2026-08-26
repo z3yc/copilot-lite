@@ -4,10 +4,11 @@
 // 把 bat 换成 sh 即可（命令本体一致）。
 //
 // 凭据（Jenkins → Manage Jenkins → Credentials）：
-//   gitee-token     — Gitee 私人访问令牌（只读），类型 Username with password
-//                     （用户名填 Gitee 用户名，密码填私人令牌）
-//   feishu-webhook  — 飞书群机器人 WebHook URL，类型 Secret text（可不配，不配则不通知）
-//   deploy-ssh-key  — （Phase 2）云服务器 SSH 私钥，类型 SSH Username with private key
+//   gitee-token        — Gitee 私人访问令牌（只读），类型 Username with password
+//                         （用户名填 Gitee 用户名，密码填私人令牌）
+//   feishu-app-id      — 飞书应用 app_id，类型 Secret text
+//   feishu-app-secret  — 飞书应用 app_secret，类型 Secret text
+//   deploy-ssh-key     — （Phase 2）云服务器 SSH 私钥，类型 SSH Username with private key
 //
 // 参数（Jenkins 页面可改）：
 //   DEPLOY_ENABLED  — （Phase 2）勾选启用自动部署
@@ -32,6 +33,8 @@ pipeline {
         // 若本机安装位置不同，修改前面两段路径即可
         PATH = "C:\\Users\\asus\\.local\\bin;C:\\nvm4w\\nodejs;${env.PATH}"
         GITEE_URL = 'https://gitee.com/zyc66x/copilot-lite.git'
+        // 飞书通知目标：接收人的 open_id（非机密，可放仓库；如换人接收改这里）
+        FEISHU_OPEN_ID = 'ou_6bc25da3c78f41193e801d900dcaaa62'
     }
 
     parameters {
@@ -117,17 +120,29 @@ pipeline {
     post {
         always {
             script {
-                // 飞书通知（未配置 feishu-webhook 凭据则静默跳过）
+                // 飞书通知（应用私聊消息；未配置 feishu-app-id / feishu-app-secret 凭据则静默跳过）
                 try {
-                    withCredentials([string(credentialsId: 'feishu-webhook', variable: 'FEISHU_WEBHOOK')]) {
+                    withCredentials([
+                        string(credentialsId: 'feishu-app-id', variable: 'FEISHU_APP_ID'),
+                        string(credentialsId: 'feishu-app-secret', variable: 'FEISHU_APP_SECRET')
+                    ]) {
                         def result = currentBuild.currentResult
                         def icon = (result == 'SUCCESS') ? '✅' : '❌'
-                        def text = "${icon} Copilot-Lite CI/CD\\n构建 #${env.BUILD_NUMBER}：${result}\\n分支：${env.GIT_BRANCH ?: 'main'}\\n耗时：${currentBuild.durationString}"
-                        writeFile file: 'feishu.json', text: "{\"msg_type\":\"text\",\"content\":{\"text\":\"${text}\"}}"
-                        bat 'curl.exe -s -X POST -H "Content-Type: application/json" --data-binary @feishu.json %FEISHU_WEBHOOK%'
+                        def text = "${icon} Copilot-Lite CI/CD 构建 #${env.BUILD_NUMBER}：${result}\\n分支：${env.GIT_BRANCH ?: 'main'}\\n耗时：${currentBuild.durationString}"
+                        // 1) 获取 tenant_access_token
+                        writeFile file: 'feishu-token-req.json',
+                            text: '{"app_id":"' + env.FEISHU_APP_ID + '","app_secret":"' + env.FEISHU_APP_SECRET + '"}'
+                        def tokenResp = bat(returnStdout: true,
+                            script: 'curl.exe -s -X POST -H "Content-Type: application/json" --data-binary @feishu-token-req.json https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal').trim()
+                        env.FEISHU_TOKEN = (tokenResp =~ /"tenant_access_token":"([^"]+)"/)[0][1]
+                        // 2) 发送私聊消息
+                        def content = '{"text":"' + text + '"}'
+                        writeFile file: 'feishu-msg.json',
+                            text: '{"receive_id":"' + FEISHU_OPEN_ID + '","msg_type":"text","content":"' + content.replace('"', '\\"') + '"}'
+                        bat 'curl.exe -s -X POST -H "Authorization: Bearer %FEISHU_TOKEN%" -H "Content-Type: application/json" --data-binary @feishu-msg.json "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"'
                     }
                 } catch (e) {
-                    echo "未配置飞书 WebHook 凭据，跳过通知：${e}"
+                    echo "飞书通知失败（不影响构建结果）：${e}"
                 }
             }
         }

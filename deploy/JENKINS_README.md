@@ -73,7 +73,8 @@ Jenkins → **Manage Jenkins → Credentials → Global**，添加：
 | ID | 类型 | 填写 |
 |---|---|---|
 | `gitee-token` | Username with password | Username：Gitee 用户名；Password：Gitee 私人访问令牌（仓库 → 管理 → 私人令牌，勾选读仓库即可） |
-| `feishu-webhook` | Secret text | 飞书群 → 设置 → 群机器人 → 自定义机器人 → Webhook 地址（`https://open.feishu.cn/open-apis/bot/v2/hook/xxx`） |
+| `feishu-app-id` | Secret text | 飞书开放平台应用 `app_id`（https://open.feishu.cn → 开发者后台 → 创建企业自建应用） |
+| `feishu-app-secret` | Secret text | 同一应用的 `app_secret`；接收人 open_id 写在 `Jenkinsfile` 的 `FEISHU_OPEN_ID` |
 | `deploy-ssh-key`（Phase 2） | SSH Username with private key | 私钥文件内容；Username 填服务器登录用户（如 root） |
 
 ## 4. 创建 Pipeline Job
@@ -96,11 +97,15 @@ Jenkins → **Manage Jenkins → Credentials → Global**，添加：
 
 > 若想改间隔，如每 5 分钟：`pollSCM('H/5 * * * *')`；只想手动触发：删除 triggers 段。
 
-## 6. 飞书通知
+## 6. 飞书通知（应用私聊）
 
-- 飞书群 → 设置 → **群机器人 → 添加机器人 → 自定义机器人**（关键词可设为 `CI/CD`，或按飞书要求配置签名）；
-- 把 WebHook 存入凭据 `feishu-webhook`；
-- 未配置时流水线自动跳过通知（不报错）。
+Jenkinsfile 通过**飞书开放平台应用**直接私聊通知（不依赖群机器人 WebHook）：
+
+1. 飞书开放平台（https://open.feishu.cn）创建**企业自建应用** → 获取 `app_id` / `app_secret`；
+2. 应用需开通权限：`im:message`（发送消息）；开发者后台 → 权限管理 → 开通；
+3. 获取接收人 `open_id`（本机测试已用：`ou_6bc25da3c78f41193e801d900dcaaa62`），写入 `Jenkinsfile` 的 `FEISHU_OPEN_ID`；
+4. 把 `app_id` / `app_secret` 存凭据 `feishu-app-id` / `feishu-app-secret`；
+5. 未配置凭据时流水线自动跳过通知（不报错）。
 
 ## 7. 部署阶段启用（Phase 2，服务器到位后）
 

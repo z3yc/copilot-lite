@@ -59,8 +59,7 @@ async def todo_create(
     category: str | None = None,
     tags: list[str] | None = None,
 ) -> dict:
-    """创建待办，title 必填；priority 1-5（默认 3）；due_date 形如 2025-12-31；
-    category 分类名（工作/生活/学习/其他）；tags 标签数组。"""
+    """创建待办，title 必填；priority 1-5（1 最高、5 最低，默认 3）；due_date 形如 2025-12-31；category 分类名（工作/生活/学习/其他）；tags 标签数组。"""
     todo = Todo(
         user_id=ctx.user_id,
         title=title,
@@ -86,7 +85,7 @@ async def todo_update(
     category: str | None = None,
     tags: list[str] | None = None,
 ) -> dict:
-    """编辑待办：按 id 修改任意字段（仅更新提供的字段）。"""
+    """编辑待办：按 id 修改任意字段（仅更新提供的字段）；priority 1-5（1 最高、5 最低）。"""
     todo = await ctx.session.get(Todo, uuid.UUID(todo_id))
     if todo is None:
         return {"error": f"待办 {todo_id} 不存在"}

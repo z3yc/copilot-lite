@@ -36,6 +36,13 @@ def test_schema_optional_types_mapped() -> None:
     assert props["tags"]["type"] == "array"
 
 
+def test_schema_priority_semantics_in_description() -> None:
+    """工具描述必须写清优先级语义（1 最高、5 最低），避免 LLM 认知颠倒。"""
+    for name in ("todo_create", "todo_update"):
+        desc = registry.get(name).to_openai_schema()["function"]["description"]
+        assert "1 最高" in desc and "5 最低" in desc
+
+
 @pytest.mark.asyncio
 async def test_todo_full_flow(db_session) -> None:
     """Todo 工具完整流程：创建 → 列表 → 完成 → 删除。"""

@@ -42,6 +42,43 @@
 - **解决**：浏览器用 `localhost` 访问；无需改配置
 - **经验**：localhost 与 127.0.0.1 在双栈系统上不等价。
 
+### 22. Docker 一键部署实测（P5 前置）——迁移链缺表 + 构建链路连环坑
+- **现象**：`docker compose up -d --build` 首次全量启动，依次遇到：
+  ① 构建 backend 时拉 `python:3.12-slim` 超时（`auth.docker.io` 连接失败）；
+  ② `uv sync --frozen` 报 `Readme file does not exist: README.md`；
+  ③ 容器起来后 `alembic upgrade head` 报
+     `relation "categories" does not exist`；
+  ④ （修复后继续）`memory_facts` 表在云端缺失
+- **排查**：
+  1. 基础镜像超时 → 国内访问 Docker Hub 不稳定，`docker info` 确认
+     `RegistryConfig.Mirrors` 为空 → 需配镜像加速器；
+  2. README 报错 → 本地包用 hatchling 构建（pyproject `readme = "README.md"`），
+     而 Dockerfile 只 COPY 了 `pyproject.toml`/`uv.lock`；
+  3. categories 报错 → 逐一核对迁移链（5 个迁移）建的表 vs models 全部表，
+     发现 `1473b855e26a` 给 todos 加外键引用 categories 但**从未建该表**；
+  4. memory_facts 缺失 → `2898b892e706` 的 `upgrade()` **是空的**
+     （autogenerate 产物被清空，什么都没执行）
+- **根因**：① 国内网络无镜像加速；② 构建上下文与 hatchling 元数据不匹配；
+  ③④ **本地 `RUN_MODE=local` 一直走 `create_all`（按 models 元数据建全部表），
+  Alembic 迁移链从未在全新库真实跑过**——两个历史迁移缺口被长期掩盖
+- **解决**：
+  1. Docker Desktop 配置 `registry-mirrors`（docker.m.daocloud.io 等）；
+     Dockerfile 加 `UV_DEFAULT_INDEX`（清华 PyPI）；
+  2. Dockerfile 补 `COPY backend/README.md ./`；
+  3. `1473b855e26a` upgrade 开头补建 `categories` 表（与 Category 模型一致，
+     含 user_id 索引与级联外键）；4. `2898b892e706` 补建 `memory_facts` 表；
+  5. qdrant healthcheck 改 `bash /dev/tcp`（镜像无 curl）、backend healthcheck
+     用容器内 python urllib——零外部依赖
+- **验证**：清卷重建（`docker compose down -v`）→ 迁移 5/5 跑通、5 容器全 healthy、
+  `/api/v1/health` 200、Web 200、注册/登录/建待办全链路 OK
+- **经验**：
+  1. **"本地能跑" ≠ "部署能跑"**——`create_all` 掩盖迁移链完整性；
+     迁移链必须用**全新空库**做一次 `upgrade head` 验证（CI 或一次性脚本）；
+  2. **autogenerate 迁移要人工核对**——`op` 指令块可能为空，尤其"预留表"，
+     上线前 `alembic upgrade head` 到空库是最低要求；
+  3. 国内部署链路逐段换源：Docker Hub（加速器）→ PyPI（清华）→ HF（hf-mirror）
+     → 镜像内 healthcheck 用零依赖方案（bash /dev/tcp、python urllib）
+
 ---
 
 ## 二、后端与数据
@@ -92,6 +129,29 @@
 - **现象**：`SyntaxError: bytes can only contain ASCII literal characters`
 - **解决**：测试内容用 `str`，调用处 `.encode()`
 - **经验**：`b"..."` 只接受 ASCII。
+
+### 21. Agent 调整待办优先级失败（类型不匹配，优先级始终是旧值）
+- **现象**：对话里让 AI 把"炒股"优先级改为 5（最高），AI 反复报"类型不匹配"，
+  多次尝试后优先级仍显示 3（中级）；前端手动编辑却正常
+- **排查**：
+  1. 报错"类型不匹配"来自 `registry.execute` 的 TypeError 分支 → 参数进函数前类型已错；
+  2. 查 schema 生成：`_TYPE_MAP.get(int | None)` 查不到键 → `priority: int | None`
+     被声明成 **`"string"`**（Optional 注解没剥壳）；
+  3. 复现：`todo_update` 传 `{"priority": "5"}` → `min(5, "5")` 抛 TypeError，
+     **异常发生在 commit 之前** → 数据库未更新 → 显示旧值 3；
+  4. 前端 PATCH `/todos/{id}` 正常是因为 Pydantic v2 默认宽容解析 "5" → int。
+- **根因**：两层 bug 叠加——① schema 生成不识别 Optional 联合类型（误导 LLM 传字符串）；
+  ② 执行器不做类型容错，字符串参数直接进 Python 函数
+- **解决**：① `_json_type` 剥壳联合类型（`int\|None`→integer、`list[str]\|None`→array）；
+  ② `execute` 按 schema 声明类型强制转换参数（`"5"`→5、数组字符串→`json.loads`），
+  转换失败返回友好错误，不中断对话
+- **验证**：新增 4 用例（字符串优先级更新后**断言数据库真实值=5** / 字符串数组 /
+  非法参数不改数据 / schema 类型映射），共 64 用例，覆盖率 80.28%
+- **经验**：
+  1. **工具 schema 生成必须处理 Optional**——`int | None` ≠ `int`，dict 映射会静默落到 string；
+  2. **LLM 工具调用参数类型不可信**，执行层必须按 schema 做类型容错（"5" vs 5）；
+  3. "报错在 commit 前"导致**看似更新失败实则未落库**最有迷惑性——修复后要断言
+     数据库真实值，而不是只看工具返回值
 
 ---
 
@@ -145,6 +205,29 @@
 - **经验**：**数据模型设计决定迁移成本**——归属字段独立（user_id）+ 外键级联，
   使"数据换主"只需更新顶层归属；若向量 payload 混入 user_id 则需全量重建索引
 
+### 20. 登录成功但流式对话 401"未登录"（streamChat 漏带令牌）
+- **现象**：登录接口返回成功、普通接口正常，但一问"今天有什么计划"就报
+  `⚠️ 请求失败 401: {"detail":"未登录"}`，界面停在登录后状态
+- **排查**：
+  1. 看后端 `get_current_user`：**缺失凭证**返回 `detail="未登录"`，
+     **令牌无效/过期**才返回"登录已过期" → 报错文案对号入座：请求根本没带 token；
+  2. 报错格式 `请求失败 401: {detail}` 是 `streamChat` 的 `onError`
+     （`request()` 的 401 是前端文案"登录已过期，请重新登录"，且会触发
+     `auth-expired` 回登录页）→ 锁定 `streamChat`；
+  3. `grep "fetch("` 全前端只有两处：`request()` 包装（带 token）与 `streamChat`（裸 fetch）。
+- **根因**：0.7.0 引入认证后，`api.ts` 的 `streamChat` 仍是裸 `fetch` 且**未带
+  Authorization 头**；登录与普通接口都走 `request()` 所以正常，唯独 SSE 流式对话
+  （`POST /chat/stream`）被后端判为未登录——登录成功 ≠ 所有请求都带令牌
+- **解决**：`streamChat` 与 `request()` 一致携带 `Bearer` 令牌；401 时清除令牌并
+  派发 `auth-expired` 回登录页（体验一致）；新增 2 个回归用例（认证头/请求体断言、
+  401 处理），前端测试 20 → 22 用例
+- **经验**：
+  1. **认证报错文案能区分根因**——"未登录"（没带凭证）vs"登录已过期"（凭证无效），
+     先读后端认证代码对号入座，别盲改；
+  2. **新增受保护接口调用点必须走统一认证封装**；"登录成功但某个功能 401"基本就是
+     **某一个请求漏带 token**（同类还有：手动 fetch、WebSocket、SSE 连接）；
+  3. 修复立即补回归测试——本次的 2 个用例由新搭的 vitest 框架承接，防止回归。
+
 ---
 
 ## 四、排障方法论（面试总结）
@@ -157,4 +240,4 @@
 
 ---
 
-*共 19 条排障记录 · 覆盖环境/后端/前端/数据四类 · 与 docs/CHANGELOG.md 互为补充*
+*共 22 条排障记录 · 覆盖环境/后端/前端/数据四类 · 与 docs/CHANGELOG.md 互为补充*

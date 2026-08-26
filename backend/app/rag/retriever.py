@@ -1,9 +1,11 @@
-"""混合检索：向量语义检索 + BM25 关键词检索 + RRF 融合。
+"""混合检索：向量语义检索 + BM25 关键词检索 + RRF 融合 + Rerank 精排。
 
 为什么混合（面试必讲）：
 - 纯向量检索对专有名词/代码符号/ID 等"字面匹配"场景召回差；
 - BM25 关键词检索语义泛化弱，但字面命中精准；
-- RRF（Reciprocal Rank Fusion）按排名倒数融合两路结果，无需调权重。
+- RRF（Reciprocal Rank Fusion）按排名倒数融合两路结果，无需调权重；
+- 融合出候选后，用交叉编码器（bge-reranker）精排——query×passage 深度交互打分，
+  比双塔相似度更精准，取前 N 注入 LLM（配置开关可对比效果）。
 
 当前 BM25 为轻量实现（PostgreSQL ILIKE + 命中词数打分），
 个人知识库规模足够；大规模场景可平滑替换为
@@ -20,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models import Chunk
 from app.rag.embeddings import EmbeddingService
+from app.rag.reranker import Reranker, get_reranker
 from app.rag.vector_store import SearchHit, VectorStore
 
 logger = logging.getLogger(__name__)
@@ -103,16 +106,47 @@ def _rrf_fuse(
     return merged[:top_k]
 
 
+async def _rerank_candidates(
+    reranker: Reranker,
+    query: str,
+    candidates: list[RetrievedChunk],
+    top_n: int,
+) -> list[RetrievedChunk]:
+    """按精排分数重排候选（分数覆盖为交叉编码器得分）。"""
+    if len(candidates) <= 1:
+        return candidates
+    passages = [c.content for c in candidates]
+    ranked = await reranker.rerank(query, passages, top_n)
+    merged = []
+    for index, score in ranked:
+        c = candidates[index]
+        merged.append(
+            RetrievedChunk(
+                chunk_id=c.chunk_id,
+                content=c.content,
+                meta=c.meta,
+                score=score,
+            )
+        )
+    return merged
+
+
 async def hybrid_search(
     db: AsyncSession,
     query: str,
     embeddings: EmbeddingService,
     vector_store: VectorStore,
     top_k: int = settings.RAG_TOP_K,
-    rerank_top_k: int = settings.RAG_RERANK_TOP_K,
+    candidate_k: int = settings.RAG_RERANK_CANDIDATE_K,
+    rerank_top_n: int = settings.RAG_RERANK_TOP_N,
     document_id: str | None = None,
+    reranker: Reranker | None = None,
 ) -> list[RetrievedChunk]:
-    """混合检索主入口：向量 + BM25 → RRF 融合 → 截断精排。"""
+    """混合检索主入口：向量 + BM25 → RRF 融合 → Rerank 精排 → 前 N 注入。
+
+    reranker 缺省时按配置取全局单例；开关 `RAG_RERANK_ENABLED` 关闭时
+    退化为纯融合截断（与旧版行为一致），便于 A/B 对比效果。
+    """
     # 1. 向量检索
     qvec = (await embeddings.embed([query]))[0]
     vector_hits = await vector_store.search(qvec, top_k, document_id=document_id)
@@ -120,10 +154,20 @@ async def hybrid_search(
     # 2. BM25 关键词检索
     keyword_hits = await _bm25_search(db, query, top_k)
 
-    # 3. RRF 融合（重排）
-    merged = _rrf_fuse(vector_hits, keyword_hits, rerank_top_k)
+    # 3. RRF 融合 → candidate_k 条候选（保留足够候选供精排）
+    candidates = _rrf_fuse(vector_hits, keyword_hits, candidate_k)
+
+    # 4. Rerank 精排：交叉编码器对 query×passage 逐对打分，取前 N
+    if settings.RAG_RERANK_ENABLED:
+        if reranker is None:
+            reranker = get_reranker()
+        merged = await _rerank_candidates(reranker, query, candidates, rerank_top_n)
+    else:
+        merged = candidates[:rerank_top_n]
+
     logger.info(
-        "混合检索: query=%s 向量=%d BM25=%d 融合=%d",
-        query[:20], len(vector_hits), len(keyword_hits), len(merged),
+        "混合检索: query=%s 向量=%d BM25=%d 候选=%d 精排=%d (rerank=%s)",
+        query[:20], len(vector_hits), len(keyword_hits), len(candidates), len(merged),
+        settings.RAG_RERANK_ENABLED,
     )
     return merged

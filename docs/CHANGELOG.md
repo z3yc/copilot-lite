@@ -4,6 +4,122 @@
 
 ---
 
+## [0.12.1] · 2026-08-25 · 部署编排加固（Docker 一键部署实测前置修复）
+
+### 🐛 修复
+- **补 `.dockerignore`**：排除 `.venv`/`node_modules`/`qdrant_data`/`web/dist` 等，
+  避免构建上下文巨大（此前缺失会导致 build context 达数百 MB）；
+- **qdrant healthcheck 换零依赖探活**：镜像未内置 curl/wget，改用
+  `bash /dev/tcp`（此前 curl 探活会导致 healthcheck 失败、backend 永远起不来）；
+- **backend healthcheck**：容器内 python urllib 探活 `/api/v1/health`；
+- **模型缓存卷**：`HF_HOME` / `FASTEMBED_CACHE_PATH` 挂载 `models` 卷，
+  BGE 嵌入 + reranker（~1.1GB）重建容器不重复下载；
+- **Dockerfile 补 COPY README.md + 清华 PyPI 镜像**：hatchling 构建本地包需要
+  README；`UV_DEFAULT_INDEX` 避免国内拉依赖超时；
+- **迁移链补表（云端全新库实测暴露）**：`1473b855e26a` 引用 categories 外键但
+  从未建表、`2898b892e706`（memory_facts）upgrade 为空——本地 `create_all`
+  掩盖了这两个缺口，云端 `alembic upgrade head` 会失败/缺表，已按模型补齐；
+- **DEPLOY.md**：验证命令改经 80 端口（backend 仅内网 expose）、
+  前端构建需 Node 18+、补 `docker compose logs` 排查；
+- ✅ **本机 Docker 一键部署实测通过**：5 容器全部 healthy、迁移 5/5 跑通、
+  health 200、Web 页面 200、注册/登录/建待办全链路 OK。
+
+---
+
+## [0.12.0] · 2026-08-25 · 前端单元测试（vitest）
+
+### ✨ 新增
+- **前端测试框架**：vitest 3 + jsdom + Testing Library（与 Vite 同栈，零额外构建配置）；
+- **`api.ts` 测试**（10 用例）：token 管理、request 封装（Authorization 头 / 401 清除令牌
+  并派发 `auth-expired` / 非 2xx 报错）、URL 查询串拼接、**SSE 流式解析**
+  （跨 read 分片缓冲、session/chunk/done/error 事件分发、尾部残留 buffer）；
+- **组件测试**（10 用例）：LoginPage（表单渲染/校验/登录/注册/失败提示）、
+  ChatPanel（历史消息/空状态/发送流程 chunk 增量渲染/流式错误/空输入禁用）；
+- 配套：`npm test` / `npm test:watch` 脚本、CI 前端 job 新增测试步骤、
+  jsdom 缺失 API mock（matchMedia / ResizeObserver / scrollTo）；
+- 前端测试共 **20 用例**（后端 75 用例不变，覆盖率 81.48%）。
+
+### 🐛 修复
+- **fix(web)**：`streamChat` 遗漏携带 `Authorization` 头——0.7.0 引入认证后，
+  登录成功的用户发起流式对话（POST /chat/stream）仍返回 401 `未登录`；
+  现与 `request()` 一致携带令牌，401 时清除令牌、触发 `auth-expired` 回登录页；
+  新增 2 个回归用例（认证头/请求体断言 + 401 处理），前端共 22 用例。
+
+---
+
+## [0.11.0] · 2026-08-25 · LangGraph 多 Agent（Supervisor 路由）
+
+### ✨ 新增
+- **LangGraph 多 Agent 引擎**（`backend/app/agent/langgraph_engine.py`）：
+  StateGraph 构建 **Supervisor（LLM 意图判断）+ 3 个子 Agent**（知识库 / 工具 / 通用）
+  + 条件边路由，补齐「意图路由 → 能力分发 → 汇总回答」链路；
+- **引擎并存**：`AGENT_ENGINE=langgraph|handwritten` 配置切换（默认 langgraph），
+  两套引擎运行协议一致（run / run_stream / close），SSE 流式接口不变；
+- **工具复用**：ToolRegistry 条目转换为 langchain 工具定义（bind_tools），
+  执行仍走 `registry.execute`（统一参数解析与错误兜底），不重复实现工具逻辑；
+- **路由韧性**：Supervisor 输出 JSON 路由，LLM 失败 / 格式异常时关键词兜底
+  （工具 > 知识库 > 日常），路由不中断；
+- **流式**：`graph.astream_events` 过滤叶子节点 on_chat_model_stream 事件，
+  token 级输出，Supervisor 内部输出不泄漏给用户；
+- 依赖：`langgraph` + `langchain-openai`（DeepSeek 兼容 OpenAI 接口）；
+- 测试：新增 15 用例（图结构/路由分发/工具执行/关键词兜底/最大轮数/流式过滤/
+  引擎切换/API 全链路），共 **75 用例**，覆盖率 **81.48%**（Fake 模型，不触网）。
+
+---
+
+## [0.10.1] · 2026-08-25 · 修复：工具参数类型容错（Agent 改待办优先级失败）
+
+### 🐛 修复
+- **根因（两层叠加）**：
+  1. `_build_parameters` 不识别 Optional 联合类型——`_TYPE_MAP.get(int | None)` 查不到，
+     `todo_update` 的 `priority: int | None` 在 schema 中被声明为 **`"string"`**，
+     误导 LLM 传字符串 `"5"`；
+  2. 执行器不做类型容错，字符串 `"5"` 直接进 `min(5, "5")` 抛 TypeError，
+     且异常发生在 **commit 之前** → 数据库未更新 → 优先级始终显示旧值；
+- **修复**：① schema 生成支持联合类型剥壳（`int|None`→integer、`list[str]|None`→array）；
+  ② `registry.execute` 按 schema 类型对参数强制转换（`"5"`→5、数组字符串→`json.loads`），
+  转换失败返回友好错误不中断对话；
+- **优先级语义澄清**：工具描述 / API `Field` description / AI 解析提示词统一写明
+  **`priority 1-5（1 最高、5 最低）`**——此前未说明方向，LLM 按直觉把"最高"设成 5
+  （实际最低）；前端标签本就正确（1=紧急 … 5=很低）；
+- **fix(web)**：`streamChat` 携带认证令牌修复（0.12.0 中完整记录）；
+- 测试：新增 6 用例（字符串优先级更新且**断言数据库真实落库** / 字符串数组 /
+  非法参数不改数据 / schema 类型映射 / 优先级语义在描述中 / streamChat 认证头）。
+
+---
+
+## [0.10.0] · 2026-08-25 · Rerank 重排（检索链路增强）
+
+### ✨ 新增
+- **Rerank 精排**：混合检索（BM25+向量+RRF）后接入 **bge-reranker-base** 交叉编码器
+  二次精排，补齐"检索 → 重排 → 生成"链路（`backend/app/rag/reranker.py`）；
+- **链路设计**：向量/BM25 各自召回（`RAG_TOP_K`）→ RRF 融合出候选
+  （`RAG_RERANK_CANDIDATE_K`）→ 精排取前 N 注入 LLM（`RAG_RERANK_TOP_N`）；
+- **配置开关**：`RAG_RERANK_ENABLED`（默认开）——关闭时行为与旧版完全一致，
+  可 A/B 对比精排效果；
+- **异步封装**：同步 ONNX 推理走线程池不阻塞事件循环；模型懒加载 + hf-mirror 镜像复用
+  （fastembed 0.8 类名 `TextCrossEncoder`，高版本同能力入口为 `TextReranking`）；
+- 测试：新增 8 用例（排序截断/空与单候选短路/单例懒加载/链路接入/开关关闭），
+  共 **60 用例**，覆盖率 **80.69%**（Fake 重排器，不下载模型）。
+
+---
+
+## [0.9.0] · 2026-08-25 · 长期记忆系统
+
+### ✨ 新增
+- **自动提取**：会话结束后台 LLM 批量抽取用户事实/偏好（结构化 JSON，
+  分类：偏好/事实/背景；`MEMORY_EXTRACT_ENABLED` 开关）；
+- **向量记忆**：`memory_facts` 表 + Qdrant `copilot_memories` 集合，
+  向量相似度去重（同事实不重复累积）；
+- **混合召回**：对话按当前问题自动注入相关记忆（等价于"会话开始 + 话题切换补充"）；
+- **可视化管理**：`GET/PATCH/DELETE /memories` + 个人中心"🧠 我的记忆"页
+  （查看 / 编辑内容与分类 / 删除）；
+- **fix(qdrant)**：Qdrant 客户端共享单例——本地模式同一目录只允许一个客户端
+  实例，多 collection（文档/记忆）必须共享 client（修复潜在生产崩溃）；
+- 测试：52 用例（提取/降级/召回/编辑/删除/API），覆盖率 80.34%。
+
+---
+
 ## [0.8.0] · 2026-08-25 · 完整待办工作区
 
 ### ✨ 新增

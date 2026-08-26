@@ -20,10 +20,10 @@
 
 | 项 | 状态 |
 |---|---|
-| **分支** | `feature/agent-enhancements`（长期记忆已完成并推送）· `main` 稳定 |
-| 已完成 | P0-P4 全量 + 认证 + 个人中心 + 待办工作区 + **长期记忆（①）** |
-| 待办 | **② Rerank 重排** → **③ LangGraph 多 Agent**（详见第 5 节） |
-| 测试 | 52 用例全绿，覆盖率 80.34%（门槛 80%，`uv run pytest`） |
+| **分支** | `feature/agent-enhancements`（三大增强①②③ 已完成）· `main` 稳定 |
+| 已完成 | P0-P4 全量 + 认证 + 个人中心 + 待办工作区 + **长期记忆（①）+ Rerank 重排（②）+ LangGraph 多 Agent（③）** + 前端 vitest 单测 |
+| 待办 | 其他路线图项（Agent-as-Tool / Rerank 后置 Query 改写 / 云端部署实测，详见第 5 节） |
+| 测试 | 后端 75 用例全绿（覆盖率 81.48%，门槛 80%，`uv run pytest`）+ 前端 20 用例（`cd web && npm test`） |
 | 代码规范 | ruff 全绿（`uv run ruff check .`） |
 
 ## 3. 环境与启动
@@ -42,8 +42,11 @@ npm run dev                      # http://localhost:5173
 
 # 测试与检查
 cd backend
-uv run pytest                    # 覆盖率 ≥80%
+uv run pytest                    # 后端覆盖率 ≥80%
 uv run ruff check .
+cd ../web
+npm test                         # 前端单元测试（vitest）
+npm run build                    # 前端类型检查 + 构建
 ```
 
 **注意事项**：
@@ -58,7 +61,7 @@ uv run ruff check .
 backend/app/
 ├── main.py            # 入口 + lifespan（建表/seed 默认用户与分类）
 ├── core/              # config(settings)/db/llm(DeepSeek)/security(JWT)/logging/constants
-├── agent/             # base.py(BaseAgent抽象) + orchestrator.py(手写ReAct，含run_stream流式)
+├── agent/             # base.py(BaseAgent抽象) + orchestrator.py(手写ReAct，含run_stream流式) + langgraph_engine.py(多Agent引擎③)
 ├── rag/               # parsers(5格式)/chunking/embeddings(BGE)/vector_store(Qdrant)/retriever(混合检索)/pipeline(摄取)
 ├── memory/            # service.py(长期记忆：提取/存储/召回/编辑/删除)  ← ①已完成
 ├── tools/             # base.py(可插拔注册表) + todo_tool/kb_tool
@@ -75,45 +78,13 @@ web/src/
 ### ✅ ① 长期记忆 —— 已完成（勿重复）
 见 `docs/CHANGELOG.md` 0.9.0 与 `backend/app/memory/service.py`。
 
-### 🔭 ② Rerank 重排（下一步）
+### ✅ ② Rerank 重排 —— 已完成（勿重复）
+见 `docs/CHANGELOG.md` 0.10.0、`backend/app/rag/reranker.py` 与 `retriever.py`（`hybrid_search` 末尾接入，`RAG_RERANK_ENABLED` 开关）。
 
-**目标**：混合检索后加 bge-reranker 精排，补齐"检索→重排→生成"链路。
+### ✅ ③ LangGraph 多 Agent —— 已完成（勿重复）
+见 `docs/CHANGELOG.md` 0.11.0 与 `backend/app/agent/langgraph_engine.py`（Supervisor 路由 + 3 子 Agent，`AGENT_ENGINE` 切换，SSE 接口不变）。
 
-**设计**（已确认，见 `PLAN.md` 5.1）：
-```
-混合检索（BM25+向量+RRF）→ TopK → bge-reranker 精排 → 前 N 注入 → LLM
-```
-
-**实施步骤**：
-1. `backend/app/rag/reranker.py`：封装 fastembed 的 `TextReranking`（模型 `BAAI/bge-reranker-base`，复用 hf-mirror setdefault），`async rerank(query, passages, top_n) -> list[(index, score)]`，线程池包装不阻塞事件循环；
-2. `retriever.py`：`hybrid_search` 末尾接入 rerank（配置开关 `RAG_RERANK_ENABLED`，默认开；`RAG_RERANK_TOP_N`）；
-3. `core/config.py` 加配置项；
-4. 测试：mock reranker（固定分数），验证检索链路接入 + 开关关闭时行为不变；
-5. 更新文档（README/CHANGELOG 0.10.0/PLAN ②完成）。
-
-### 🔭 ③ LangGraph 多 Agent（最后，工作量最大）
-
-**目标**：Supervisor 路由（知识库 Agent / 工具 Agent / 通用 Agent），与手写引擎并存可切换。
-
-**设计**（已确认，见 `PLAN.md` 5.1 与 `docs/architecture.md` 7.1）：
-```
-START → Supervisor(LLM意图判断) → 条件路由
-  ├─ 知识库问题 → 🧠 知识库 Agent（RAG+引用回答）
-  ├─ 工具请求   → 🛠️ 工具 Agent（复用 ToolRegistry）
-  └─ 日常对话   → 💬 通用 Agent
-→ 汇总 → END
-```
-
-**实施步骤**：
-1. 依赖：`uv add langgraph langchain-openai`（DeepSeek 兼容 OpenAI 接口，配置 base_url）；
-2. `backend/app/agent/langgraph_engine.py`：StateGraph 构建（Supervisor 节点 + 3 个子 Agent 节点 + 条件边）；
-3. 工具复用：把现有 ToolRegistry 适配为 langchain 工具（`@tool` 包装）；
-4. 引擎切换：`core/config.py` 加 `AGENT_ENGINE=langgraph|handwritten`（默认 langgraph）；
-5. `chat.py` 按配置选择引擎（保持 SSE 流式接口不变）；
-6. 测试：图结构构建 + 路由逻辑（mock LLM 意图）+ 引擎切换；
-7. 更新文档（README/CHANGELOG/PLAN ③完成 + architecture 图）。
-
-### 其他路线图项（可选项）
+### 其他路线图项（下一步候选）
 - Agent-as-Tool（子 Agent 注册为工具）
 - Rerank 后置 Query 改写（HyDE）
 - 云端部署实测（`deploy/DEPLOY.md`）
@@ -126,7 +97,7 @@ START → Supervisor(LLM意图判断) → 条件路由
    - `README.md`（核心特性加一条）
    - `docs/CHANGELOG.md`（新增版本号）
    - `PLAN.md`（标记完成 + 进度）
-4. **质量门槛**：`uv run pytest` 覆盖率 ≥80%（不达标补测试）；`uv run ruff check .` 全绿；前端 `npm run build` 通过；
+4. **质量门槛**：`uv run pytest` 覆盖率 ≥80%（不达标补测试）；`uv run ruff check .` 全绿；前端 `npm test` 全绿 + `npm run build` 通过；
 5. **测试隔离**：测试用独立 SQLite + 隔离 Qdrant 目录（conftest 已处理）；**不要**在测试中调用真实 LLM/嵌入模型（用 mock/Fake）。
 
 ## 7. 已知坑（避免踩）

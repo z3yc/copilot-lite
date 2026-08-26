@@ -28,7 +28,7 @@ P4 工程化   ██████████ 100% ✅（M4 本地验收通过�
 P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端待实测）
 ```
 
-**Git 现状**：42 个提交 · 功能增强已并入（antd UI/分类/搜索/暗色/会话附件）· 详细见 [docs/CHANGELOG.md](docs/CHANGELOG.md)
+**Git 现状**：83 个提交 · 功能增强已并入（antd UI/分类/搜索/暗色/会话附件/记忆/Rerank/LangGraph 多 Agent）· 前端 vitest 单测已就绪 · 工具容错/401/优先级语义等修复见 [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 ---
 
@@ -104,12 +104,12 @@ P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端�
 - [x] 文档详情展开（分块内容 + 标题路径 + 失败原因）
 - [x] **用户认证系统**：注册/登录/JWT + 数据按用户隔离 + 个人中心（可交互 4 Tab）
 - [x] **完整待办工作区**：侧边栏待办 Tab、AI 快速添加、分类+标签、时间分组高亮、全字段编辑
-- 当前测试：**46 用例**，覆盖率 **80.54%**
+- 当前测试：**后端 80 用例** + **前端 22 用例**（vitest：api SSE 解析 + 组件冒烟 + 401 回归）
 
 ### 🟢 P4 · 工程化（已完成 ✅）
 
 - [x] 测试补全 + 覆盖率门槛：31 用例，**83%**（fail-under=80 强制）
-- [x] CI 流水线：`.github/workflows/ci.yml`（后端 lint+test+coverage / 前端 typecheck+build）
+- [x] CI 流水线：`.github/workflows/ci.yml`（后端 lint+test+coverage / 前端 typecheck+build+test）
 - [x] 配置化收口：`deploy/.env.example` 完整模板（RUN_MODE/DATABASE/QDRANT/模型）
 - [x] Docker Compose 预留：postgres+qdrant+redis+backend+web（`deploy/`，云端实测）
 - [x] 一键启动脚本：`scripts/dev_start.ps1`（无 Docker 本地全服务启动）
@@ -126,30 +126,31 @@ P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端�
 
 ---
 
-## 5. 后续规划（Post-MVP，已确定三大增强方案）
+## 5. 后续规划（Post-MVP，三大增强）
 
-### 🔭 三大增强（已设计，待实施）
+### ✅ ① 长期记忆系统（已完成 0.9.0）
 
-**① 长期记忆系统（体验 + 面试双赢）**
+| 环节 | 设计 | 状态 |
+|---|---|---|
+| 提取 | 会话结束后台 LLM 批量抽取事实/偏好（结构化 JSON，偏好/事实/背景） | ✅ |
+| 存储 | `memory_facts` 表 + Qdrant `copilot_memories` 集合 | ✅ |
+| 去重 | 向量相似度 > 0.92 判定同事实跳过 | ✅ |
+| 召回（混合） | 对话按问题检索注入（等价于会话开始 + 话题切换补充） | ✅ |
+| 可视化管理 | 个人中心"🧠 我的记忆"：**查看 / 编辑 / 删除** | ✅ |
+| API | `GET /memories`、`PATCH /memories/{id}`、`DELETE /memories/{id}` | ✅ |
+| 附带修复 | Qdrant 客户端共享单例（目录锁冲突） | ✅ |
 
-| 环节 | 设计 |
-|---|---|
-| 提取 | 会话结束时，LLM 从整段对话**批量抽取事实/偏好**（结构化 JSON） |
-| 存储 | 新表 `MEMORY_FACT`（user_id/fact/category/confidence/来源会话）+ Qdrant `memory` collection（向量） |
-| 去重更新 | 向量相似度 > 阈值 → 判定同事实，更新而非重复存 |
-| 召回（混合） | 会话开始注入 TopK；**话题切换检测**（当前问题与已注入记忆相似度低时补充检索） |
-| 可视化管理 | 个人中心"🧠 我的记忆"页：查看 + 手动删除 |
-| API | `GET /memories`、`DELETE /memories/{id}` |
+### ✅ ② Rerank 重排（已完成 0.10.0）
 
-**② Rerank 重排（效果最实在）**
+| 环节 | 设计 | 状态 |
+|---|---|---|
+| 模型 | 本地 **bge-reranker-base**（fastembed，复用 hf-mirror 配置） | ✅ |
+| 流程 | 混合检索（BM25+向量+RRF）→ TopK → Rerank 精排 → 前 N 注入 | ✅ |
+| 配置 | `RAG_RERANK_ENABLED` 开关（可对比效果） | ✅ |
+| 实现 | `backend/app/rag/reranker.py` + `retriever.hybrid_search` 末尾接入（线程池异步） | ✅ |
+| 测试 | 8 用例（Fake 重排器：链路接入/开关关闭/排序截断），共 60 用例，覆盖率 80.69% | ✅ |
 
-| 环节 | 设计 |
-|---|---|
-| 模型 | 本地 **bge-reranker-base**（fastembed，复用 hf-mirror 配置） |
-| 流程 | 混合检索（BM25+向量+RRF）→ TopK → Rerank 精排 → 前 N 注入 |
-| 配置 | `RAG_RERANK_ENABLED` 开关（可对比效果） |
-
-**③ LangGraph 多 Agent（架构亮点，用户指定用框架）**
+### ✅ ③ LangGraph 多 Agent（已完成 0.11.0）
 
 ```
 START → Supervisor（LLM 意图判断）→ 条件路由
@@ -159,19 +160,22 @@ START → Supervisor（LLM 意图判断）→ 条件路由
 → 汇总 → END
 ```
 
-| 环节 | 设计 |
-|---|---|
-| 依赖 | `langgraph` + `langchain-openai`（DeepSeek 兼容 OpenAI） |
-| 引擎接入 | **并存模式**：LangGraph（默认）+ 手写 Orchestrator（配置 `AGENT_ENGINE` 切换，面试可对比） |
-| 工具复用 | 现有 ToolRegistry 适配为 LangGraph 工具 |
+| 环节 | 设计 | 状态 |
+|---|---|---|
+| 依赖 | `langgraph` + `langchain-openai`（DeepSeek 兼容 OpenAI） | ✅ |
+| 引擎接入 | **并存模式**：LangGraph（默认）+ 手写 Orchestrator（配置 `AGENT_ENGINE` 切换） | ✅ |
+| 工具复用 | 现有 ToolRegistry 适配为 LangGraph 工具（bind_tools，执行仍走 registry） | ✅ |
+| 流式 | `graph.astream_events` 过滤叶子节点输出，SSE 接口不变 | ✅ |
+| 实现 | `backend/app/agent/langgraph_engine.py`（StateGraph + Supervisor JSON 路由 + 关键词兜底） | ✅ |
+| 测试 | 15 用例（图结构/路由/工具/兜底/最大轮数/流式/引擎切换/API），共 75 用例，覆盖率 81.48% | ✅ |
 
 ### 实施顺序与预估
 
 | 顺序 | 方向 | 预估工作量 |
 |---|---|---|
-| 1️⃣ | 长期记忆（后端 + 前端管理页） | 中 |
-| 2️⃣ | Rerank（检索链路增强） | 小 |
-| 3️⃣ | LangGraph 多 Agent（图 + 引擎切换 + 测试） | 中大 |
+| 1️⃣ | 长期记忆（后端 + 前端管理页） | ✅ 已完成 0.9.0 |
+| 2️⃣ | Rerank（检索链路增强） | ✅ 已完成 0.10.0 |
+| 3️⃣ | LangGraph 多 Agent（图 + 引擎切换 + 测试） | ✅ 已完成 0.11.0 |
 
 ### 关键风险预案
 

@@ -22,8 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent import Orchestrator
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.db import get_session
 from app.core.llm import get_llm
+from app.memory import get_memory_service
 from app.models import ChatSession, Message, User
 from app.tools import registry
 
@@ -104,30 +106,97 @@ async def _load_session_file_context(db: AsyncSession, session_id) -> list[dict]
     ]
 
 
-async def _build_context(db: AsyncSession, session_id, history: list[dict]) -> list[dict]:
-    """组装上下文：会话附件（system）+ 历史消息。"""
+async def _build_context(
+    db: AsyncSession, session_id, history: list[dict], user_message: str, user_id
+) -> list[dict]:
+    """组装上下文：会话附件（system）+ 长期记忆（system）+ 历史消息。
+
+    记忆召回按当前问题执行（向量检索，无 LLM 成本），
+    等价于"会话开始注入 + 话题切换自动补充"的混合策略。
+    """
+    parts: list[dict] = []
     file_ctx = await _load_session_file_context(db, session_id)
-    return (file_ctx or []) + history
+    if file_ctx:
+        parts.extend(file_ctx)
+    memories = await get_memory_service().recall(db, user_id, user_message)
+    if memories:
+        parts.append(
+            {
+                "role": "system",
+                "content": "关于用户的长期记忆（回答时自然参考，但不要提及\"记忆\"一词）：\n"
+                + "\n".join(f"- {m}" for m in memories),
+            }
+        )
+    return parts + history
+
+
+def _build_agent():
+    """按配置选择对话引擎：langgraph（多 Agent，默认）/ handwritten（手写 ReAct）。
+
+    LangGraph 引擎内部创建 langchain ChatOpenAI（DeepSeek 兼容 OpenAI 接口）；
+    手写引擎复用 LLMClient（get_llm 入口）。两者运行协议一致：run / run_stream / close。
+    """
+    if settings.AGENT_ENGINE == "langgraph":
+        from app.agent.langgraph_engine import LangGraphEngine
+
+        return LangGraphEngine(registry=registry)
+    return Orchestrator(llm=get_llm(), registry=registry)
 
 
 async def _run_agent(db: AsyncSession, history: list[dict], message: str, user_id) -> str:
     try:
-        llm = get_llm()
+        agent = _build_agent()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    orchestrator = Orchestrator(llm=llm, registry=registry)
     try:
-        return await orchestrator.run(
+        return await agent.run(
             session=db, user_id=user_id, history=history, user_message=message
         )
     finally:
-        await llm.close()
+        await agent.close()
+
+
+async def _run_agent_stream(db: AsyncSession, history: list[dict], message: str, user_id):
+    """按配置选择引擎并流式运行，逐文本增量产出（供 SSE chunk 事件）。"""
+    try:
+        agent = _build_agent()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        async for text in agent.run_stream(
+            session=db, user_id=user_id, history=history, user_message=message
+        ):
+            yield text
+    finally:
+        await agent.close()
 
 
 async def _persist(db: AsyncSession, session_id, user_msg: str, reply: str) -> None:
     db.add(Message(session_id=session_id, role="user", content=user_msg))
     db.add(Message(session_id=session_id, role="assistant", content=reply))
     await db.commit()
+
+
+async def _background_extract_memories(session_id, user_id) -> None:
+    """会话结束后台提取记忆（独立会话，不阻塞响应）。"""
+    try:
+        from app.core.db import async_session_factory
+
+        async with async_session_factory() as db:
+            history = await _load_history(db, session_id)
+            msgs = [{"role": m["role"], "content": m["content"]} for m in history]
+            await get_memory_service().extract_from_session(db, user_id, session_id, msgs)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("后台记忆提取失败: %s", exc)
+
+
+def _schedule_memory_extract(session_id, user_id) -> None:
+    """异步调度记忆提取（不阻塞响应返回；测试环境关闭）。"""
+    if not settings.MEMORY_EXTRACT_ENABLED:
+        return
+    import asyncio
+
+    asyncio.create_task(_background_extract_memories(session_id, user_id))
 
 
 @router.post("", response_model=ChatResponse)
@@ -138,9 +207,12 @@ async def chat(
 ) -> ChatResponse:
     """非流式对话。"""
     session = await _resolve_session(db, req.session_id, req.message, user)
-    history = await _build_context(db, session.id, await _load_history(db, session.id))
+    history = await _build_context(
+        db, session.id, await _load_history(db, session.id), req.message, user.id
+    )
     reply = await _run_agent(db, history, req.message, user.id)
     await _persist(db, session.id, req.message, reply)
+    _schedule_memory_extract(session.id, user.id)
     return ChatResponse(session_id=str(session.id), reply=reply)
 
 
@@ -152,41 +224,36 @@ async def chat_stream(
 ):
     """SSE 流式对话（token 级流式，打字机效果）。
 
-    编排器以流式模式运行：文本轮逐 token 实时转发（chunk 事件），
-    工具调用轮在后台执行（不阻塞、不产生用户可见文本）。
+    引擎按配置选择（LangGraph 多 Agent 默认 / 手写 ReAct）：
+    模型文本轮逐 token 实时转发（chunk 事件），工具调用轮在后台执行
+    （不阻塞、不产生用户可见文本）。
     """
     session = await _resolve_session(db, req.session_id, req.message, user)
-    history = await _build_context(db, session.id, await _load_history(db, session.id))
+    history = await _build_context(
+        db, session.id, await _load_history(db, session.id), req.message, user.id
+    )
 
-    # Key 检查提前到响应前（错误可返回 HTTP 状态码）
+    # 引擎/Key 检查提前到响应前（错误可返回 HTTP 状态码）
     try:
-        get_llm()
+        _build_agent()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     async def event_gen() -> AsyncIterator[str]:
         # 1. 先发会话事件
         yield _sse("session", {"session_id": str(session.id)})
-        # 2. token 级流式运行编排器
+        # 2. token 级流式运行引擎
         reply_parts: list[str] = []
         try:
-            llm = get_llm()
-            orchestrator = Orchestrator(llm=llm, registry=registry)
-            async for text in orchestrator.run_stream(
-                session=db,
-                user_id=user.id,
-                history=history,
-                user_message=req.message,
-            ):
+            async for text in _run_agent_stream(db, history, req.message, user.id):
                 reply_parts.append(text)
                 yield _sse("chunk", {"text": text})
         except HTTPException as exc:
             yield _sse("error", {"detail": exc.detail})
             return
-        finally:
-            await llm.close()
         # 3. 完成事件 + 持久化
         yield _sse("done", {})
         await _persist(db, session.id, req.message, "".join(reply_parts))
+        _schedule_memory_extract(session.id, user.id)
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

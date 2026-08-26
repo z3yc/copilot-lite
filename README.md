@@ -18,6 +18,8 @@
 - [开发路线图](#开发路线图)
 - [面试要点](#面试要点)
 - [🧭 开发交接手册](docs/DEV_GUIDE.md)
+- [🤖 CI/CD 方案记录](docs/CICD_PLAN.md)
+- [🔧 Jenkins CI/CD 手册](deploy/JENKINS_README.md)
 - [变更记录](docs/CHANGELOG.md)
 - [调试排障记录](docs/DEBUGGING.md)
 - [License](#license)
@@ -47,6 +49,8 @@ Copilot-Lite 是一个 **个人专属的 AI 智能助理**，定位为"第二大
 
 ### 2. Agent 工具调用（Function Calling）
 - **ReAct 循环 + Function Calling** 双范式；
+- **LangGraph 多 Agent 路由**：Supervisor 意图路由（知识库 / 工具 / 通用 3 个子 Agent），
+  与手写引擎并存，`AGENT_ENGINE` 一键切换；
 - **可插拔工具注册表**：新增一个工具 = 写一个函数 + 一行注册；
 - 内置工具集：
   - 📋 **个人管理**：待办清单（Todo）增删改查
@@ -58,6 +62,8 @@ Copilot-Lite 是一个 **个人专属的 AI 智能助理**，定位为"第二大
 - **多格式解析 Pipeline**：Markdown / PDF / DOCX / 代码仓库 / 网页；
 - **智能分块**：按标题层级、代码结构、语义边界分块，携带元数据；
 - **混合检索**：BM25 关键词检索 + 向量语义检索 + Rerank 重排；
+- **Rerank 精排**：bge-reranker-base 本地交叉编码器，混合检索后二次精排
+  （`RAG_RERANK_ENABLED` 开关可对比效果）；
 - **引用溯源**：每个回答附来源文档与片段位置；
 - **权限控制**：文档级可见性设计，敏感数据脱敏示例。
 
@@ -89,6 +95,12 @@ Copilot-Lite 是一个 **个人专属的 AI 智能助理**，定位为"第二大
 - **完整 CRUD**：勾选完成（可取消）、全字段编辑、删除确认；
 - Agent 对话中也能创建/编辑/过滤待办（工具升级）。
 
+### 9. 长期记忆系统（🧠 越用越懂你）
+- **自动提取**：会话结束时 LLM 批量抽取你的事实/偏好（分类：偏好/事实/背景）；
+- **向量记忆**：Qdrant memory 集合 + 向量去重（同事实不重复累积）；
+- **混合召回**：对话中按问题自动注入相关记忆（会话开始 + 话题切换补充）；
+- **可视化管理**：个人中心"🧠 我的记忆"——**查看 / 编辑 / 删除**，可修正 AI 记错的内容。
+
 ---
 
 ## 技术栈
@@ -98,7 +110,7 @@ Copilot-Lite 是一个 **个人专属的 AI 智能助理**，定位为"第二大
 | 后端框架 | Python 3.11+ / FastAPI | 异步、Pydantic 校验、OpenAPI 自动文档 |
 | 对话流式 | SSE / WebSocket | 流式输出打字机效果 |
 | 大模型 | DeepSeek API | 原生支持 Function Calling，成本低 |
-| Agent 编排 | ReAct + Function Calling | 手写编排器 + 工具注册表 |
+| Agent 编排 | LangGraph 多 Agent + ReAct | Supervisor 路由 + 手写引擎并存可切换 |
 | 向量库 | Qdrant | 轻量级、Docker 单机部署、2C4G 可跑 |
 | 关系库 | PostgreSQL | 业务数据（会话 / Todo / 文档元数据） |
 | 缓存 | Redis | 会话缓存 / 限流 / 队列 |
@@ -129,7 +141,7 @@ graph TB
     end
 
     subgraph Agent["Agent 核心层"]
-        ORCH[对话编排器<br/>会话状态机]
+        ORCH[多 Agent 编排器<br/>LangGraph Supervisor 路由<br/>+ 手写 ReAct 可切换]
         MEM[双层记忆<br/>短期摘要 + 长期向量]
         TOOL[工具调度器<br/>注册表 + Function Calling]
         RAG[RAG 检索编排<br/>检索→重排→生成]
@@ -190,15 +202,15 @@ copilot-lite/
 │   │   ├── main.py           # 应用入口
 │   │   ├── api/              # 路由层（chat/sessions/documents/todos）
 │   │   ├── core/             # 配置、LLM 客户端、日志、常量
-│   │   ├── agent/            # BaseAgent 抽象 + ReAct 编排器
-│   │   ├── rag/              # 解析、分块、嵌入、检索、摄取
+│   │   ├── agent/            # BaseAgent 抽象 + 手写 ReAct + LangGraph 多 Agent 引擎
+│   │   ├── rag/              # 解析、分块、嵌入、检索、重排、摄取
 │   │   ├── tools/            # 工具注册表 + Todo/kb_search
 │   │   └── models/           # 数据模型（含 SessionFile）
-│   ├── tests/                # 34 用例，覆盖率 ≥80%
+│   ├── tests/                # 65 用例，覆盖率 ≥80%
 │   ├── alembic/              # 数据库迁移
 │   └── pyproject.toml
 ├── cli/                      # CLI 客户端（chat / ask / todo）
-├── web/                      # React + Vite + Ant Design 前端
+├── web/                      # React + Vite + Ant Design 前端（vitest 单测）
 ├── deploy/                   # 云端部署（compose/Dockerfile/Nginx/DEPLOY.md）
 ├── .github/workflows/        # CI 流水线
 ├── scripts/                  # 一键启动 / 批量上传脚本
@@ -242,8 +254,12 @@ uv run copilot todo list             # 直接管理待办
 
 ```bash
 cd backend
-uv run pytest        # 31 用例，覆盖率 ≥80%（未达标即失败）
+uv run pytest        # 80 用例，覆盖率 ≥80%（未达标即失败）
 uv run ruff check .  # 代码规范
+
+cd web
+npm test             # 前端单元测试（vitest：api SSE 解析 + 组件冒烟）
+npm run build        # 前端类型检查 + 构建
 ```
 
 ---
@@ -280,9 +296,9 @@ uv run ruff check .  # 代码规范
 
 | 方向 | 说明 | 状态 |
 |---|---|---|
-| **① 长期记忆** | 会话结束 LLM 批量提取事实/偏好 → 向量化 → 混合召回（会话开始 + 话题切换）→ **可视化管理页** | 🔭 已设计 |
-| **② Rerank 重排** | bge-reranker 本地模型，混合检索后精排，补齐"检索→重排→生成"链路 | 🔭 已设计 |
-| **③ LangGraph 多 Agent** | Supervisor 路由（知识库/工具/通用 Agent），与手写引擎并存可切换 | 🔭 已设计 |
+| **① 长期记忆** | 会话结束 LLM 批量提取事实/偏好 → 向量化 → 混合召回（会话开始 + 话题切换）→ **可视化管理页** | ✅ 已完成（0.9.0） |
+| **② Rerank 重排** | bge-reranker 本地模型，混合检索后精排，补齐"检索→重排→生成"链路 | ✅ 已完成（0.10.0） |
+| **③ LangGraph 多 Agent** | Supervisor 路由（知识库/工具/通用 Agent），与手写引擎并存可切换 | ✅ 已完成（0.11.0） |
 | Agent-as-Tool | 子 Agent 注册为工具复用 ToolRegistry | 预留 |
 | 流式增强 | 已实现（token 级 SSE） | ✅ 完成 |
 

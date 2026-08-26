@@ -60,3 +60,7 @@ Thumbs.db
 # ===== 文档与日志 =====
 logs/
 *.log
+
+# ===== 本机 Jenkins（CI/CD） =====
+.jenkins-home/
+.jenkins/

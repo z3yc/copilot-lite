@@ -300,13 +300,13 @@ graph LR
 
 ---
 
-## 7. 多智能体扩展设计（Post-MVP 规划）
+## 7. 多智能体扩展设计
 
-> 当前实现为单 Agent（Orchestrator）；已确定使用 **LangGraph** 框架实现多 Agent
-> 路由（与手写引擎并存可切换），`BaseAgent` 抽象协议（`app/agent/base.py`）
-> 与 Agent-as-Tool 模式留好扩展点。
+> 已使用 **LangGraph** 框架实现多 Agent 路由（Supervisor 路由 + 3 子 Agent），
+> 与手写引擎（Orchestrator）并存，`AGENT_ENGINE` 配置切换；
+> `BaseAgent` 抽象协议（`app/agent/base.py`）是两套引擎的统一契约。
 
-### 7.1 LangGraph 路由型多 Agent
+### 7.1 LangGraph 路由型多 Agent（已完成 0.11.0）
 
 ```mermaid
 graph LR
@@ -319,11 +319,15 @@ graph LR
     GEA --> ENDN
 ```
 
-- **引擎接入**：配置 `AGENT_ENGINE=langgraph | handwritten` 切换；
-  LangGraph 引擎默认，手写 Orchestrator 保留（面试可对比两套实现的取舍）。
-- **工具复用**：现有 ToolRegistry 适配为 LangGraph 工具，叙事连贯。
+- **引擎接入**：配置 `AGENT_ENGINE=langgraph | handwritten` 切换（LangGraph 默认）；
+  两套引擎运行协议一致（run / run_stream / close），SSE 流式接口不变。
+- **工具复用**：现有 ToolRegistry 条目转换为 langchain 工具定义（bind_tools），
+  执行仍走 `registry.execute`（统一参数解析与错误兜底），叙事连贯。
+- **实现**：`backend/app/agent/langgraph_engine.py`——StateGraph（supervisor + 3 子 Agent
+  节点 + 条件边）；Supervisor 输出 JSON 路由，异常时关键词兜底（工具>知识库>日常）；
+  流式经 `graph.astream_events` 过滤叶子节点模型输出，Supervisor 内部输出不泄漏给用户。
 
-### 7.2 长期记忆系统（已设计）
+### 7.2 长期记忆系统（已完成 0.9.0）
 
 ```mermaid
 flowchart LR
@@ -350,7 +354,7 @@ flowchart LR
     S1 --> M2
 ```
 
-### 7.3 Rerank 重排（已设计）
+### 7.3 Rerank 重排（已完成 0.10.0）
 
 ```
 混合检索（BM25 + 向量 + RRF）→ TopK
@@ -358,4 +362,5 @@ flowchart LR
   → 前 N 注入 → LLM 生成
 ```
 
-> 补齐架构图中"检索→重排→生成"三段式的中间环节，配置 `RAG_RERANK_ENABLED` 开关。
+> 补齐架构图中"检索→重排→生成"三段式的中间环节，配置 `RAG_RERANK_ENABLED` 开关
+> （默认开，关闭时行为与旧版一致）；实现见 `backend/app/rag/reranker.py`。

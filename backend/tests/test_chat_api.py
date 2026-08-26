@@ -2,12 +2,15 @@
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage
 from sqlalchemy import select
 
 import app.api.routes.chat as chat_module
 from app.core.db import async_session_factory
 from app.core.llm import ChatResult
 from app.main import app
+from app.tools import registry
 
 
 class _FakeDelta:
@@ -150,3 +153,74 @@ async def test_chat_stream_sse(monkeypatch, authed_headers: dict) -> None:
     assert events[-1] == "done"
     assert "chunk" in events
     assert session_id
+
+
+# ---------------- LangGraph 引擎（经 API 全链路） ----------------
+
+
+class _FakeLangChainLLM(GenericFakeChatModel):
+    """支持 bind_tools 的假模型（不触网）。"""
+
+    def bind_tools(self, tools, **kwargs):
+        return self
+
+
+@pytest.mark.asyncio
+async def test_chat_uses_langgraph_engine(monkeypatch, authed_headers: dict) -> None:
+    """默认引擎 LangGraph：POST /chat 走 Supervisor 路由 + 子 Agent 回复。"""
+    from app.agent.langgraph_engine import LangGraphEngine
+
+    fake = _FakeLangChainLLM(
+        messages=iter(
+            [
+                AIMessage(content='{"route": "chat", "reason": "测试"}'),
+                AIMessage(content="LangGraph 引擎回复"),
+            ]
+        )
+    )
+    monkeypatch.setattr(
+        chat_module, "_build_agent", lambda: LangGraphEngine(llm=fake, registry=registry)
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/chat", json={"message": "你好"}, headers=authed_headers)
+    assert resp.status_code == 200
+    assert resp.json()["reply"] == "LangGraph 引擎回复"
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_langgraph_engine(monkeypatch, authed_headers: dict) -> None:
+    """LangGraph 引擎经 SSE 流式输出（session → chunk → done，接口不变）。"""
+    from app.agent.langgraph_engine import LangGraphEngine
+
+    fake = _FakeLangChainLLM(
+        messages=iter(
+            [
+                AIMessage(content='{"route": "chat", "reason": "测试"}'),
+                AIMessage(content="流式回复"),
+            ]
+        )
+    )
+    monkeypatch.setattr(
+        chat_module, "_build_agent", lambda: LangGraphEngine(llm=fake, registry=registry)
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:  # noqa: SIM117
+        async with client.stream(
+            "POST", "/api/v1/chat/stream", json={"message": "你好"}, headers=authed_headers
+        ) as resp:
+            assert resp.status_code == 200
+            events: list[str] = []
+            text_parts: list[str] = []
+            async for line in resp.aiter_lines():
+                if line.startswith("event: "):
+                    events.append(line[7:])
+                elif line.startswith("data: ") and '"text"' in line:
+                    import json as _json
+
+                    text_parts.append(_json.loads(line[6:])["text"])
+
+    assert events[0] == "session" and events[-1] == "done"
+    assert "".join(text_parts) == "流式回复"

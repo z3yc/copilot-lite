@@ -7,6 +7,8 @@ import os
 import uuid as _uuid
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_copilot.db"
+# 测试环境关闭后台记忆提取（避免后台任务占用测试库句柄）
+os.environ["MEMORY_EXTRACT_ENABLED"] = "false"
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -53,6 +55,59 @@ async def _clean_test_db():
     await app_engine.dispose()
     if os.path.exists(_TEST_DB):
         os.remove(_TEST_DB)
+
+
+@pytest.fixture(autouse=True)
+def _disable_memory_recall(monkeypatch):
+    """测试中禁用真实记忆召回（避免加载嵌入模型）。
+
+    仅替换 chat 模块的 service 入口，不动 MemoryService 类本身，
+    以便 test_memory 直接测真实实现。
+    """
+    from app.api.routes import chat as chat_module
+
+    class _NoMemService:
+        async def recall(self, *a, **k):
+            return []
+
+        async def extract_from_session(self, *a, **k):
+            return 0
+
+    monkeypatch.setattr(chat_module, "get_memory_service", lambda: _NoMemService())
+
+
+@pytest.fixture(autouse=True)
+def _handwritten_engine_default(monkeypatch):
+    """测试默认走手写引擎（避免 LangGraph 引擎创建真实 ChatOpenAI/网络请求）。
+
+    与 LangGraph 相关的测试显式设置 AGENT_ENGINE=langgraph 或注入 Fake 模型。
+    """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "AGENT_ENGINE", "handwritten")
+
+
+@pytest.fixture(autouse=True)
+def _disable_rerank(monkeypatch):
+    """测试默认关闭 Rerank 精排（避免加载真实 bge-reranker 模型）。
+
+    相关测试显式 monkeypatch 开启开关并注入 Fake 重排器。
+    """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "RAG_RERANK_ENABLED", False)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_qdrant(tmp_path, monkeypatch):
+    """隔离测试用 Qdrant 目录（避免污染开发库 ./qdrant_data 与目录锁冲突）。
+
+    共享单例 client（Qdrant 本地模式同一目录只允许一个客户端实例）。
+    """
+    from qdrant_client import QdrantClient
+
+    client = QdrantClient(path=str(tmp_path / "qdrant_data"))
+    monkeypatch.setattr("app.rag.vector_store.get_qdrant_client", lambda: client)
 
 
 @pytest.fixture

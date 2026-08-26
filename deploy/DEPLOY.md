@@ -134,6 +134,7 @@ docker compose logs -f backend
 | 后端容器重启循环 | 数据库连接失败 | 等 postgres healthcheck 通过；检查 .env 密码 |
 | 内存不足 | 4G 跑 5 容器偏紧 | 关掉 redis（当前未实际使用）或升级 4G 以上 |
 | 迁移报错 | 表已存在 | `docker compose exec backend uv run alembic stamp head` |
+| 迁移报 relation does not exist | 0.12.1 已修复迁移链缺表（categories / memory_facts）；旧库建议重建 | `docker compose down -v && docker compose up -d --build` |
 
 ---
 

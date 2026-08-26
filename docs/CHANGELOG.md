@@ -14,9 +14,15 @@
 - **backend healthcheck**：容器内 python urllib 探活 `/api/v1/health`；
 - **模型缓存卷**：`HF_HOME` / `FASTEMBED_CACHE_PATH` 挂载 `models` 卷，
   BGE 嵌入 + reranker（~1.1GB）重建容器不重复下载；
+- **Dockerfile 补 COPY README.md + 清华 PyPI 镜像**：hatchling 构建本地包需要
+  README；`UV_DEFAULT_INDEX` 避免国内拉依赖超时；
+- **迁移链补表（云端全新库实测暴露）**：`1473b855e26a` 引用 categories 外键但
+  从未建表、`2898b892e706`（memory_facts）upgrade 为空——本地 `create_all`
+  掩盖了这两个缺口，云端 `alembic upgrade head` 会失败/缺表，已按模型补齐；
 - **DEPLOY.md**：验证命令改经 80 端口（backend 仅内网 expose）、
   前端构建需 Node 18+、补 `docker compose logs` 排查；
-- 注：本机无 Docker，改动为静态审查 + YAML/测试验证，云端首次实测待 P5。
+- ✅ **本机 Docker 一键部署实测通过**：5 容器全部 healthy、迁移 5/5 跑通、
+  health 200、Web 页面 200、注册/登录/建待办全链路 OK。
 
 ---
 

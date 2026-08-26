@@ -127,8 +127,10 @@ pipeline {
                         string(credentialsId: 'feishu-app-secret', variable: 'FEISHU_APP_SECRET')
                     ]) {
                         def result = currentBuild.currentResult
-                        def icon = (result == 'SUCCESS') ? '✅' : '❌'
-                        def text = "${icon} Copilot-Lite CI/CD 构建 #${env.BUILD_NUMBER}：${result}\\n分支：${env.GIT_BRANCH ?: 'main'}\\n耗时：${currentBuild.durationString}"
+                        // ⚠️ 注意：本机 GBK 环境下，Jenkinsfile 里的中文/emoji 字面量会在流水线
+                        // 加载时被损坏，导致飞书 payload 出现非法字节。这里保持纯 ASCII 消息。
+                        def icon = (result == 'SUCCESS') ? '[OK]' : '[FAIL]'
+                        def text = "${icon} Copilot-Lite CI/CD build #${env.BUILD_NUMBER}: ${result} branch=${env.GIT_BRANCH ?: 'main'} time=${currentBuild.durationString}"
                         // 1) 获取 tenant_access_token
                         writeFile file: 'feishu-token-req.json',
                             text: '{"app_id":"' + env.FEISHU_APP_ID + '","app_secret":"' + env.FEISHU_APP_SECRET + '"}'

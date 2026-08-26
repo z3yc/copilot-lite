@@ -204,7 +204,7 @@ copilot-lite/
 │   │   ├── rag/              # 解析、分块、嵌入、检索、重排、摄取
 │   │   ├── tools/            # 工具注册表 + Todo/kb_search
 │   │   └── models/           # 数据模型（含 SessionFile）
-│   ├── tests/                # 34 用例，覆盖率 ≥80%
+│   ├── tests/                # 65 用例，覆盖率 ≥80%
 │   ├── alembic/              # 数据库迁移
 │   └── pyproject.toml
 ├── cli/                      # CLI 客户端（chat / ask / todo）
@@ -252,7 +252,7 @@ uv run copilot todo list             # 直接管理待办
 
 ```bash
 cd backend
-uv run pytest        # 75 用例，覆盖率 ≥80%（未达标即失败）
+uv run pytest        # 80 用例，覆盖率 ≥80%（未达标即失败）
 uv run ruff check .  # 代码规范
 
 cd web

@@ -1,5 +1,7 @@
 """工具注册表与 Todo 工具的测试。"""
 
+import uuid
+
 import pytest
 
 from app.core.constants import DEFAULT_USER_ID
@@ -23,6 +25,22 @@ def test_schema_generation() -> None:
     assert "ctx" not in params["properties"]
     assert params["required"] == ["title"]
     assert params["properties"]["priority"]["default"] == 3
+
+
+def test_schema_optional_types_mapped() -> None:
+    """Optional/int|None 注解应剥壳映射为正确 JSON 类型（回归：曾误判为 string）。"""
+    schema = registry.get("todo_update").to_openai_schema()
+    props = schema["function"]["parameters"]["properties"]
+    assert props["priority"]["type"] == "integer"
+    assert props["status"]["type"] == "string"
+    assert props["tags"]["type"] == "array"
+
+
+def test_schema_priority_semantics_in_description() -> None:
+    """工具描述必须写清优先级语义（1 最高、5 最低），避免 LLM 认知颠倒。"""
+    for name in ("todo_create", "todo_update"):
+        desc = registry.get(name).to_openai_schema()["function"]["description"]
+        assert "1 最高" in desc and "5 最低" in desc
 
 
 @pytest.mark.asyncio
@@ -92,6 +110,66 @@ async def test_todo_update(db_session) -> None:
     )
     assert '"title": "新标题"' in updated
     assert '"priority": 1' in updated
+
+
+@pytest.mark.asyncio
+async def test_todo_update_priority_string_coerced(db_session) -> None:
+    """LLM 把优先级传成字符串 "5" 时也能正确更新（类型容错，回归 #21）。"""
+    ctx = ToolContext(session=db_session, user_id=DEFAULT_USER_ID)
+    created = await registry.execute("todo_create", '{"title": "炒股", "priority": 3}', ctx)
+    todo_id = created.split('"id": "')[1].split('"')[0]
+
+    # 模拟 LLM 工具调用：priority 是字符串
+    updated = await registry.execute(
+        "todo_update",
+        f'{{"todo_id": "{todo_id}", "priority": "5"}}',
+        ctx,
+    )
+    assert '"priority": 5' in updated
+
+    # 数据库确认真实落库（此前 TypeError 在 commit 前抛出导致"看似未更新"）
+    from sqlalchemy import select
+
+    from app.models import Todo
+
+    todo = (await db_session.scalars(select(Todo).where(Todo.id == uuid.UUID(todo_id)))).one()
+    assert todo.priority == 5
+
+
+@pytest.mark.asyncio
+async def test_todo_create_priority_and_tags_string_coerced(db_session) -> None:
+    """todo_create 字符串整数/字符串数组参数均被转换为正确类型。"""
+    ctx = ToolContext(session=db_session, user_id=DEFAULT_USER_ID)
+    result = await registry.execute(
+        "todo_create",
+        '{"title": "类型容错", "priority": "2", "tags": "[\\"a\\", \\"b\\"]"}',
+        ctx,
+    )
+    assert '"priority": 2' in result
+    assert '"tags": ["a", "b"]' in result
+
+
+@pytest.mark.asyncio
+async def test_todo_update_priority_invalid_string(db_session) -> None:
+    """无法转换的参数返回友好错误，不抛异常、不改数据。"""
+    ctx = ToolContext(session=db_session, user_id=DEFAULT_USER_ID)
+    created = await registry.execute("todo_create", '{"title": "保持3", "priority": 3}', ctx)
+    todo_id = created.split('"id": "')[1].split('"')[0]
+
+    result = await registry.execute(
+        "todo_update",
+        f'{{"todo_id": "{todo_id}", "priority": "abc"}}',
+        ctx,
+    )
+    assert "参数不合法" in result
+    assert "错误" in result
+
+    from sqlalchemy import select
+
+    from app.models import Todo
+
+    todo = (await db_session.scalars(select(Todo).where(Todo.id == uuid.UUID(todo_id)))).one()
+    assert todo.priority == 3  # 未受影响
 
 
 @pytest.mark.asyncio

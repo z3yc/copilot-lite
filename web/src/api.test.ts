@@ -171,4 +171,45 @@ describe("streamChat SSE 解析", () => {
 
     expect(h.onChunk).toHaveBeenCalledWith("尾部");
   });
+
+  it("携带 Authorization 头与请求体（修复流式对话 401）", async () => {
+    setToken("tok-sse");
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode("event: done\ndata: {}\n\n"));
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(stream, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const h = handlers();
+    await streamChat("你好", "s1", h);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("/api/v1/chat/stream");
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer tok-sse");
+    expect(String(init.body)).toContain("你好");
+    expect(String(init.body)).toContain("s1");
+    expect(h.onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("401 时清除令牌、派发 auth-expired 并提示重新登录", async () => {
+    setToken("expired");
+    const listener = vi.fn();
+    window.addEventListener("auth-expired", listener);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response('{"detail":"未登录"}', { status: 401 }))
+    );
+
+    const h = handlers();
+    await streamChat("hi", null, h);
+
+    expect(getToken()).toBeNull();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(h.onError).toHaveBeenCalledWith("登录已过期，请重新登录");
+    window.removeEventListener("auth-expired", listener);
+  });
 });

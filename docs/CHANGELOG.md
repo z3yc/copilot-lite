@@ -19,6 +19,12 @@
   jsdom 缺失 API mock（matchMedia / ResizeObserver / scrollTo）；
 - 前端测试共 **20 用例**（后端 75 用例不变，覆盖率 81.48%）。
 
+### 🐛 修复
+- **fix(web)**：`streamChat` 遗漏携带 `Authorization` 头——0.7.0 引入认证后，
+  登录成功的用户发起流式对话（POST /chat/stream）仍返回 401 `未登录`；
+  现与 `request()` 一致携带令牌，401 时清除令牌、触发 `auth-expired` 回登录页；
+  新增 2 个回归用例（认证头/请求体断言 + 401 处理），前端共 22 用例。
+
 ---
 
 ## [0.10.0] · 2026-08-25 · Rerank 重排（检索链路增强）

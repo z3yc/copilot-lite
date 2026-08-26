@@ -28,7 +28,7 @@ P4 工程化   ██████████ 100% ✅（M4 本地验收通过�
 P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端待实测）
 ```
 
-**Git 现状**：78 个提交 · 功能增强已并入（antd UI/分类/搜索/暗色/会话附件/记忆/Rerank/LangGraph 多 Agent）· 前端 vitest 单测已就绪 · 工具容错/401/优先级语义等修复见 [docs/CHANGELOG.md](docs/CHANGELOG.md)
+**Git 现状**：83 个提交 · 功能增强已并入（antd UI/分类/搜索/暗色/会话附件/记忆/Rerank/LangGraph 多 Agent）· 前端 vitest 单测已就绪 · 工具容错/401/优先级语义等修复见 [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 ---
 

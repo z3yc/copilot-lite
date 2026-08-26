@@ -42,6 +42,43 @@
 - **解决**：浏览器用 `localhost` 访问；无需改配置
 - **经验**：localhost 与 127.0.0.1 在双栈系统上不等价。
 
+### 22. Docker 一键部署实测（P5 前置）——迁移链缺表 + 构建链路连环坑
+- **现象**：`docker compose up -d --build` 首次全量启动，依次遇到：
+  ① 构建 backend 时拉 `python:3.12-slim` 超时（`auth.docker.io` 连接失败）；
+  ② `uv sync --frozen` 报 `Readme file does not exist: README.md`；
+  ③ 容器起来后 `alembic upgrade head` 报
+     `relation "categories" does not exist`；
+  ④ （修复后继续）`memory_facts` 表在云端缺失
+- **排查**：
+  1. 基础镜像超时 → 国内访问 Docker Hub 不稳定，`docker info` 确认
+     `RegistryConfig.Mirrors` 为空 → 需配镜像加速器；
+  2. README 报错 → 本地包用 hatchling 构建（pyproject `readme = "README.md"`），
+     而 Dockerfile 只 COPY 了 `pyproject.toml`/`uv.lock`；
+  3. categories 报错 → 逐一核对迁移链（5 个迁移）建的表 vs models 全部表，
+     发现 `1473b855e26a` 给 todos 加外键引用 categories 但**从未建该表**；
+  4. memory_facts 缺失 → `2898b892e706` 的 `upgrade()` **是空的**
+     （autogenerate 产物被清空，什么都没执行）
+- **根因**：① 国内网络无镜像加速；② 构建上下文与 hatchling 元数据不匹配；
+  ③④ **本地 `RUN_MODE=local` 一直走 `create_all`（按 models 元数据建全部表），
+  Alembic 迁移链从未在全新库真实跑过**——两个历史迁移缺口被长期掩盖
+- **解决**：
+  1. Docker Desktop 配置 `registry-mirrors`（docker.m.daocloud.io 等）；
+     Dockerfile 加 `UV_DEFAULT_INDEX`（清华 PyPI）；
+  2. Dockerfile 补 `COPY backend/README.md ./`；
+  3. `1473b855e26a` upgrade 开头补建 `categories` 表（与 Category 模型一致，
+     含 user_id 索引与级联外键）；4. `2898b892e706` 补建 `memory_facts` 表；
+  5. qdrant healthcheck 改 `bash /dev/tcp`（镜像无 curl）、backend healthcheck
+     用容器内 python urllib——零外部依赖
+- **验证**：清卷重建（`docker compose down -v`）→ 迁移 5/5 跑通、5 容器全 healthy、
+  `/api/v1/health` 200、Web 200、注册/登录/建待办全链路 OK
+- **经验**：
+  1. **"本地能跑" ≠ "部署能跑"**——`create_all` 掩盖迁移链完整性；
+     迁移链必须用**全新空库**做一次 `upgrade head` 验证（CI 或一次性脚本）；
+  2. **autogenerate 迁移要人工核对**——`op` 指令块可能为空，尤其"预留表"，
+     上线前 `alembic upgrade head` 到空库是最低要求；
+  3. 国内部署链路逐段换源：Docker Hub（加速器）→ PyPI（清华）→ HF（hf-mirror）
+     → 镜像内 healthcheck 用零依赖方案（bash /dev/tcp、python urllib）
+
 ---
 
 ## 二、后端与数据
@@ -203,4 +240,4 @@
 
 ---
 
-*共 21 条排障记录 · 覆盖环境/后端/前端/数据四类 · 与 docs/CHANGELOG.md 互为补充*
+*共 22 条排障记录 · 覆盖环境/后端/前端/数据四类 · 与 docs/CHANGELOG.md 互为补充*

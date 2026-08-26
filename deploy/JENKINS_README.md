@@ -124,6 +124,9 @@ Jenkinsfile 通过**飞书开放平台应用**直接私聊通知（不依赖群�
 | 表单登录总是跳 `/loginError`（密码明明正确） | 用户 `config.xml` 损坏（如手工改哈希时丢了 `</passwordHash>` 闭合标签），启动日志报 `Failed to load ...config.xml` | 检查 `.jenkins-home/logs` 与启动日志的 `SEVERE hudson.model.User#loadFromUserConfigFile`；修复 XML 后重启 |
 | 手工编辑用户配置后不生效 | Jenkins 启动时会重新加载/序列化用户配置 | 改 `.jenkins-home/users/*/config.xml` 前先停 Jenkins，改完再启动；保持 XML 结构完整，可用 `python -m xml.dom.minidom 文件` 校验 |
 | `uv` / `npm` 不是内部或外部命令 | Windows 服务 PATH 不含用户目录 | 核对 `Jenkinsfile` 顶部 PATH 行与本机实际安装路径一致 |
+| bat 步骤挂死（`[Pipeline] bat` 后无任何输出、进程杀不掉） | **Job 名含中文** → 工作区路径含非 ASCII 字符（如 `workspace\工作`），cmd 代码页处理挂起 | **Job 名必须用 ASCII**（如 `copilot-lite`）；已踩坑：`工作` Job 的 bat 全部挂死，删除重建为 ASCII 名后恢复正常 |
+| 飞书消息内容报 `230001 content is not a string in json format` | Jenkinsfile 里的中文/emoji 字面量在本机 GBK 环境加载时字节损坏（`writeFile` 产物含非法 UTF-8） | 通知消息保持**纯 ASCII**（见 `Jenkinsfile` post 段注释）；已实测 ASCII 消息发送成功 |
+| API POST 返回 `400 Nothing is submitted` / `This page expects a form submission` | Jenkins 2.5xx 拒绝无 body 的 POST，且需要表单提交 | POST 带 form 参数：`curl -d "x=1" -H "Content-Type: application/x-www-form-urlencoded"`；带 crumb 头 |
 | 构建一直停在 Checkout | Gitee 令牌失效 / 权限不足 | Jenkins → Credentials 更新 `gitee-token` |
 | `pytest` 覆盖率失败 | 未达 80% 门槛 | 后端补测试；门槛在 `backend/pyproject.toml` addopts |
 | 轮询不触发 | Job 未保存 / pollSCM 未生效 | 保存 Job；确认 Jenkins 时间正常；可用 *Build Now* 验证流水线本身 |

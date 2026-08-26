@@ -21,7 +21,7 @@
 | Jenkins 位置 | **本机 Windows**（Java 17 原生安装） | 不依赖 Docker Desktop（daemon 未运行） |
 | 触发方式 | **轮询 Gitee**，每 2 分钟 | 无需公网穿透；本机需保持开机 |
 | 部署目标 | 尚无云服务器 → 本期跳过 | deploy 阶段为**后门**：配了参数才执行 |
-| 结果通知 | **飞书群机器人 WebHook** | 成功/失败/耗时卡片 |
+| 结果通知 | **飞书应用私聊消息**（app_id/app_secret） | 成功/失败卡片（构建号/结果/分支/耗时），直接私聊用户 |
 | 分支策略 | 监听 `main` push；支持手动"立即构建"任意分支 | |
 
 ### 技术事实（已核实）
@@ -54,7 +54,7 @@
                               git pull → 替换 web/dist → docker compose up -d --build
                               → /api/v1/health 健康检查 → 失败自动回滚
                                                           │
-                                                   [飞书 WebHook]
+                                                   [飞书应用私聊通知]
                                               结果卡片（成功/失败/耗时）
 ```
 
@@ -67,28 +67,30 @@
 | `deploy/JENKINS_README.md` | 本机 Jenkins 安装 / 凭据配置 / 排障手册 | 本期交付 |
 | `docs/CICD_PLAN.md` | 本方案记录 + 实施清单 | 本期交付 |
 
-## 5. 凭据清单（需要你准备的 3 样）
+## 5. 凭据清单
 
 | # | 凭据 | 用途 | 类型 | 存放 |
 |---|---|---|---|---|
-| 1 | **Gitee 私人访问令牌**（只读即可） | 轮询 + 拉取代码 | Username with password | Jenkins Credentials（id: `gitee-token`） |
-| 2 | **飞书群机器人 WebHook URL** | 构建结果通知 | Secret text | Jenkins Credentials（id: `feishu-webhook`） |
+| 1 | **Gitee 私人访问令牌**（只读即可） | 轮询 + 拉取代码 | Username with password | Jenkins Credentials（id: `gitee-token`）✅ 已配置 |
+| 2 | **飞书开放平台应用 app_id + app_secret** | 构建结果私聊通知（接收人 open_id 在 Jenkinsfile 的 `FEISHU_OPEN_ID`） | Secret text ×2 | Jenkins Credentials（id: `feishu-app-id` / `feishu-app-secret`）✅ 已配置 |
 | 3 | **云服务器 IP + SSH 私钥**（Phase 2） | 自动部署 | SSH Username with private key | Jenkins Credentials（id: `deploy-ssh-key`） |
 
 > 安全：令牌只读、存 Jenkins 凭据，绝不写入代码库 / Jenkinsfile。
 
 ## 6. 实施清单（Checklist）
 
-### Phase 1 —— 本机跑通 CI（本期，约半天）
+### Phase 1 —— 本机跑通 CI（✅ 已完成，2026-08-26 实测通过）
 
-- [ ] 1. 安装 Jenkins（war + Windows 服务，端口 8080；JENKINS_HOME 在项目内 `.jenkins-home/`，已 gitignore）
-- [ ] 2. Jenkins 初始化：解锁 → 创建管理员 → 安装插件（Pipeline / Git / Credentials Binding）
-- [ ] 3. 配置凭据：`gitee-token`、`feishu-webhook`
-- [ ] 4. 新建 Pipeline Job：指向仓库根 `Jenkinsfile`（SCM 方式，凭据 `gitee-token`）
-- [ ] 5. 提交 `Jenkinsfile` 到 main，先点"立即构建"验证一次全绿
-- [ ] 6. 确认轮询触发器生效（`H/2 * * * *`）：改一行代码 push → 2 分钟内自动构建
-- [ ] 7. 验证飞书通知：成功/失败各收到一次卡片
-- [ ] 8. 回归检查：后端 ruff + pytest 全绿、前端 build + test 全绿、`web/dist` 归档可见
+- [x] 1. 安装 Jenkins 2.516.3（war + Java 17，端口 8080；JENKINS_HOME 在项目内 `.jenkins-home/`，已 gitignore）
+- [x] 2. Jenkins 初始化：解锁 → 创建管理员（admin）→ 安装建议插件（Pipeline / Git / Credentials Binding 等）
+- [x] 3. 配置凭据：`gitee-token`（Gitee 私人令牌）、`feishu-app-id` + `feishu-app-secret`（飞书应用，私聊通知）
+- [x] 4. 新建 Pipeline Job `copilot-lite`：SCM 指向仓库根 `Jenkinsfile`（凭据 `gitee-token`，分支 `*/main`）
+- [x] 5. 提交 `Jenkinsfile` 到 main，手动构建验证全绿（构建 #1 SUCCESS，2.2 min）
+- [x] 6. 轮询触发器生效（`H/2 * * * *`）：push 后自动构建（构建 #2 由轮询自动触发）
+- [x] 7. 飞书通知验证通过：私聊消息送达（`code:0`，消息内容含构建号/结果/分支/耗时）
+- [x] 8. 回归检查：后端 ruff 全绿 + pytest 80 用例（覆盖率 81%+）、前端 build + vitest 22 用例全绿、`web/dist` 归档可见
+
+> ⚠️ 踩坑记录（详见 `deploy/JENKINS_README.md` 排障表）：① Job 名含中文导致 bat 步骤挂死（须用 ASCII 名）；② Jenkinsfile 中文/emoji 字面量在 GBK 环境损坏导致飞书 payload 非法（消息保持纯 ASCII）；③ Jenkins 2.5xx API POST 需要 form body；④ API 认证须用 API Token（登录密码无效）。
 
 ### Phase 2 —— 接入自动部署（服务器到位后，约 30 分钟）
 
@@ -106,7 +108,8 @@
 | Jenkins 载体 | 本机 Windows + Java 原生 | Docker daemon 未运行；Java 17 已就绪；原生更省内存 |
 | 触发 | 轮询 Gitee 2min | 本机在 NAT 后无法收 WebHook；轮询零成本、可靠 |
 | 部署产物策略 | 前端在 Jenkins 构建后上传；后端在服务器 docker build | 2C4G 服务器跑 vite build 易 OOM；服务器构建后端可复用清华镜像与缓存 |
-| 通知 | 飞书 WebHook | 用户选择；实现只需 curl，无第三方插件 |
+| 通知 | 飞书开放平台应用（私聊消息） | 用户提供 app_id/app_secret；直接私聊用户，无需群机器人；实现只需 curl |
+| Job 命名 | ASCII（`copilot-lite`） | 中文 Job 名 → 工作区路径含非 ASCII → Windows bat 步骤挂死（实测踩坑） |
 | 回滚 | `deploy_remote.sh` 保留 `.prev` 产物 + 健康检查失败自动恢复 | 轻量、无额外组件 |
 
 ## 8. 风险与注意

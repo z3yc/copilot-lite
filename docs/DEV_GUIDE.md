@@ -20,10 +20,10 @@
 
 | 项 | 状态 |
 |---|---|
-| **分支** | `feature/agent-enhancements`（三大增强①②③ 已完成；③ 在 `feature/langgraph-multiagent` 开发待审）· `main` 稳定 |
-| 已完成 | P0-P4 全量 + 认证 + 个人中心 + 待办工作区 + **长期记忆（①）+ Rerank 重排（②）+ LangGraph 多 Agent（③）** |
+| **分支** | `feature/agent-enhancements`（三大增强①②③ 已完成）· `main` 稳定 |
+| 已完成 | P0-P4 全量 + 认证 + 个人中心 + 待办工作区 + **长期记忆（①）+ Rerank 重排（②）+ LangGraph 多 Agent（③）** + 前端 vitest 单测 |
 | 待办 | 其他路线图项（Agent-as-Tool / Rerank 后置 Query 改写 / 云端部署实测，详见第 5 节） |
-| 测试 | 75 用例全绿，覆盖率 81.48%（门槛 80%，`uv run pytest`） |
+| 测试 | 后端 75 用例全绿（覆盖率 81.48%，门槛 80%，`uv run pytest`）+ 前端 20 用例（`cd web && npm test`） |
 | 代码规范 | ruff 全绿（`uv run ruff check .`） |
 
 ## 3. 环境与启动
@@ -42,8 +42,11 @@ npm run dev                      # http://localhost:5173
 
 # 测试与检查
 cd backend
-uv run pytest                    # 覆盖率 ≥80%
+uv run pytest                    # 后端覆盖率 ≥80%
 uv run ruff check .
+cd ../web
+npm test                         # 前端单元测试（vitest）
+npm run build                    # 前端类型检查 + 构建
 ```
 
 **注意事项**：
@@ -94,7 +97,7 @@ web/src/
    - `README.md`（核心特性加一条）
    - `docs/CHANGELOG.md`（新增版本号）
    - `PLAN.md`（标记完成 + 进度）
-4. **质量门槛**：`uv run pytest` 覆盖率 ≥80%（不达标补测试）；`uv run ruff check .` 全绿；前端 `npm run build` 通过；
+4. **质量门槛**：`uv run pytest` 覆盖率 ≥80%（不达标补测试）；`uv run ruff check .` 全绿；前端 `npm test` 全绿 + `npm run build` 通过；
 5. **测试隔离**：测试用独立 SQLite + 隔离 Qdrant 目录（conftest 已处理）；**不要**在测试中调用真实 LLM/嵌入模型（用 mock/Fake）。
 
 ## 7. 已知坑（避免踩）

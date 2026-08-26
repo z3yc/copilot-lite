@@ -208,7 +208,7 @@ copilot-lite/
 │   ├── alembic/              # 数据库迁移
 │   └── pyproject.toml
 ├── cli/                      # CLI 客户端（chat / ask / todo）
-├── web/                      # React + Vite + Ant Design 前端
+├── web/                      # React + Vite + Ant Design 前端（vitest 单测）
 ├── deploy/                   # 云端部署（compose/Dockerfile/Nginx/DEPLOY.md）
 ├── .github/workflows/        # CI 流水线
 ├── scripts/                  # 一键启动 / 批量上传脚本
@@ -252,8 +252,12 @@ uv run copilot todo list             # 直接管理待办
 
 ```bash
 cd backend
-uv run pytest        # 31 用例，覆盖率 ≥80%（未达标即失败）
+uv run pytest        # 75 用例，覆盖率 ≥80%（未达标即失败）
 uv run ruff check .  # 代码规范
+
+cd web
+npm test             # 前端单元测试（vitest：api SSE 解析 + 组件冒烟）
+npm run build        # 前端类型检查 + 构建
 ```
 
 ---

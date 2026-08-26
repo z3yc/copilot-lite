@@ -4,6 +4,27 @@
 
 ---
 
+## [0.12.0] · 2026-08-25 · 前端单元测试（vitest）
+
+### ✨ 新增
+- **前端测试框架**：vitest 3 + jsdom + Testing Library（与 Vite 同栈，零额外构建配置）；
+- **`api.ts` 测试**（10 用例）：token 管理、request 封装（Authorization 头 / 401 清除令牌
+  并派发 `auth-expired` / 非 2xx 报错）、URL 查询串拼接、**SSE 流式解析**
+  （跨 read 分片缓冲、session/chunk/done/error 事件分发、尾部残留 buffer）；
+- **组件测试**（10 用例）：LoginPage（表单渲染/校验/登录/注册/失败提示）、
+  ChatPanel（历史消息/空状态/发送流程 chunk 增量渲染/流式错误/空输入禁用）；
+- 配套：`npm test` / `npm test:watch` 脚本、CI 前端 job 新增测试步骤、
+  jsdom 缺失 API mock（matchMedia / ResizeObserver / scrollTo）；
+- 前端测试共 **20 用例**（后端 75 用例不变，覆盖率 81.48%）。
+
+### 🐛 修复
+- **fix(web)**：`streamChat` 遗漏携带 `Authorization` 头——0.7.0 引入认证后，
+  登录成功的用户发起流式对话（POST /chat/stream）仍返回 401 `未登录`；
+  现与 `request()` 一致携带令牌，401 时清除令牌、触发 `auth-expired` 回登录页；
+  新增 2 个回归用例（认证头/请求体断言 + 401 处理），前端共 22 用例。
+
+---
+
 ## [0.11.0] · 2026-08-25 · LangGraph 多 Agent（Supervisor 路由）
 
 ### ✨ 新增

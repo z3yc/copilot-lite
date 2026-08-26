@@ -171,11 +171,23 @@ export async function streamChat(
   sessionId: string | null,
   handlers: StreamHandlers
 ): Promise<void> {
+  // 与 request() 一致：携带认证令牌（此前遗漏导致流式对话 401 未登录）
+  const headers = new Headers({ "Content-Type": "application/json" });
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
   const resp = await fetch(`${BASE}/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ message, session_id: sessionId }),
   });
+  if (resp.status === 401) {
+    // 登录过期：清除令牌并通知应用回到登录页（与 request() 行为一致）
+    clearToken();
+    window.dispatchEvent(new Event("auth-expired"));
+    handlers.onError("登录已过期，请重新登录");
+    return;
+  }
   if (!resp.ok || !resp.body) {
     const detail = await resp.text();
     handlers.onError(`请求失败 ${resp.status}: ${detail.slice(0, 200)}`);

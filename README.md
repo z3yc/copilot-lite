@@ -18,6 +18,8 @@
 - [开发路线图](#开发路线图)
 - [面试要点](#面试要点)
 - [🧭 开发交接手册](docs/DEV_GUIDE.md)
+- [🤖 CI/CD 方案记录](docs/CICD_PLAN.md)
+- [🔧 Jenkins CI/CD 手册](deploy/JENKINS_README.md)
 - [变更记录](docs/CHANGELOG.md)
 - [调试排障记录](docs/DEBUGGING.md)
 - [License](#license)

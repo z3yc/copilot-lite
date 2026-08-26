@@ -1,0 +1,174 @@
+/**
+ * api.ts 单元测试：token 管理、request 封装（认证头/401/错误）、
+ * URL 拼接、SSE 流式解析（跨 read 缓冲/事件分发/错误回调）。
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  clearToken,
+  fetchDocs,
+  fetchSessions,
+  fetchTodos,
+  getToken,
+  setToken,
+  streamChat,
+  type StreamHandlers,
+} from "./api";
+
+function okJson(data: unknown) {
+  return { status: 200, ok: true, json: async () => data, text: async () => "" };
+}
+
+describe("token 管理", () => {
+  it("setToken / getToken / clearToken 读写 localStorage", () => {
+    expect(getToken()).toBeNull();
+    setToken("abc123");
+    expect(getToken()).toBe("abc123");
+    clearToken();
+    expect(getToken()).toBeNull();
+  });
+});
+
+describe("request 封装", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("自动携带 Authorization 头并解析 JSON", async () => {
+    setToken("tok123");
+    fetchMock.mockResolvedValue(okJson({ id: "s1" }));
+
+    const data = await fetchSessions();
+    expect(data).toEqual({ id: "s1" });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("/api/v1/sessions");
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer tok123");
+  });
+
+  it("401 时清除令牌并派发 auth-expired 事件", async () => {
+    setToken("expired");
+    const listener = vi.fn();
+    window.addEventListener("auth-expired", listener);
+    fetchMock.mockResolvedValue({ status: 401, ok: false, text: async () => "unauthorized" });
+
+    await expect(fetchSessions()).rejects.toThrow("登录已过期");
+    expect(getToken()).toBeNull();
+    expect(listener).toHaveBeenCalledTimes(1);
+    window.removeEventListener("auth-expired", listener);
+  });
+
+  it("非 2xx 抛出带状态码的错误信息", async () => {
+    fetchMock.mockResolvedValue({ status: 500, ok: false, text: async () => "boom" });
+    await expect(fetchSessions()).rejects.toThrow("请求失败 500");
+  });
+
+  it("fetchTodos 按参数拼接查询串", async () => {
+    fetchMock.mockResolvedValue(okJson([]));
+    await fetchTodos({ status: "open", tag: "urgent" });
+
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/api/v1/todos?");
+    expect(url).toContain("status=open");
+    expect(url).toContain("tag=urgent");
+  });
+
+  it("fetchDocs 拼接 q 与 type 参数", async () => {
+    fetchMock.mockResolvedValue(okJson([]));
+    await fetchDocs("笔记", "md");
+
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/api/v1/documents?");
+    expect(url).toContain("q=");
+    expect(url).toContain("type=md");
+  });
+});
+
+describe("streamChat SSE 解析", () => {
+  type HandlerMocks = Record<keyof StreamHandlers, ReturnType<typeof vi.fn>>;
+  const handlers = (): HandlerMocks => ({
+    onSession: vi.fn(),
+    onChunk: vi.fn(),
+    onDone: vi.fn(),
+    onError: vi.fn(),
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("解析完整事件序列，且跨 read 分片的 JSON 能正确拼接", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: session\ndata: {"session_id": "s1"}\n\n'));
+        // 故意把一个 chunk 事件拆成两段 enqueue，验证 buffer 拼接
+        controller.enqueue(encoder.encode('event: chunk\ndata: {"text": "你'));
+        controller.enqueue(encoder.encode('好"}\n\n'));
+        controller.enqueue(encoder.encode('event: chunk\ndata: {"text": "世界"}\n\n'));
+        controller.enqueue(encoder.encode("event: done\ndata: {}\n\n"));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(stream, { status: 200 })));
+
+    const h = handlers();
+    await streamChat("你好", null, h);
+
+    expect(h.onSession).toHaveBeenCalledWith("s1");
+    expect(h.onChunk.mock.calls.map((c) => c[0])).toEqual(["你好", "世界"]);
+    expect(h.onDone).toHaveBeenCalledTimes(1);
+    expect(h.onError).not.toHaveBeenCalled();
+  });
+
+  it("HTTP 非 2xx 时回调 onError 并附状态码", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("内部错误", { status: 500 })));
+
+    const h = handlers();
+    await streamChat("hi", null, h);
+
+    expect(h.onError).toHaveBeenCalledWith(expect.stringContaining("请求失败 500"));
+    expect(h.onSession).not.toHaveBeenCalled();
+  });
+
+  it("error 事件透传后端 detail", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: error\ndata: {"detail": "触发限流"}\n\n'));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(stream, { status: 200 })));
+
+    const h = handlers();
+    await streamChat("hi", null, h);
+
+    expect(h.onError).toHaveBeenCalledWith("触发限流");
+  });
+
+  it("流结束残留未闭合事件时也能分发（尾部 buffer）", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        // 没有结尾 \n\n，依赖尾部 buffer 兜底分发
+        controller.enqueue(encoder.encode('event: chunk\ndata: {"text": "尾部"}'));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(stream, { status: 200 })));
+
+    const h = handlers();
+    await streamChat("hi", null, h);
+
+    expect(h.onChunk).toHaveBeenCalledWith("尾部");
+  });
+});

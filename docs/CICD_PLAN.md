@@ -19,7 +19,7 @@
 | 范围 | CI + CD 完整闭环 | 含失败回滚（服务器脚本内） |
 | 流水线平台 | **自建 Jenkins** | 不用 GitHub Actions / Gitee Go |
 | Jenkins 位置 | **本机 Windows**（Java 17 原生安装） | 不依赖 Docker Desktop（daemon 未运行） |
-| 触发方式 | **轮询 Gitee**，每 2 分钟 | 无需公网穿透；本机需保持开机 |
+| 触发方式 | **轮询 Gitee**，每天一次（`H 9 * * *`，约 09:00） | 无需公网穿透；本机需保持开机；曾为每 2 分钟，按需改为每日 |
 | 部署目标 | 尚无云服务器 → 本期跳过 | deploy 阶段为**后门**：配了参数才执行 |
 | 结果通知 | **飞书应用私聊消息**（app_id/app_secret） | 成功/失败卡片（构建号/结果/分支/耗时），直接私聊用户 |
 | 分支策略 | 监听 `main` push；支持手动"立即构建"任意分支 | |
@@ -37,7 +37,7 @@
 ## 3. 整体架构
 
 ```
-[Gitee 仓库] --轮询 1-2min--> [Jenkins（本机 Windows / Java 17 / 服务自启）]
+[Gitee 仓库] --每日轮询 09:00--> [Jenkins（本机 Windows / Java 17 / 服务自启）]
                                    │
                         Jenkinsfile 声明式流水线
                                    │
@@ -86,7 +86,7 @@
 - [x] 3. 配置凭据：`gitee-token`（Gitee 私人令牌）、`feishu-app-id` + `feishu-app-secret`（飞书应用，私聊通知）
 - [x] 4. 新建 Pipeline Job `copilot-lite`：SCM 指向仓库根 `Jenkinsfile`（凭据 `gitee-token`，分支 `*/main`）
 - [x] 5. 提交 `Jenkinsfile` 到 main，手动构建验证全绿（构建 #1 SUCCESS，2.2 min）
-- [x] 6. 轮询触发器生效（`H/2 * * * *`）：push 后自动构建（构建 #2 由轮询自动触发）
+- [x] 6. 轮询触发器生效（初为 `H/2 * * * *`，后按需改为每日 `H 9 * * *`）：push 后自动构建（构建 #2 由轮询自动触发）
 - [x] 7. 飞书通知验证通过：私聊消息送达（`code:0`，消息内容含构建号/结果/分支/耗时）
 - [x] 8. 回归检查：后端 ruff 全绿 + pytest 80 用例（覆盖率 81%+）、前端 build + vitest 22 用例全绿、`web/dist` 归档可见
 
@@ -106,7 +106,7 @@
 |---|---|---|
 | 平台 | 自建 Jenkins | 用户明确要求；自托管是面试加分项；不依赖第三方免费额度 |
 | Jenkins 载体 | 本机 Windows + Java 原生 | Docker daemon 未运行；Java 17 已就绪；原生更省内存 |
-| 触发 | 轮询 Gitee 2min | 本机在 NAT 后无法收 WebHook；轮询零成本、可靠 |
+| 触发 | 轮询 Gitee（每日 `H 9 * * *`） | 本机在 NAT 后无法收 WebHook；轮询零成本、可靠 |
 | 部署产物策略 | 前端在 Jenkins 构建后上传；后端在服务器 docker build | 2C4G 服务器跑 vite build 易 OOM；服务器构建后端可复用清华镜像与缓存 |
 | 通知 | 飞书开放平台应用（私聊消息） | 用户提供 app_id/app_secret；直接私聊用户，无需群机器人；实现只需 curl |
 | Job 命名 | ASCII（`copilot-lite`） | 中文 Job 名 → 工作区路径含非 ASCII → Windows bat 步骤挂死（实测踩坑） |
@@ -117,7 +117,7 @@
 | 风险 | 影响 | 缓解 |
 |---|---|---|
 | 本机需开机 | 关机期间 Gitee 提交不触发构建 | 轮询固有约束，可接受；Jenkins 装为服务开机自启 |
-| 轮询延迟 | 最长 ~2 分钟才触发 | 可调 `pollSCM` 间隔 |
+| 轮询延迟 | 每日仅触发一次，push 后最长 ~24h 才构建 | 需要更快反馈时调 `pollSCM`（如 `H/30 * * * *`）或改 WebHook |
 | Windows 构建 vs Linux 生产环境差异 | 后端行为可能不一致 | 部署以服务器 `docker compose` 为准；前端产物 + 测试已覆盖大部分风险 |
 | Jenkins Windows 服务 PATH 不含用户级目录 | uv/node 找不到 | Jenkinsfile 已显式补齐 PATH（见文件头注释） |
 | Gitee 令牌泄露 | 仓库被恶意操作 | 只读令牌 + 存凭据 + 不明文入库 |

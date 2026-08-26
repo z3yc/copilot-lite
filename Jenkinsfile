@@ -45,8 +45,8 @@ pipeline {
     }
 
     triggers {
-        // 每 2 分钟轮询一次 Gitee（本机 NAT 环境用轮询，无需公网穿透）
-        pollSCM('H/2 * * * *')
+        // 每天轮询一次 Gitee（本机 NAT 环境用轮询；如需改频率：每 30 分钟 H/30 * * * *，每周一 H 9 * * 1）
+        pollSCM('H 9 * * *')
     }
 
     stages {

@@ -92,10 +92,10 @@ Jenkins → **Manage Jenkins → Credentials → Global**，添加：
 
 ## 5. 轮询触发（自动化）
 
-`Jenkinsfile` 内已配置 `triggers { pollSCM('H/2 * * * *') }`，无需额外设置。
-验证方式：本地改一行代码 → `git push` → 2 分钟内 Jenkins 自动开始构建 → 飞书收到结果。
+`Jenkinsfile` 内已配置 `triggers { pollSCM('H 9 * * *') }`（**每天约 09:00 轮询一次** Gitee），无需额外设置。
+验证方式：本地改一行代码 → `git push` → 到轮询时间后 Jenkins 自动开始构建 → 飞书收到结果。
 
-> 若想改间隔，如每 5 分钟：`pollSCM('H/5 * * * *')`；只想手动触发：删除 triggers 段。
+> 改频率示例：每 30 分钟 `pollSCM('H/30 * * * *')`；每天固定时间 `H 9 * * *`；每周一 `H 9 * * 1`；只手动触发：删除 triggers 段。
 
 ## 6. 飞书通知（应用私聊）
 

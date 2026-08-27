@@ -47,9 +47,13 @@ _EXT_MAP = {
 }
 _DATA_DIR = Path("./data")
 
+# 单文件上传上限（防超大文件读入内存导致 DoS）
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB
 
-def _detect_source_type(filename: str) -> str:
-    return _EXT_MAP.get(Path(filename).suffix.lower(), "md")
+
+def _detect_source_type(filename: str) -> str | None:
+    """扩展名 → source_type；未知类型返回 None（由调用方拒绝）。"""
+    return _EXT_MAP.get(Path(filename).suffix.lower())
 
 
 class DocumentOut(BaseModel):
@@ -70,11 +74,21 @@ async def upload_document(
     user: User = Depends(get_current_user),
 ) -> DocumentOut:
     """上传文档并触发摄取（解析→分块→嵌入→入库）。"""
-    content = await file.read()
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件超过 {MAX_UPLOAD_BYTES // 1024 // 1024}MB 上限",
+        )
     if not content:
         raise HTTPException(status_code=400, detail="文件内容为空")
 
     source_type = _detect_source_type(file.filename or "")
+    if source_type is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件类型: {Path(file.filename or '').suffix or '未知'}",
+        )
     document = Document(
         user_id=user.id,
         title=file.filename or "未命名文档",
@@ -85,11 +99,14 @@ async def upload_document(
     await db.commit()
     await db.refresh(document)
 
-    # 保存原件副本
+    # 保存原件副本（文件名只取 basename，防路径穿越/绝对路径逃逸）
     try:
         save_dir = _DATA_DIR / str(document.id)
         save_dir.mkdir(parents=True, exist_ok=True)
-        (save_dir / (file.filename or "unnamed")).write_bytes(content)
+        safe_name = Path(file.filename).name if file.filename else "unnamed"
+        if not safe_name or safe_name in {".", ".."}:
+            safe_name = "unnamed"
+        (save_dir / safe_name).write_bytes(content)
     except OSError as exc:
         logger.warning("原件保存失败（不影响摄取）: %s", exc)
 

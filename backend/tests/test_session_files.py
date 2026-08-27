@@ -40,6 +40,38 @@ async def test_session_files_crud(authed_headers: dict) -> None:
 
 
 @pytest.mark.asyncio
+async def test_session_file_rejects_unsupported_type(authed_headers: dict) -> None:
+    """附件类型白名单：不支持的扩展名返回 400（后端硬校验，前端 accept 只是引导）。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post("/api/v1/sessions", json={"title": "t"}, headers=authed_headers)
+        assert r.status_code == 200
+        sid = r.json()["id"]
+
+        r = await client.post(
+            f"/api/v1/sessions/{sid}/files",
+            files={"file": ("evil.exe", b"MZ\x90\x00", "application/octet-stream")},
+            headers=authed_headers,
+        )
+        assert r.status_code == 400
+        assert "不支持" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_document_upload_rejects_unsupported_type(authed_headers: dict) -> None:
+    """文档上传类型白名单：未知扩展名拒绝而不是默认按 markdown 解析。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post(
+            "/api/v1/documents/upload",
+            files={"file": ("evil.exe", b"MZ\x90\x00", "application/octet-stream")},
+            headers=authed_headers,
+        )
+        assert r.status_code == 400
+        assert "不支持" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_chat_injects_session_files(monkeypatch, authed_headers: dict) -> None:
     """chat 时将附件内容作为 system 上下文注入。"""
     from app.api.routes import chat as chat_module

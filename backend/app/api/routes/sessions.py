@@ -19,10 +19,14 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 # 附件文本存储上限（字符），防止超大文件撑爆数据库
 MAX_FILE_CHARS = 20000
+# 附件原始字节上限（防超大文件读入内存导致 DoS）
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB
 
 # 扩展名 → 文本提取方式
 _MD_EXTS = {".md", ".markdown", ".txt"}
 _CODE_EXTS = {".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".go", ".rs", ".c", ".cpp", ".sql", ".html", ".htm", ".css", ".json", ".yaml", ".yml", ".toml", ".xml"}
+# 会话附件允许的文件类型（后端白名单，前端 accept 只是引导）
+_ALLOWED_EXTS = _MD_EXTS | _CODE_EXTS | {".pdf", ".docx"}
 
 
 class SessionOut(BaseModel):
@@ -160,9 +164,20 @@ async def upload_session_file(
 ) -> SessionFileOut:
     """上传会话附件：提取文本入库，仅本次会话可见，不进入知识库。"""
     session = await _get_session(db, session_id, user)
-    content = await file.read()
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"文件超过 {MAX_UPLOAD_BYTES // 1024 // 1024}MB 上限",
+        )
     if not content:
         raise HTTPException(status_code=400, detail="文件内容为空")
+
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in _ALLOWED_EXTS:
+        raise HTTPException(
+            status_code=400, detail=f"不支持的文件类型: {ext or '未知'}"
+        )
 
     text = _extract_text(file.filename or "unnamed", content)
     sf = SessionFile(

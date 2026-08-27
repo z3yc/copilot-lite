@@ -280,6 +280,7 @@ async def chat_stream(
 
         # 3. token 级流式运行引擎（逐 chunk 转发；长等待期间发心跳保活）
         reply_parts: list[str] = []
+        saved = False  # 标记回复是否已落库（防 finally 重复保存）
         agent_stream = _run_agent_stream(db, history, req.message, user.id)
         try:
             while True:
@@ -296,23 +297,31 @@ async def chat_stream(
                 yield _sse("chunk", {"text": text})
         except HTTPException as exc:
             await _persist_partial(db, session.id, reply_parts)
+            saved = True
             yield _sse("error", {"detail": exc.detail})
             return
         except LLMError as exc:
             await _persist_partial(db, session.id, reply_parts)
+            saved = True
             yield _sse("error", {"detail": str(exc)})
             return
         except Exception:  # noqa: BLE001  通用异常也必须显式终止，不能裸断 SSE
             logger.exception("流式对话生成异常")
             await _persist_partial(db, session.id, reply_parts)
+            saved = True
             yield _sse("error", {"detail": "生成中断，请重试"})
             return
-
-        # 4. 落库成功后才发 done（done 语义 = 已持久化）
-        reply = "".join(reply_parts)
-        db.add(Message(session_id=session.id, role="assistant", content=reply))
-        await db.commit()
-        yield _sse("done", {})
-        _schedule_memory_extract(session.id, user.id)
+        else:
+            # 4. 落库成功后才发 done（done 语义 = 已持久化）
+            reply = "".join(reply_parts)
+            db.add(Message(session_id=session.id, role="assistant", content=reply))
+            await db.commit()
+            saved = True
+            yield _sse("done", {})
+            _schedule_memory_extract(session.id, user.id)
+        finally:
+            # 客户端断开/任务取消（CancelledError）时兜底保存已生成部分
+            if not saved:
+                await _persist_partial(db, session.id, reply_parts)
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

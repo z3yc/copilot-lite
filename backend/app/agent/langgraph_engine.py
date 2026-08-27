@@ -144,6 +144,8 @@ class LangGraphEngine(BaseAgent):
         self.llm = llm if llm is not None else self._default_llm()
         self.registry = registry
         self.max_turns = max_turns
+        # 本轮工具调用审计（run 后由上层写入 Message.extra 落库）
+        self.last_tool_calls: list[dict] = []
         self._ctx: ToolContext | None = None  # 每次 run 注入（引擎按请求新建，无并发问题）
         self.graph = self._build_graph().compile()
 
@@ -212,6 +214,13 @@ class LangGraphEngine(BaseAgent):
                     result = await self.registry.execute(
                         name, json.dumps(args, ensure_ascii=False), self._ctx
                     )
+                    self.last_tool_calls.append(
+                        {
+                            "name": name,
+                            "arguments": json.dumps(args, ensure_ascii=False),
+                            "result": str(result)[:500],
+                        }
+                    )
                     messages.append(ToolMessage(content=result, tool_call_id=tc.get("id", "")))
             return {"reply": "（已达到最大工具调用轮数，请简化请求后重试）"}
 
@@ -258,6 +267,7 @@ class LangGraphEngine(BaseAgent):
     ) -> str:
         """执行一次对话（图完整运行），返回最终回复。"""
         self._ctx = ToolContext(session=session, user_id=user_id)
+        self.last_tool_calls = []
         state: AgentState = {
             "history": history,
             "user_message": user_message,
@@ -270,6 +280,7 @@ class LangGraphEngine(BaseAgent):
     async def run_stream(self, session, user_id, history: list[dict], user_message: str):
         """流式执行：token 级产出最终回复（仅叶子 Agent 的模型输出）。"""
         self._ctx = ToolContext(session=session, user_id=user_id)
+        self.last_tool_calls = []
         state: AgentState = {
             "history": history,
             "user_message": user_message,

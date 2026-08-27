@@ -250,15 +250,19 @@ def _build_agent():
     return Orchestrator(llm=get_llm(), registry=registry)
 
 
-async def _run_agent(db: AsyncSession, history: list[dict], message: str, user_id) -> str:
+async def _run_agent(
+    db: AsyncSession, history: list[dict], message: str, user_id
+) -> tuple[str, list[dict]]:
+    """执行一轮对话，返回 (回复, 工具调用审计列表)。"""
     try:
         agent = _build_agent()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
-        return await agent.run(
+        reply = await agent.run(
             session=db, user_id=user_id, history=history, user_message=message
         )
+        return reply, list(getattr(agent, "last_tool_calls", []))
     except LLMError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
@@ -268,24 +272,18 @@ async def _run_agent(db: AsyncSession, history: list[dict], message: str, user_i
         await agent.close()
 
 
-async def _run_agent_stream(db: AsyncSession, history: list[dict], message: str, user_id):
-    """按配置选择引擎并流式运行，逐文本增量产出（供 SSE chunk 事件）。"""
-    try:
-        agent = _build_agent()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    try:
-        async for text in agent.run_stream(
-            session=db, user_id=user_id, history=history, user_message=message
-        ):
-            yield text
-    finally:
-        await agent.close()
-
-
-async def _persist(db: AsyncSession, session_id, user_msg: str, reply: str) -> None:
+async def _persist(
+    db: AsyncSession, session_id, user_msg: str, reply: str, audit: list[dict] | None = None
+) -> None:
     db.add(Message(session_id=session_id, role="user", content=user_msg))
-    db.add(Message(session_id=session_id, role="assistant", content=reply))
+    db.add(
+        Message(
+            session_id=session_id,
+            role="assistant",
+            content=reply,
+            extra={"tool_calls": audit} if audit else {},
+        )
+    )
     await db.commit()
 
 
@@ -363,8 +361,8 @@ async def chat(
         db, session.id, await _load_history(db, session.id), req.message, user.id,
         summary=session.summary,
     )
-    reply = await _run_agent(db, history, req.message, user.id)
-    await _persist(db, session.id, req.message, reply)
+    reply, audit = await _run_agent(db, history, req.message, user.id)
+    await _persist(db, session.id, req.message, reply, audit)
     _schedule_memory_extract(session.id, user.id)
     _schedule_summary_compress(session.id)
     return ChatResponse(session_id=str(session.id), reply=reply)
@@ -402,11 +400,20 @@ async def chat_stream(
         db.add(Message(session_id=session.id, role="user", content=req.message))
         await db.commit()
 
-        # 3. token 级流式运行引擎（逐 chunk 转发；长等待期间发心跳保活）
+        # 3. 构建引擎（配置已预检；此处兜底处理构建失败）
+        try:
+            agent = _build_agent()
+        except RuntimeError as exc:
+            yield _sse("error", {"detail": str(exc)})
+            return
+
+        # 4. token 级流式运行引擎（逐 chunk 转发；长等待期间发心跳保活）
         reply_parts: list[str] = []
         saved = False  # 标记回复是否已落库（防 finally 重复保存）
-        agent_stream = _run_agent_stream(db, history, req.message, user.id)
         try:
+            agent_stream = agent.run_stream(
+                session=db, user_id=user.id, history=history, user_message=req.message
+            )
             while True:
                 try:
                     text = await asyncio.wait_for(
@@ -436,9 +443,17 @@ async def chat_stream(
             yield _sse("error", {"detail": "生成中断，请重试"})
             return
         else:
-            # 4. 落库成功后才发 done（done 语义 = 已持久化）
+            # 5. 落库成功后才发 done（done 语义 = 已持久化）；工具审计一并落库
             reply = "".join(reply_parts)
-            db.add(Message(session_id=session.id, role="assistant", content=reply))
+            audit = list(getattr(agent, "last_tool_calls", []))
+            db.add(
+                Message(
+                    session_id=session.id,
+                    role="assistant",
+                    content=reply,
+                    extra={"tool_calls": audit} if audit else {},
+                )
+            )
             await db.commit()
             saved = True
             yield _sse("done", {})
@@ -448,5 +463,6 @@ async def chat_stream(
             # 客户端断开/任务取消（CancelledError）时兜底保存已生成部分
             if not saved:
                 await _persist_partial(db, session.id, reply_parts)
+            await agent.close()
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

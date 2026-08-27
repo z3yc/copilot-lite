@@ -266,6 +266,48 @@ async def test_chat_stream_langgraph_engine(monkeypatch, authed_headers: dict) -
     assert "".join(text_parts) == "流式回复"
 
 
+@pytest.mark.asyncio
+async def test_chat_persists_tool_audit(monkeypatch, authed_headers: dict) -> None:
+    """工具调用审计：assistant 消息 extra 落库 tool_calls（可回放排障）。"""
+    from app.core.llm import ToolCall
+
+    class ToolThenTextLLM:
+        def __init__(self) -> None:
+            self.responses = [
+                ChatResult(
+                    tool_calls=[
+                        ToolCall(
+                            id="c1", name="todo_create", arguments='{"title": "审计测试"}'
+                        )
+                    ]
+                ),
+                ChatResult(content="已创建"),
+            ]
+
+        async def chat(self, messages, tools=None, temperature=0.7):
+            return self.responses.pop(0)
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(chat_module, "get_llm", lambda: ToolThenTextLLM())
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/chat", json={"message": "创建待办"}, headers=authed_headers
+        )
+    assert resp.status_code == 200
+
+    async with async_session_factory() as session:
+        from app.models import Message
+
+        rows = (await session.scalars(select(Message))).all()
+        assistant = [m for m in rows if m.role == "assistant"][0]
+        calls = assistant.extra["tool_calls"]
+        assert calls[0]["name"] == "todo_create"
+        assert "审计测试" in calls[0]["arguments"]
+
+
 # ---------------- 会话摘要压缩 ----------------
 
 @pytest.mark.asyncio

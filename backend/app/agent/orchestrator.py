@@ -67,6 +67,8 @@ class Orchestrator(BaseAgent):
         self.llm = llm
         self.registry = registry
         self.max_turns = max_turns
+        # 本轮工具调用审计（run 后由上层写入 Message.extra 落库）
+        self.last_tool_calls: list[dict] = []
 
     async def run(
         self,
@@ -80,6 +82,7 @@ class Orchestrator(BaseAgent):
         history: 历史消息列表，元素为 {"role": ..., "content": ...}
         """
         messages = _assemble_messages(SYSTEM_PROMPT, history, user_message)
+        self.last_tool_calls = []
 
         ctx = ToolContext(session=session, user_id=user_id)
 
@@ -112,6 +115,13 @@ class Orchestrator(BaseAgent):
             for tc in result.tool_calls:
                 logger.info("调用工具: %s(%s)", tc.name, tc.arguments)
                 tool_result = await self.registry.execute(tc.name, tc.arguments, ctx)
+                self.last_tool_calls.append(
+                    {
+                        "name": tc.name,
+                        "arguments": tc.arguments,
+                        "result": tool_result[:500],
+                    }
+                )
                 messages.append(
                     {
                         "role": "tool",
@@ -137,6 +147,7 @@ class Orchestrator(BaseAgent):
         纯文本轮 tool_calls 为空，二者互斥——据此实时转发文本。
         """
         messages = _assemble_messages(SYSTEM_PROMPT, history, user_message)
+        self.last_tool_calls = []
 
         ctx = ToolContext(session=session, user_id=user_id)
 
@@ -193,6 +204,13 @@ class Orchestrator(BaseAgent):
             for c in calls:
                 logger.info("调用工具: %s(%s)", c.name, c.arguments)
                 tool_result = await self.registry.execute(c.name, c.arguments, ctx)
+                self.last_tool_calls.append(
+                    {
+                        "name": c.name,
+                        "arguments": c.arguments,
+                        "result": tool_result[:500],
+                    }
+                )
                 messages.append(
                     {
                         "role": "tool",

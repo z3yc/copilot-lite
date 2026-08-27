@@ -132,25 +132,27 @@ pipeline {
                         def ok = (result == 'SUCCESS')
                         def statusIcon = ok ? '\u2705' : '\u274C'                     // check/ cross marks
                         def statusCn   = ok ? '\u6210\u529F' : '\u5931\u8D25'         // 成功 / 失败
-                        // 注意：Groovy 双引号里 \n 是真实换行（会破坏 JSON），必须写成 \\n 让 JSON 收到字面转义
-                        def text = "\uD83E\uDD16 Copilot-Lite CI/CD \u6784\u5EFA\u62A5\u544A\\n" +          // title
-                            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\\n" +  // divider
-                            "\uD83D\uDCCC \u6784\u5EFA\uFF1Amain #${env.BUILD_NUMBER}\\n" +                  // build line
-                            "\uD83D\uDCCA \u7ED3\u679C\uFF1A${statusIcon} ${statusCn}\\n" +                  // result line
-                            "\u23F1\uFE0F \u8017\u65F6\uFF1A${currentBuild.durationString}\\n" +            // duration line
-                            "\uD83C\uDF3F \u5206\u652F\uFF1A${env.GIT_BRANCH ?: 'main'}\\n" +              // branch line
+                        // 消息正文：用真实换行（\n），最后由 jsonStr 统一转义成 JSON 合法的 \n
+                        def text = "\uD83E\uDD16 Copilot-Lite CI/CD \u6784\u5EFA\u62A5\u544A\n" +          // title
+                            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n" +  // divider
+                            "\uD83D\uDCCC \u6784\u5EFA\uFF1Amain #${env.BUILD_NUMBER}\n" +                  // build line
+                            "\uD83D\uDCCA \u7ED3\u679C\uFF1A${statusIcon} ${statusCn}\n" +                  // result line
+                            "\u23F1\uFE0F \u8017\u65F6\uFF1A${currentBuild.durationString}\n" +            // duration line
+                            "\uD83C\uDF3F \u5206\u652F\uFF1A${env.GIT_BRANCH ?: 'main'}\n" +              // branch line
                             "\uD83D\uDD17 \u8BE6\u60C5\uFF1A${env.BUILD_URL}"                              // detail link
+                        // JSON 字符串转义（content 是"字符串化的 JSON"，必须两层转义，否则飞书 230001）
+                        def jsonStr = { s -> '"' + s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r') + '"' }
+                        def content = '{"text":' + jsonStr(text) + '}'
                         // 1) 获取 tenant_access_token（writeFile 必须显式 UTF-8，否则 Windows GBK 环境
                         //    会把中文写坏、emoji 写成 '?'，导致飞书 9499/230001）
                         writeFile file: 'feishu-token-req.json', encoding: 'UTF-8',
-                            text: '{"app_id":"' + env.FEISHU_APP_ID + '","app_secret":"' + env.FEISHU_APP_SECRET + '"}'
+                            text: '{"app_id":' + jsonStr(env.FEISHU_APP_ID) + ',"app_secret":' + jsonStr(env.FEISHU_APP_SECRET) + '}'
                         def tokenResp = bat(returnStdout: true,
                             script: 'curl.exe -s -X POST -H "Content-Type: application/json" --data-binary @feishu-token-req.json https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal').trim()
                         env.FEISHU_TOKEN = (tokenResp =~ /"tenant_access_token":"([^"]+)"/)[0][1]
                         // 2) 发送私聊消息（encoding: 'UTF-8' 必须显式指定）
-                        def content = '{"text":"' + text + '"}'
                         writeFile file: 'feishu-msg.json', encoding: 'UTF-8',
-                            text: '{"receive_id":"' + FEISHU_OPEN_ID + '","msg_type":"text","content":"' + content.replace('"', '\\"') + '"}'
+                            text: '{"receive_id":' + jsonStr(FEISHU_OPEN_ID) + ',"msg_type":"text","content":' + jsonStr(content) + '}'
                         bat 'curl.exe -s -X POST -H "Authorization: Bearer %FEISHU_TOKEN%" -H "Content-Type: application/json" --data-binary @feishu-msg.json "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id" || echo FEISHU_SEND_FAILED'
                     }
                 } catch (e) {

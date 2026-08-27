@@ -103,4 +103,23 @@ describe("ChatPanel", () => {
     expect((sendBtn as HTMLButtonElement).disabled).toBe(true);
     expect(mocked.streamChat).not.toHaveBeenCalled();
   });
+
+  it("streamChat 异常时 finally 复位 busy（防 UI 永久卡死）", async () => {
+    const setBusy = vi.fn();
+    mocked.streamChat.mockRejectedValue(new Error("boom"));
+
+    renderPanel({ setBusy });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "hi" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+
+    await waitFor(() => expect(setBusy).toHaveBeenCalledWith(false));
+  });
+
+  it("busy 时展示停止按钮（发送按钮隐藏）", () => {
+    renderPanel({ busy: true });
+    expect(screen.getByRole("button", { name: /停止/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /发送/ })).not.toBeInTheDocument();
+  });
 });

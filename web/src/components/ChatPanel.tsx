@@ -16,6 +16,7 @@ import {
   PaperClipOutlined,
   RobotOutlined,
   SendOutlined,
+  StopOutlined,
   UserOutlined,
 } from "@ant-design/icons";
 import {
@@ -65,9 +66,12 @@ export default function ChatPanel({
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<SessionFile[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setMessages(initialMessages);
+    // 切换会话时取消进行中的流式请求（防旧会话响应写入新会话）
+    abortRef.current?.abort();
   }, [initialMessages, sessionId]);
 
   useEffect(() => {
@@ -125,42 +129,56 @@ export default function ChatPanel({
       { role: "assistant", content: "" },
     ]);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
     let currentSid = sessionId;
-    await streamChat(text, currentSid, {
-      onSession: (sid) => {
-        currentSid = sid;
-        onSessionCreated(sid);
-      },
-      onChunk: (chunk) => {
-        // 不可变更新：复制最后一条 assistant 消息再追加，
-        // 避免 StrictMode 双调用 updater 时对同一对象重复追加
-        setMessages((prev) => {
-          const next = [...prev];
-          const lastIdx = next.length - 1;
-          const last = next[lastIdx];
-          if (last && last.role === "assistant") {
-            next[lastIdx] = { ...last, content: last.content + chunk };
-          }
-          return next;
-        });
-      },
-      onDone: () => setBusy(false),
-      onError: (msg) => {
-        setMessages((prev) => {
-          const next = [...prev];
-          const lastIdx = next.length - 1;
-          const last = next[lastIdx];
-          if (last && last.role === "assistant" && !last.content) {
-            next[lastIdx] = { ...last, content: `⚠️ ${msg}` };
-          } else {
-            next.push({ role: "assistant", content: `⚠️ ${msg}` });
-          }
-          return next;
-        });
-        setBusy(false);
-      },
-    });
+    try {
+      await streamChat(text, currentSid, {
+        signal: controller.signal,
+        onSession: (sid) => {
+          currentSid = sid;
+          onSessionCreated(sid);
+        },
+        onChunk: (chunk) => {
+          // 不可变更新：复制最后一条 assistant 消息再追加，
+          // 避免 StrictMode 双调用 updater 时对同一对象重复追加
+          setMessages((prev) => {
+            const next = [...prev];
+            const lastIdx = next.length - 1;
+            const last = next[lastIdx];
+            if (last && last.role === "assistant") {
+              next[lastIdx] = { ...last, content: last.content + chunk };
+            }
+            return next;
+          });
+        },
+        onDone: () => setBusy(false),
+        onError: (msg) => {
+          setMessages((prev) => {
+            const next = [...prev];
+            const lastIdx = next.length - 1;
+            const last = next[lastIdx];
+            if (last && last.role === "assistant" && !last.content) {
+              next[lastIdx] = { ...last, content: `⚠️ ${msg}` };
+            } else {
+              next.push({ role: "assistant", content: `⚠️ ${msg}` });
+            }
+            return next;
+          });
+          setBusy(false);
+        },
+      });
+    } catch {
+      // streamChat 内部已通过 onError 回调提示；这里兜底吞掉意外异常防未处理 rejection
+      setBusy(false);
+    } finally {
+      // 无论成功/失败/中断，busy 都必须复位（防 UI 永久卡死）
+      setBusy(false);
+      abortRef.current = null;
+    }
   };
+
+  const stop = () => abortRef.current?.abort();
 
   return (
     <div className="chat-panel">
@@ -254,14 +272,20 @@ export default function ChatPanel({
           }}
           disabled={busy}
         />
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          onClick={send}
-          disabled={busy || !input.trim()}
-        >
-          发送
-        </Button>
+        {busy ? (
+          <Button danger icon={<StopOutlined />} onClick={stop}>
+            停止
+          </Button>
+        ) : (
+          <Button
+            type="primary"
+            icon={<SendOutlined />}
+            onClick={send}
+            disabled={!input.trim()}
+          >
+            发送
+          </Button>
+        )}
       </div>
     </div>
   );

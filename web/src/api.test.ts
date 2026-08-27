@@ -93,12 +93,16 @@ describe("request 封装", () => {
 });
 
 describe("streamChat SSE 解析", () => {
-  type HandlerMocks = Record<keyof StreamHandlers, ReturnType<typeof vi.fn>>;
+  type HandlerMocks = Omit<
+    Record<keyof StreamHandlers, ReturnType<typeof vi.fn>>,
+    "signal"
+  > & { signal?: AbortSignal };
   const handlers = (): HandlerMocks => ({
     onSession: vi.fn(),
     onChunk: vi.fn(),
     onDone: vi.fn(),
     onError: vi.fn(),
+    signal: undefined,
   });
 
   afterEach(() => {
@@ -211,5 +215,57 @@ describe("streamChat SSE 解析", () => {
     expect(listener).toHaveBeenCalledTimes(1);
     expect(h.onError).toHaveBeenCalledWith("登录已过期，请重新登录");
     window.removeEventListener("auth-expired", listener);
+  });
+
+  it("跳过 SSE 心跳注释行（: ping），不误触发事件", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(": ping\n\n"));
+        controller.enqueue(encoder.encode('event: chunk\ndata: {"text": "正常"}\n\n'));
+        controller.enqueue(encoder.encode("event: done\ndata: {}\n\n"));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(stream, { status: 200 })));
+
+    const h = handlers();
+    await streamChat("hi", null, h);
+
+    expect(h.onChunk).toHaveBeenCalledWith("正常");
+    expect(h.onDone).toHaveBeenCalledTimes(1);
+    expect(h.onError).not.toHaveBeenCalled();
+  });
+
+  it("畸形 JSON 分片被丢弃，不杀死整个流", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode("event: chunk\ndata: {坏数据}\n\n"));
+        controller.enqueue(encoder.encode('event: chunk\ndata: {"text": "好数据"}\n\n'));
+        controller.enqueue(encoder.encode("event: done\ndata: {}\n\n"));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(stream, { status: 200 })));
+
+    const h = handlers();
+    await streamChat("hi", null, h);
+
+    expect(h.onChunk).toHaveBeenCalledWith("好数据");
+    expect(h.onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("请求被中断（AbortError）时回调 onError 且不挂死", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(Object.assign(new Error("aborted"), { name: "AbortError" }))
+    );
+
+    const h = handlers();
+    await streamChat("hi", null, h);
+
+    expect(h.onError).toHaveBeenCalledWith("已停止生成");
+    expect(h.onSession).not.toHaveBeenCalled();
   });
 });

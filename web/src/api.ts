@@ -164,6 +164,8 @@ export interface StreamHandlers {
   onChunk: (text: string) => void;
   onDone: () => void;
   onError: (message: string) => void;
+  /** 取消信号：调用方（停止生成按钮/会话切换）用它中断请求 */
+  signal?: AbortSignal;
 }
 
 export async function streamChat(
@@ -176,11 +178,19 @@ export async function streamChat(
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const resp = await fetch(`${BASE}/chat/stream`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ message, session_id: sessionId }),
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(`${BASE}/chat/stream`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ message, session_id: sessionId }),
+      signal: handlers.signal,
+    });
+  } catch (err) {
+    // 用户主动停止（AbortController）或网络层失败
+    handlers.onError((err as Error)?.name === "AbortError" ? "已停止生成" : "网络连接失败，请重试");
+    return;
+  }
   if (resp.status === 401) {
     // 登录过期：清除令牌并通知应用回到登录页（与 request() 行为一致）
     clearToken();
@@ -205,21 +215,31 @@ export async function streamChat(
       if (line.startsWith("event: ")) event = line.slice(7);
       else if (line.startsWith("data: ")) data += line.slice(6);
     }
-    if (!data) return;
-    const payload = JSON.parse(data);
-    if (event === "session") handlers.onSession(payload.session_id);
-    else if (event === "chunk") handlers.onChunk(payload.text);
-    else if (event === "error") handlers.onError(payload.detail);
+    if (!data) return; // SSE 注释（心跳 ": ping"）等无数据行直接跳过
+    let payload: { session_id?: string; text?: string; detail?: string };
+    try {
+      payload = JSON.parse(data);
+    } catch {
+      return; // 畸形分片丢弃，不让单条坏数据杀死整个流
+    }
+    if (event === "session" && payload.session_id) handlers.onSession(payload.session_id);
+    else if (event === "chunk" && typeof payload.text === "string") handlers.onChunk(payload.text);
+    else if (event === "error") handlers.onError(payload.detail ?? "未知错误");
     else if (event === "done") handlers.onDone();
   };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n\n");
-    buffer = parts.pop() ?? "";
-    for (const part of parts) dispatch(part);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() ?? "";
+      for (const part of parts) dispatch(part);
+    }
+    if (buffer.trim()) dispatch(buffer);
+  } catch (err) {
+    // 读取中断（含 AbortError）：有终态提示，不留挂死的 UI
+    handlers.onError((err as Error)?.name === "AbortError" ? "已停止生成" : "连接中断，请重试");
   }
-  if (buffer.trim()) dispatch(buffer);
 }

@@ -43,7 +43,11 @@ async def ingest_document(
     if not chunks:
         raise IngestError("文档解析后无有效内容")
 
-    # 3. 写入 chunks 表
+    # 3. 嵌入（先算，后写库——嵌入失败不产生任何落库数据）
+    texts = [c.content for c in chunks]
+    vectors = await embeddings.embed(texts)
+
+    # 4. 写入 chunks 表
     chunk_rows: list[Chunk] = []
     for i, c in enumerate(chunks):
         chunk_rows.append(
@@ -59,26 +63,34 @@ async def ingest_document(
     for row in chunk_rows:
         await db.refresh(row)
 
-    # 4. 嵌入（全量批量）
-    texts = [c.content for c in chunks]
-    vectors = await embeddings.embed(texts)
-
-    # 5. 写入 Qdrant（payload 携带引用元数据）
-    points = [
-        (
-            row.id,
-            vector,
-            {
-                "chunk_id": str(row.id),
-                "document_id": str(document.id),
-                "user_id": str(document.user_id),
-                "content": row.content,
-                "meta": row.meta,
-            },
-        )
-        for row, vector in zip(chunk_rows, vectors, strict=True)
-    ]
-    await vector_store.upsert(points)
+    # 5. 写入 Qdrant（payload 携带引用元数据）；失败补偿清理分块行
+    #    跨"关系库+向量库"无法用单库事务保证原子性 → 先算后写 + 失败补偿
+    try:
+        points = [
+            (
+                row.id,
+                vector,
+                {
+                    "chunk_id": str(row.id),
+                    "document_id": str(document.id),
+                    "user_id": str(document.user_id),
+                    "content": row.content,
+                    "meta": row.meta,
+                },
+            )
+            for row, vector in zip(chunk_rows, vectors, strict=True)
+        ]
+        await vector_store.upsert(points)
+    except Exception:
+        for row in chunk_rows:
+            await db.delete(row)
+        await db.commit()
+        try:
+            await vector_store.delete_by_document(document.id)
+        except Exception:  # noqa: BLE001  清理失败不影响原始异常
+            pass
+        logger.warning("Qdrant 写入失败，已补偿清理 %d 个分块", len(chunk_rows))
+        raise
 
     # 6. 回写 vector_id（可追溯）
     for row, _ in zip(chunk_rows, vectors, strict=True):

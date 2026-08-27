@@ -71,3 +71,25 @@ async def test_ingest_unsupported_type(db_session, vector_store) -> None:
 
     with pytest.raises(IngestError):
         await ingest_document(db_session, doc, b"content", FakeEmbeddings(), vector_store)
+
+
+@pytest.mark.asyncio
+async def test_ingest_qdrant_failure_compensates(db_session, vector_store, monkeypatch) -> None:
+    """Qdrant 写入失败：分块行被补偿清理，不留孤儿数据（跨库原子性）。"""
+    from sqlalchemy import select
+
+    content = "# 第一章\n\n内容A。\n\n## 第二节\n\n内容B。\n".encode()
+    doc = Document(user_id=DEFAULT_USER_ID, title="补偿测试.md", source_type="md")
+    db_session.add(doc)
+    await db_session.commit()
+    await db_session.refresh(doc)
+
+    async def boom(points):
+        raise RuntimeError("qdrant down")
+
+    monkeypatch.setattr(vector_store, "upsert", boom)
+    with pytest.raises(RuntimeError):
+        await ingest_document(db_session, doc, content, FakeEmbeddings(), vector_store)
+
+    rows = (await db_session.scalars(select(Chunk))).all()
+    assert rows == [], "失败后不应残留孤儿分块"

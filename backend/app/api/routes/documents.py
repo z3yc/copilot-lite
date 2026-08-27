@@ -121,7 +121,15 @@ async def upload_document(
     except (IngestError, Exception) as exc:
         document.status = "failed"
         document.extra = {"error": str(exc)}
-        logger.exception("文档摄取失败: %s", file.filename)
+        # 失败补偿：清理可能残留的分块与向量（幂等重传基础）
+        try:
+            from sqlalchemy import delete as sa_delete
+
+            await db.execute(sa_delete(Chunk).where(Chunk.document_id == document.id))
+            await get_vector_store().delete_by_document(document.id)
+            await db.commit()
+        except Exception:  # noqa: BLE001  清理失败不影响原始异常
+            logger.warning("摄取失败清理异常", exc_info=True)
         raise HTTPException(status_code=422, detail=f"文档摄取失败: {exc}") from exc
     finally:
         await db.commit()

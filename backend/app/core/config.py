@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS: int = 2048  # 单次回复 token 上限（成本控制）
     # LLM 并发上限（进程内信号量；防止多 SSE 同时打爆 API 限额与账单）
     LLM_MAX_CONCURRENCY: int = 3
+    # 每用户每日 token 预算（0=不限，仅统计；开启后超限返回 429）
+    LLM_DAILY_TOKEN_BUDGET: int = 0
+    # 流式请求是否请求 usage 统计（stream_options.include_usage；
+    # 个别兼容网关不支持时可关闭）
+    LLM_TRACK_STREAM_USAGE: bool = True
 
     # Agent 循环参数
     AGENT_MAX_TURNS: int = 5  # ReAct 循环最大轮数
@@ -78,6 +83,10 @@ class Settings(BaseSettings):
     RAG_RERANK_CANDIDATE_K: int = 10  # RRF 融合后进入精排的候选数
     RAG_RERANK_TOP_N: int = 3  # 精排后最终注入 LLM 的前 N 条
     RAG_RERANK_ENABLED: bool = True  # Rerank 精排开关（可对比效果）
+    # 查询向量缓存条数（单条 query 嵌入的 lru_cache 上限）
+    EMBED_QUERY_CACHE_SIZE: int = 512
+    # Rerank 结果缓存条数（(query, passages) → 分数）
+    RERANK_CACHE_SIZE: int = 128
 
     # 长期记忆
     MEMORY_TOP_K: int = 5  # 每次召回记忆条数

@@ -11,8 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, parse_uuid
+from app.core.budget import add_token_usage, check_token_budget
 from app.core.db import get_session
-from app.core.llm import get_llm
+from app.core.llm import get_llm, get_usage_stats
 from app.models import Category, Todo, User
 
 logger = logging.getLogger(__name__)
@@ -201,23 +202,25 @@ async def ai_create_todo(
 
     解析失败时降级为"整句作为标题"，保证功能可用。
     """
+    check_token_budget(user.id)
+    tokens_before = get_usage_stats().get("total_tokens", 0)
     try:
         llm = get_llm()
-        try:
-            result = await llm.chat(
-                [
-                    {"role": "system", "content": _AI_PARSE_PROMPT},
-                    {"role": "user", "content": req.text},
-                ]
-            )
-            parsed = json.loads((result.content or "{}").strip())
-        finally:
-            await llm.close()
+        result = await llm.chat(
+            [
+                {"role": "system", "content": _AI_PARSE_PROMPT},
+                {"role": "user", "content": req.text},
+            ]
+        )
+        parsed = json.loads((result.content or "{}").strip())
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (json.JSONDecodeError, TypeError, KeyError) as exc:
         logger.warning("AI 解析待办失败，降级处理: %s", exc)
         parsed = {}
+    finally:
+        # 本轮 LLM 用量计入每日预算（LLM 客户端为单例，不在此关闭）
+        add_token_usage(user.id, get_usage_stats().get("total_tokens", 0) - tokens_before)
 
     # 分类名 → id
     category_id = None

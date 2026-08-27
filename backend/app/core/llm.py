@@ -37,6 +37,32 @@ class LLMError(Exception):
     """大模型调用失败（网络/限流/超时等），供上层映射为友好错误。"""
 
 
+# ---------------- token 计量（进程内累计，供成本预算与监控） ----------------
+
+_usage_stats: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+
+def _record_usage(usage) -> None:
+    """把 SDK usage 对象/dict 累计进进程级统计。"""
+    if usage is None:
+        return
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = usage.get(key) if isinstance(usage, dict) else getattr(usage, key, None)
+        if isinstance(value, int):
+            _usage_stats[key] = _usage_stats.get(key, 0) + value
+
+
+def get_usage_stats() -> dict[str, int]:
+    """进程级累计用量快照（供预算与日志）。"""
+    return dict(_usage_stats)
+
+
+def reset_usage_stats() -> None:
+    """测试用：清零累计统计。"""
+    for key in _usage_stats:
+        _usage_stats[key] = 0
+
+
 @dataclass
 class ToolCall:
     """模型请求调用某个工具。"""
@@ -52,6 +78,7 @@ class ChatResult:
 
     content: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
+    usage: dict | None = None  # {"prompt_tokens", "completion_tokens", "total_tokens"}
 
     @property
     def has_tool_calls(self) -> bool:
@@ -77,10 +104,13 @@ class _GuardedStream:
     async def __anext__(self):
         assert self._it is not None
         try:
-            return await self._it.__anext__()
+            chunk = await self._it.__anext__()
         except BaseException:
             self._release()
             raise
+        # 流结束前的最后一个 chunk 携带 usage（include_usage 开启时）
+        _record_usage(getattr(chunk, "usage", None))
+        return chunk
 
     def _release(self) -> None:
         if not self._released:
@@ -131,6 +161,15 @@ class LLMClient:
             resp = await self._client.chat.completions.create(**kwargs)
         msg = resp.choices[0].message
 
+        usage: dict | None = None
+        if getattr(resp, "usage", None):
+            usage = {
+                "prompt_tokens": resp.usage.prompt_tokens,
+                "completion_tokens": resp.usage.completion_tokens,
+                "total_tokens": resp.usage.total_tokens,
+            }
+            _record_usage(usage)
+
         tool_calls: list[ToolCall] = []
         if msg.tool_calls:
             for tc in msg.tool_calls:
@@ -138,7 +177,7 @@ class LLMClient:
                     ToolCall(id=tc.id, name=tc.function.name, arguments=tc.function.arguments)
                 )
 
-        return ChatResult(content=msg.content, tool_calls=tool_calls)
+        return ChatResult(content=msg.content, tool_calls=tool_calls, usage=usage)
 
     async def stream_chat(
         self,
@@ -157,6 +196,8 @@ class LLMClient:
             kwargs["tools"] = tools
         if settings.LLM_MAX_TOKENS:
             kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
+        if settings.LLM_TRACK_STREAM_USAGE:
+            kwargs["stream_options"] = {"include_usage": True}
 
         # 并发额度覆盖整个流生命周期（create + 逐 chunk 消费）
         sem = _get_semaphore()
@@ -164,6 +205,7 @@ class LLMClient:
         try:
             stream = await self._client.chat.completions.create(**kwargs)
             async for chunk in stream:
+                _record_usage(getattr(chunk, "usage", None))
                 if chunk.choices and chunk.choices[0].delta:
                     delta = chunk.choices[0].delta
                     if delta.content:
@@ -192,6 +234,8 @@ class LLMClient:
             kwargs["tools"] = tools
         if settings.LLM_MAX_TOKENS:
             kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
+        if settings.LLM_TRACK_STREAM_USAGE:
+            kwargs["stream_options"] = {"include_usage": True}
 
         # 并发额度随流生命周期走：返回守卫迭代器，消费完/中断时自动释放
         sem = _get_semaphore()

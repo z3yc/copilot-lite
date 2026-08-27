@@ -139,17 +139,18 @@ pipeline {
                             "\u23F1\uFE0F \u8017\u65F6\uFF1A${currentBuild.durationString}\n" +            // duration line
                             "\uD83C\uDF3F \u5206\u652F\uFF1A${env.GIT_BRANCH ?: 'main'}\n" +              // branch line
                             "\uD83D\uDD17 \u8BE6\u60C5\uFF1A${env.BUILD_URL}"                              // detail link
-                        // 1) 获取 tenant_access_token
-                        writeFile file: 'feishu-token-req.json',
+                        // 1) 获取 tenant_access_token（writeFile 必须显式 UTF-8，否则 Windows GBK 环境
+                        //    会把中文写坏、emoji 写成 '?'，导致飞书 9499/230001）
+                        writeFile file: 'feishu-token-req.json', encoding: 'UTF-8',
                             text: '{"app_id":"' + env.FEISHU_APP_ID + '","app_secret":"' + env.FEISHU_APP_SECRET + '"}'
                         def tokenResp = bat(returnStdout: true,
                             script: 'curl.exe -s -X POST -H "Content-Type: application/json" --data-binary @feishu-token-req.json https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal').trim()
                         env.FEISHU_TOKEN = (tokenResp =~ /"tenant_access_token":"([^"]+)"/)[0][1]
-                        // 2) 发送私聊消息
+                        // 2) 发送私聊消息（encoding: 'UTF-8' 必须显式指定）
                         def content = '{"text":"' + text + '"}'
-                        writeFile file: 'feishu-msg.json',
+                        writeFile file: 'feishu-msg.json', encoding: 'UTF-8',
                             text: '{"receive_id":"' + FEISHU_OPEN_ID + '","msg_type":"text","content":"' + content.replace('"', '\\"') + '"}'
-                        bat 'curl.exe -s -X POST -H "Authorization: Bearer %FEISHU_TOKEN%" -H "Content-Type: application/json" --data-binary @feishu-msg.json "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id"'
+                        bat 'curl.exe -s -X POST -H "Authorization: Bearer %FEISHU_TOKEN%" -H "Content-Type: application/json" --data-binary @feishu-msg.json "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id" || echo FEISHU_SEND_FAILED'
                     }
                 } catch (e) {
                     echo "飞书通知失败（不影响构建结果）：${e}"

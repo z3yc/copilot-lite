@@ -47,6 +47,8 @@ async def test_kb_search_returns_sources(db_session, monkeypatch) -> None:
     result = await registry.execute("kb_search", '{"query": "FastAPI", "top_k": 3}', ctx)
 
     payload = json.loads(result)
+    assert payload[0]["编号"] == 1
+    assert payload[0]["chunk_id"] == "c1"
     assert payload[0]["来源"] == "学习笔记.md > 第一章 > 第一节（第3页）"
     assert "异步框架" in payload[0]["内容"]
 

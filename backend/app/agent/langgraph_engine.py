@@ -47,7 +47,7 @@ SUPERVISOR_SYSTEM_PROMPT = """你是 Copilot-Lite 的意图路由中枢。判断
 
 KB_SYSTEM_PROMPT = """你是 Copilot-Lite 的知识库助手（青木）。回答用户问题时：
 - 问题涉及知识库内容时，必须先调用 kb_search 检索，再基于检索结果回答；
-- 回答注明来源（文档标题 / 章节 / 页码）；
+- 回答注明来源（文档标题 / 章节 / 页码），引用时用 [n] 标注（n 为检索结果中的编号）；
 - 检索不到相关内容时如实说明，不要编造。"""
 
 TOOLS_SYSTEM_PROMPT = """你是 Copilot-Lite 的工具助手（青木）。当用户请求需要实际操作（如待办管理）时：

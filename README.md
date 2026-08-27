@@ -8,6 +8,9 @@
 ## 目录
 
 - [📋 项目工作计划（PLAN）](PLAN.md)
+- [🩺 项目体检报告（面试备战）](docs/INTERVIEW_AUDIT.md)
+- [🎤 面试 Q&A 模拟](docs/INTERVIEW_QA.md)
+- [🔒 第 1 周安全修复清单（可复盘）](docs/SECURITY_FIX_WEEK1.md)
 - [项目简介](#项目简介)
 - [核心特性](#核心特性)
 - [技术栈](#技术栈)

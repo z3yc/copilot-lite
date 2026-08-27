@@ -1,0 +1,56 @@
+{
+  "name": "copilot-lite golden 评测集（示例模板）",
+  "说明": "每条：query=检索问题；expected_doc_title=应命中的文档标题（子串匹配）；must_contain=命中文档内容应包含的关键词（至少命中一个）。请按自己的知识库把示例条目替换为真实条目后运行 scripts/rag_eval.py。",
+  "items": [
+    {
+      "query": "FastAPI 的依赖注入怎么用",
+      "expected_doc_title": "FastAPI",
+      "must_contain": ["依赖注入", "Depends"]
+    },
+    {
+      "query": "PostgreSQL 索引失效的排查思路",
+      "expected_doc_title": "数据库",
+      "must_contain": ["索引", "执行计划"]
+    },
+    {
+      "query": "Docker 镜像瘦身的方法",
+      "expected_doc_title": "Docker",
+      "must_contain": ["多阶段构建", "alpine"]
+    },
+    {
+      "query": "Qdrant 本地模式与远程模式的区别",
+      "expected_doc_title": "向量数据库",
+      "must_contain": ["本地模式", "payload"]
+    },
+    {
+      "query": "Python 异步编程的常见坑",
+      "expected_doc_title": "Python",
+      "must_contain": ["事件循环", "async"]
+    },
+    {
+      "query": "JWT 的撤销方案有哪些",
+      "expected_doc_title": "认证",
+      "must_contain": ["token_version", "黑名单"]
+    },
+    {
+      "query": "React 状态管理的选型",
+      "expected_doc_title": "前端",
+      "must_contain": ["useState", "状态管理"]
+    },
+    {
+      "query": "Prompt 注入的防护手段",
+      "expected_doc_title": "大模型安全",
+      "must_contain": ["间接注入", "定界"]
+    },
+    {
+      "query": "RRF 融合的原理",
+      "expected_doc_title": "RAG",
+      "must_contain": ["倒数排名", "RRF"]
+    },
+    {
+      "query": "面试自我介绍怎么组织",
+      "expected_doc_title": "面试",
+      "must_contain": ["项目亮点", "STAR"]
+    }
+  ]
+}

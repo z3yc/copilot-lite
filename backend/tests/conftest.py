@@ -11,6 +11,9 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_copilot.db"
 os.environ["MEMORY_EXTRACT_ENABLED"] = "false"
 # 测试环境关闭后台摘要压缩（同上）
 os.environ["SUMMARY_COMPRESS_ENABLED"] = "false"
+# 测试环境注入假 LLM Key（chat.py 的 _validate_llm_config 会校验 key 非空；
+# 测试全程用 FakeLLM mock，不会真实调用 DeepSeek——避免 CI 无 .env 时误报 503）
+os.environ.setdefault("DEEPSEEK_API_KEY", "test-key-not-real")
 
 import pytest
 from httpx import ASGITransport, AsyncClient

@@ -128,3 +128,32 @@ async def test_ai_create_fallback(monkeypatch, authed_headers: dict) -> None:
         )
     assert r.status_code == 200
     assert r.json()["title"] == "随便记一笔"
+
+
+@pytest.mark.asyncio
+async def test_ai_create_clamps_invalid_fields(monkeypatch, authed_headers: dict) -> None:
+    """LLM 输出越界优先级/非法日期：夹取 1-5、日期置 None（不 500）。"""
+    import app.api.routes.todos as todos_module
+    from app.core.llm import ChatResult
+
+    class WeirdAILLM:
+        async def chat(self, messages, tools=None, temperature=0.7):
+            return ChatResult(
+                content='{"title": "怪数据", "priority": 99, "due_date": "明天下午"}'
+            )
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(todos_module, "get_llm", lambda: WeirdAILLM())
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post(
+            "/api/v1/todos/ai-create", json={"text": "随便"}, headers=authed_headers
+        )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["title"] == "怪数据"
+    assert data["priority"] == 5  # 99 → 夹取到 5
+    assert data["due_date"] is None  # 非法日期 → None

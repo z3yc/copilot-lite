@@ -228,11 +228,26 @@ async def ai_create_todo(
         )
         category_id = str(cat.id) if cat else None
 
+    # LLM 输出不可信：优先级夹取 1-5，日期非法置 None（不再 500）
+    try:
+        priority = int(parsed.get("priority") or 3)
+    except (TypeError, ValueError):
+        priority = 3
+    priority = max(1, min(5, priority))
+
+    due_date = None
+    raw_date = parsed.get("due_date")
+    if raw_date:
+        try:
+            due_date = date.fromisoformat(str(raw_date))
+        except ValueError:
+            due_date = None
+
     todo = Todo(
         user_id=user.id,
         title=str(parsed.get("title") or req.text).strip()[:255],
-        priority=int(parsed.get("priority") or 3),
-        due_date=date.fromisoformat(parsed["due_date"]) if parsed.get("due_date") else None,
+        priority=priority,
+        due_date=due_date,
         category_id=uuid.UUID(category_id) if category_id else None,
         tags=[str(t) for t in (parsed.get("tags") or [])][:10],
     )

@@ -40,3 +40,26 @@ async def test_change_password_flow(authed_headers: dict) -> None:
             headers=authed_headers,
         )
         assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_login_rate_limit(authed_headers: dict, monkeypatch) -> None:
+    """登录限流：同一用户名连续失败 5 次后，第 6 次即使密码正确也返回 429。"""
+    import app.api.routes.auth as auth_module
+
+    monkeypatch.setattr(auth_module, "_login_attempts", {})
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        for _ in range(auth_module._LOGIN_MAX_ATTEMPTS):
+            r = await client.post(
+                "/api/v1/auth/login",
+                json={"username": "ratelimituser", "password": "wrongpass"},
+            )
+            assert r.status_code == 401
+
+        # 窗口已满：即使密码正确也拒绝（防爆破）
+        r = await client.post(
+            "/api/v1/auth/login",
+            json={"username": "ratelimituser", "password": "wrongpass"},
+        )
+        assert r.status_code == 429

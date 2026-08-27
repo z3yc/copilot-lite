@@ -1,11 +1,13 @@
 """认证接口：注册 / 登录 / 当前用户。
 
 - POST /api/v1/auth/register  注册（返回 token）
-- POST /api/v1/auth/login     登录（返回 token）
+- POST /api/v1/auth/login     登录（返回 token，含失败限流）
 - GET  /api/v1/auth/me        当前用户信息（需认证）
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+import time
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +18,27 @@ from app.core.security import create_token, hash_password, verify_password
 from app.models import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# ---------------- 登录限流（防暴力破解） ----------------
+# 内存滑动窗口实现：个人量级够用；多实例/云部署时换 Redis 滑动窗口
+_LOGIN_WINDOW_SECONDS = 60.0
+_LOGIN_MAX_ATTEMPTS = 5
+_login_attempts: dict[str, list[float]] = {}
+
+
+def _check_login_rate(key: str) -> None:
+    """按 key（用户名+IP）检查滑动窗口内的尝试次数，超限返回 429。"""
+    now = time.monotonic()
+    stamps = [t for t in _login_attempts.get(key, []) if now - t < _LOGIN_WINDOW_SECONDS]
+    if len(stamps) >= _LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="尝试过于频繁，请稍后再试")
+    stamps.append(now)
+    _login_attempts[key] = stamps
+
+
+def _clear_login_rate(key: str) -> None:
+    """登录成功后清零该 key 的失败计数。"""
+    _login_attempts.pop(key, None)
 
 
 class RegisterRequest(BaseModel):
@@ -74,11 +97,21 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_session)
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_session)) -> AuthResponse:
-    """登录并返回令牌。"""
+async def login(
+    req: LoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+) -> AuthResponse:
+    """登录并返回令牌（连续失败限流防暴力破解）。"""
+    client_ip = request.client.host if request.client else "unknown"
+    rate_key = f"{req.username}:{client_ip}"
+    _check_login_rate(rate_key)
+
     user = await db.scalar(select(User).where(User.username == req.username))
     if user is None or not verify_password(req.password, user.password_hash):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    _clear_login_rate(rate_key)
     return _auth_response(user)
 
 

@@ -9,10 +9,14 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/app/core/config.py → parents[0]=core, [1]=app, [2]=backend
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+# 代码内置的弱默认密钥（仅限本地开发；云模式启动时校验拦截）
+_DEFAULT_SECRET_KEY = "dev-secret-change-me-in-production"
 
 
 class Settings(BaseSettings):
@@ -31,7 +35,7 @@ class Settings(BaseSettings):
     RUN_MODE: str = "local"
 
     # JWT 签名密钥（生产必须通过 .env 覆盖为强随机值）
-    SECRET_KEY: str = "dev-secret-change-me-in-production"
+    SECRET_KEY: str = _DEFAULT_SECRET_KEY
 
     # ---- 存储 ----
     # 本地默认 SQLite；云端设置为 PostgreSQL，例如：
@@ -67,6 +71,20 @@ class Settings(BaseSettings):
     # 长期记忆
     MEMORY_TOP_K: int = 5  # 每次召回记忆条数
     MEMORY_EXTRACT_ENABLED: bool = True  # 会话结束后台提取开关（测试环境关闭）
+
+    @model_validator(mode="after")
+    def _reject_default_secret(self) -> "Settings":
+        """安全自检：云模式禁止使用代码内置的默认 JWT 密钥。
+
+        防止部署时照抄 .env.example 漏配 SECRET_KEY——
+        默认密钥公开在仓库中，等于认证后门。
+        """
+        if self.RUN_MODE == "cloud" and self.SECRET_KEY == _DEFAULT_SECRET_KEY:
+            raise ValueError(
+                "生产模式禁止使用默认 SECRET_KEY，请在 .env 中设置为强随机值"
+                '（生成命令：python -c "import secrets;print(secrets.token_urlsafe(48))"）'
+            )
+        return self
 
 
 @lru_cache

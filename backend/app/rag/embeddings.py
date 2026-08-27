@@ -15,6 +15,8 @@ import logging
 import os
 from functools import lru_cache
 
+from app.core.config import settings
+
 # 模型下载镜像与协议配置（setdefault：用户显式配置优先）
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
@@ -43,12 +45,26 @@ class EmbeddingService:
         return self._model
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """文本列表 → 向量列表（异步非阻塞）。"""
+        """文本列表 → 向量列表（异步非阻塞）。
+
+        单条文本（对话查询/记忆条目）走 lru_cache 查询缓存——
+        查询向量重复率极高，缓存省下大量本地推理；批量摄取不走缓存。
+        """
         if not texts:
             return []
-        model = self._load()
         loop = asyncio.get_running_loop()
+        if len(texts) == 1:
+            vec = await loop.run_in_executor(None, self._embed_one, texts[0])
+            return [list(vec)]
+        model = self._load()
         return await loop.run_in_executor(None, self._embed_sync, model, texts)
+
+    @lru_cache(maxsize=settings.EMBED_QUERY_CACHE_SIZE)  # noqa: B019  服务为进程级单例，缓存随生命周期有效
+    def _embed_one(self, text: str) -> tuple[float, ...]:
+        """单条文本嵌入（lru_cache 缓存查询向量；线程安全）。"""
+        model = self._load()
+        vec = model.embed([text])[0]
+        return tuple(float(x) for x in vec)
 
     def _embed_sync(self, model, texts: list[str]) -> list[list[float]]:
         return [vec.tolist() for vec in model.embed(texts, batch_size=self.batch_size)]

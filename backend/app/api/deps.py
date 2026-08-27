@@ -18,15 +18,19 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_session),
 ) -> User:
-    """从 Bearer token 解析当前用户；无效/缺失抛 401。"""
+    """从 Bearer token 解析当前用户；无效/缺失/版本不匹配抛 401。"""
     if credentials is None:
         raise HTTPException(status_code=401, detail="未登录")
     try:
-        user_id = decode_token(credentials.credentials)
+        user_id, token_version = decode_token(credentials.credentials)
+        uid = uuid.UUID(user_id)
     except Exception:  # noqa: BLE001  JWT 解码失败统一视为未认证
         raise HTTPException(status_code=401, detail="登录已过期，请重新登录") from None
 
-    user = await db.get(User, uuid.UUID(user_id))
+    user = await db.get(User, uid)
     if user is None:
         raise HTTPException(status_code=401, detail="用户不存在")
+    # token 版本校验：改密/封号后旧 token 立即失效（无状态撤销）
+    if user.token_version != token_version:
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     return user

@@ -64,7 +64,7 @@ class UserOut(BaseModel):
 
 def _auth_response(user: User) -> AuthResponse:
     return AuthResponse(
-        token=create_token(user.id),
+        token=create_token(user.id, user.token_version),
         user={"id": str(user.id), "username": user.username, "role": user.role},
     )
 
@@ -186,9 +186,10 @@ async def change_password(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
-    """修改密码（需验证原密码）。"""
+    """修改密码（需验证原密码；改密后旧 token 全部失效）。"""
     if not verify_password(req.old_password, user.password_hash):
         raise HTTPException(status_code=400, detail="原密码错误")
     user.password_hash = hash_password(req.new_password)
+    user.token_version += 1  # 旧 token 立即失效（无状态撤销）
     await db.commit()
     return {"ok": True, "message": "密码已更新"}

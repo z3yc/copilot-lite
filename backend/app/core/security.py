@@ -44,17 +44,18 @@ def verify_password(password: str, hashed: str) -> bool:
 
 # ---------------- JWT ----------------
 
-def create_token(user_id) -> str:
-    """为用户签发 JWT（24 小时有效）。"""
+def create_token(user_id, token_version: int = 0) -> str:
+    """为用户签发 JWT（24 小时有效，携带 token 版本号）。"""
     payload = {
         "sub": str(user_id),
+        "ver": token_version,
         "exp": datetime.now(UTC) + timedelta(hours=_TOKEN_TTL_HOURS),
         "iat": datetime.now(UTC),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
 
-def decode_token(token: str) -> str:
-    """解析 JWT，返回用户 id；无效/过期抛异常。"""
+def decode_token(token: str) -> tuple[str, int]:
+    """解析 JWT，返回 (用户 id, token 版本)；无效/过期抛异常。"""
     payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
-    return payload["sub"]
+    return payload["sub"], int(payload.get("ver", 0))

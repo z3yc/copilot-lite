@@ -63,3 +63,38 @@ async def test_login_rate_limit(authed_headers: dict, monkeypatch) -> None:
             json={"username": "ratelimituser", "password": "wrongpass"},
         )
         assert r.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_change_password_invalidates_old_token(authed_headers: dict) -> None:
+    """改密后旧 token 立即失效（token_version 校验），新密码可登录。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 改密前旧 token 可用
+        r = await client.get("/api/v1/auth/me", headers=authed_headers)
+        assert r.status_code == 200
+        username = r.json()["username"]
+
+        # 改密
+        r = await client.post(
+            "/api/v1/auth/change-password",
+            json={"old_password": "secret123", "new_password": "newpass123"},
+            headers=authed_headers,
+        )
+        assert r.status_code == 200
+
+        # 旧 token 立即 401
+        r = await client.get("/api/v1/auth/me", headers=authed_headers)
+        assert r.status_code == 401
+
+        # 新密码登录后新 token 可用
+        r = await client.post(
+            "/api/v1/auth/login",
+            json={"username": username, "password": "newpass123"},
+        )
+        assert r.status_code == 200
+        new_token = r.json()["token"]
+        r = await client.get(
+            "/api/v1/auth/me", headers={"Authorization": f"Bearer {new_token}"}
+        )
+        assert r.status_code == 200

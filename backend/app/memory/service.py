@@ -67,18 +67,15 @@ class MemoryService:
         # 2. LLM 提取（失败静默，不影响主流程）
         try:
             llm = get_llm()
-            try:
-                result = await llm.chat(
-                    [
-                        {"role": "system", "content": _EXTRACT_PROMPT},
-                        {"role": "user", "content": f"对话内容：\n{transcript}"},
-                    ]
-                )
-                facts = json.loads((result.content or "[]").strip())
-                if not isinstance(facts, list):
-                    facts = []
-            finally:
-                await llm.close()
+            result = await llm.chat(
+                [
+                    {"role": "system", "content": _EXTRACT_PROMPT},
+                    {"role": "user", "content": f"对话内容：\n{transcript}"},
+                ]
+            )
+            facts = json.loads((result.content or "[]").strip())
+            if not isinstance(facts, list):
+                facts = []
         except Exception as exc:  # noqa: BLE001  记忆提取失败不应影响对话
             logger.warning("记忆提取失败: %s", exc)
             return 0

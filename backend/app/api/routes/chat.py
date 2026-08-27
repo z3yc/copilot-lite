@@ -25,7 +25,7 @@ from app.agent import Orchestrator
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.db import get_session
-from app.core.llm import get_llm
+from app.core.llm import LLMError, get_llm
 from app.memory import get_memory_service
 from app.models import ChatSession, Message, User
 from app.tools import registry
@@ -135,6 +135,14 @@ async def _build_context(
     return parts + history
 
 
+def _validate_llm_config() -> None:
+    """启动流式响应前校验模型配置（错误可返回 HTTP 状态码，而非 SSE 中途报错）。"""
+    if not settings.DEEPSEEK_API_KEY:
+        raise RuntimeError(
+            "未配置 DEEPSEEK_API_KEY：请在 backend/.env 中设置（参考 .env.example）"
+        )
+
+
 def _build_agent():
     """按配置选择对话引擎：langgraph（多 Agent，默认）/ handwritten（手写 ReAct）。
 
@@ -157,6 +165,11 @@ async def _run_agent(db: AsyncSession, history: list[dict], message: str, user_i
         return await agent.run(
             session=db, user_id=user_id, history=history, user_message=message
         )
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001  兜底：不让堆栈细节泄漏给客户端
+        logger.exception("对话执行异常")
+        raise HTTPException(status_code=502, detail="服务暂时不可用，请稍后重试") from exc
     finally:
         await agent.close()
 
@@ -253,7 +266,7 @@ async def chat_stream(
 
     # 引擎/Key 检查提前到响应前（错误可返回 HTTP 状态码）
     try:
-        _build_agent()
+        _validate_llm_config()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -284,6 +297,10 @@ async def chat_stream(
         except HTTPException as exc:
             await _persist_partial(db, session.id, reply_parts)
             yield _sse("error", {"detail": exc.detail})
+            return
+        except LLMError as exc:
+            await _persist_partial(db, session.id, reply_parts)
+            yield _sse("error", {"detail": str(exc)})
             return
         except Exception:  # noqa: BLE001  通用异常也必须显式终止，不能裸断 SSE
             logger.exception("流式对话生成异常")

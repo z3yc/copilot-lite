@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.base import BaseAgent, split_system_context
 from app.core.config import settings
-from app.core.llm import LLMClient, ToolCall
+from app.core.llm import LLMClient, LLMError, ToolCall
 from app.tools.base import ToolContext, ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -81,7 +81,11 @@ class Orchestrator(BaseAgent):
         ctx = ToolContext(session=session, user_id=user_id)
 
         for _ in range(self.max_turns):
-            result = await self.llm.chat(messages, tools=self.registry.schemas())
+            try:
+                result = await self.llm.chat(messages, tools=self.registry.schemas())
+            except Exception as exc:  # noqa: BLE001  模型调用失败统一转 LLMError 供上层映射
+                logger.exception("LLM 调用失败")
+                raise LLMError("模型服务暂时不可用") from exc
 
             if not result.has_tool_calls:
                 return result.content or "（模型未返回内容）"
@@ -135,27 +139,31 @@ class Orchestrator(BaseAgent):
 
         for _ in range(self.max_turns):
             tool_calls: dict[int, dict] = {}
-            stream = await self.llm.stream_raw(messages, tools=self.registry.schemas())
+            try:
+                stream = await self.llm.stream_raw(messages, tools=self.registry.schemas())
 
-            # 逐 chunk 处理：转发文本增量 / 收集工具调用
-            async for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta
-                if delta and delta.content:
-                    yield delta.content
-                if delta and delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        entry = tool_calls.setdefault(
-                            tc.index, {"id": tc.id or "", "name": "", "arguments": ""}
-                        )
-                        if tc.id:
-                            entry["id"] = tc.id
-                        if tc.function:
-                            if tc.function.name:
-                                entry["name"] += tc.function.name
-                            if tc.function.arguments:
-                                entry["arguments"] += tc.function.arguments
+                # 逐 chunk 处理：转发文本增量 / 收集工具调用
+                async for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    if delta and delta.content:
+                        yield delta.content
+                    if delta and delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            entry = tool_calls.setdefault(
+                                tc.index, {"id": tc.id or "", "name": "", "arguments": ""}
+                            )
+                            if tc.id:
+                                entry["id"] = tc.id
+                            if tc.function:
+                                if tc.function.name:
+                                    entry["name"] += tc.function.name
+                                if tc.function.arguments:
+                                    entry["arguments"] += tc.function.arguments
+            except Exception as exc:  # noqa: BLE001  流式模型失败统一转 LLMError
+                logger.exception("LLM 流式调用失败")
+                raise LLMError("模型服务暂时不可用") from exc
 
             if not tool_calls:
                 return  # 纯文本轮完成
@@ -194,7 +202,8 @@ class Orchestrator(BaseAgent):
         yield "（已达到最大工具调用轮数，请简化请求后重试）"
 
     async def close(self) -> None:
-        """释放底层 LLM 客户端连接（与 LangGraph 引擎同一运行协议）。"""
-        close = getattr(self.llm, "close", None)
-        if close is not None:
-            await close()
+        """释放引擎资源。
+
+        LLM 客户端为进程级单例（连接池复用），不再逐请求关闭，
+        由应用生命周期统一管理。
+        """

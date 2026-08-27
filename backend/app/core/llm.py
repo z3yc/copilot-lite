@@ -3,17 +3,24 @@
 设计要点：
 - 对外暴露统一的 ChatResult 结构，屏蔽 SDK 差异；
 - 工具调用（tool_calls）被解析为结构化对象，供编排器执行；
-- API Key 从配置读取，缺失时给出清晰错误提示。
+- API Key 从配置读取，缺失时给出清晰错误提示；
+- 客户端为进程级单例（AsyncOpenAI 自带连接池，复用连接降低握手成本）；
+- 超时/重试/max_tokens 显式配置（不依赖 SDK 默认值）。
 """
 
 import logging
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from openai import AsyncOpenAI
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class LLMError(Exception):
+    """大模型调用失败（网络/限流/超时等），供上层映射为友好错误。"""
 
 
 @dataclass
@@ -42,7 +49,12 @@ class LLMClient:
 
     def __init__(self, api_key: str, base_url: str, model: str) -> None:
         self.model = model
-        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            max_retries=settings.LLM_MAX_RETRIES,
+        )
 
     async def chat(
         self,
@@ -62,6 +74,8 @@ class LLMClient:
         }
         if tools:
             kwargs["tools"] = tools
+        if settings.LLM_MAX_TOKENS:
+            kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
 
         resp = await self._client.chat.completions.create(**kwargs)
         msg = resp.choices[0].message
@@ -90,6 +104,8 @@ class LLMClient:
         }
         if tools:
             kwargs["tools"] = tools
+        if settings.LLM_MAX_TOKENS:
+            kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
 
         stream = await self._client.chat.completions.create(**kwargs)
         async for chunk in stream:
@@ -117,6 +133,8 @@ class LLMClient:
         }
         if tools:
             kwargs["tools"] = tools
+        if settings.LLM_MAX_TOKENS:
+            kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
 
         return await self._client.chat.completions.create(**kwargs)
 
@@ -124,8 +142,9 @@ class LLMClient:
         await self._client.close()
 
 
+@lru_cache
 def get_llm() -> LLMClient:
-    """从配置创建 LLM 客户端（单例缓存）。"""
+    """从配置创建 LLM 客户端（进程级单例，连接池复用）。"""
     if not settings.DEEPSEEK_API_KEY:
         raise RuntimeError(
             "未配置 DEEPSEEK_API_KEY：请在 backend/.env 中设置（参考 .env.example）"

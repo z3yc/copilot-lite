@@ -18,6 +18,7 @@
 import json
 import logging
 import re
+from functools import lru_cache
 from typing import TypedDict
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -26,6 +27,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agent.base import BaseAgent, split_system_context
 from app.core.config import settings
+from app.core.llm import LLMError
 from app.tools.base import ToolContext, ToolRegistry
 from app.tools.base import registry as global_registry
 
@@ -66,6 +68,23 @@ AGENT_TOOLS: dict[str, list[str] | None] = {
 
 # 宽松匹配 LLM 输出中的 route 字段（容忍 ```json 围栏 / 多余文本）
 _ROUTE_RE = re.compile(r'"route"\s*:\s*"(kb|tools|chat)"')
+
+
+@lru_cache
+def _get_langchain_llm() -> ChatOpenAI:
+    """LangChain ChatOpenAI 进程级单例（连接池复用 + 显式超时/重试）。"""
+    if not settings.DEEPSEEK_API_KEY:
+        raise RuntimeError(
+            "未配置 DEEPSEEK_API_KEY：请在 backend/.env 中设置（参考 .env.example）"
+        )
+    return ChatOpenAI(
+        model=settings.DEEPSEEK_MODEL,
+        api_key=settings.DEEPSEEK_API_KEY,
+        base_url=settings.DEEPSEEK_BASE_URL,
+        temperature=0.7,
+        timeout=settings.LLM_TIMEOUT_SECONDS,
+        max_retries=settings.LLM_MAX_RETRIES,
+    )
 
 # 关键词兜底：工具优先于知识库（避免"创建/删除"等动作被知识库抢走）
 _TOOL_KEYWORDS = ("待办", "todo", "创建", "完成", "删除", "提醒", "任务", "清单")
@@ -130,17 +149,8 @@ class LangGraphEngine(BaseAgent):
 
     @staticmethod
     def _default_llm() -> ChatOpenAI:
-        """DeepSeek（兼容 OpenAI 接口）的 langchain 客户端。"""
-        if not settings.DEEPSEEK_API_KEY:
-            raise RuntimeError(
-                "未配置 DEEPSEEK_API_KEY：请在 backend/.env 中设置（参考 .env.example）"
-            )
-        return ChatOpenAI(
-            model=settings.DEEPSEEK_MODEL,
-            api_key=settings.DEEPSEEK_API_KEY,
-            base_url=settings.DEEPSEEK_BASE_URL,
-            temperature=0.7,
-        )
+        """DeepSeek（兼容 OpenAI 接口）的 langchain 客户端（进程级单例）。"""
+        return _get_langchain_llm()
 
     # ---------- 图节点 ----------
 
@@ -186,7 +196,11 @@ class LangGraphEngine(BaseAgent):
             messages.append(HumanMessage(content=state["user_message"]))
             bound = self.llm.bind_tools(schemas) if schemas else self.llm
             for _ in range(self.max_turns):
-                resp = await bound.ainvoke(messages)
+                try:
+                    resp = await bound.ainvoke(messages)
+                except Exception as exc:  # noqa: BLE001  子 Agent 模型失败统一转 LLMError
+                    logger.exception("子 Agent LLM 调用失败")
+                    raise LLMError("模型服务暂时不可用") from exc
                 if not resp.tool_calls:
                     return {"reply": resp.content or "（模型未返回内容）"}
                 # 追加 assistant 工具调用声明，逐个执行并回填 ToolMessage
@@ -275,11 +289,8 @@ class LangGraphEngine(BaseAgent):
                 yield content
 
     async def close(self) -> None:
-        """释放底层 OpenAI 异步客户端连接（可选清理，失败不影响响应）。"""
-        client = getattr(self.llm, "client", None)
-        if client is None:
-            return
-        try:
-            await client._client.close()
-        except Exception:  # noqa: BLE001, S110
-            pass
+        """释放引擎资源。
+
+        LLM 客户端为进程级单例（连接池复用），不再逐请求关闭，
+        由应用生命周期统一管理。
+        """

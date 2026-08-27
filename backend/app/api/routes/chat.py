@@ -167,7 +167,7 @@ async def _run_agent(db: AsyncSession, history: list[dict], message: str, user_i
         )
     except LLMError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001  兜底：不让堆栈细节泄漏给客户端
+    except Exception as exc:
         logger.exception("对话执行异常")
         raise HTTPException(status_code=502, detail="服务暂时不可用，请稍后重试") from exc
     finally:
@@ -204,7 +204,7 @@ async def _persist_partial(db: AsyncSession, session_id, reply_parts: list[str])
             Message(session_id=session_id, role="assistant", content="".join(reply_parts))
         )
         await db.commit()
-    except Exception:  # noqa: BLE001  部分落库失败不应掩盖原始异常
+    except Exception:
         logger.warning("部分回复落库失败", exc_info=True)
 
 
@@ -305,7 +305,7 @@ async def chat_stream(
             saved = True
             yield _sse("error", {"detail": str(exc)})
             return
-        except Exception:  # noqa: BLE001  通用异常也必须显式终止，不能裸断 SSE
+        except Exception:
             logger.exception("流式对话生成异常")
             await _persist_partial(db, session.id, reply_parts)
             saved = True

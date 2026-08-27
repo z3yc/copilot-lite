@@ -83,7 +83,7 @@ class Orchestrator(BaseAgent):
         for _ in range(self.max_turns):
             try:
                 result = await self.llm.chat(messages, tools=self.registry.schemas())
-            except Exception as exc:  # noqa: BLE001  模型调用失败统一转 LLMError 供上层映射
+            except Exception as exc:
                 logger.exception("LLM 调用失败")
                 raise LLMError("模型服务暂时不可用") from exc
 
@@ -161,7 +161,7 @@ class Orchestrator(BaseAgent):
                                     entry["name"] += tc.function.name
                                 if tc.function.arguments:
                                     entry["arguments"] += tc.function.arguments
-            except Exception as exc:  # noqa: BLE001  流式模型失败统一转 LLMError
+            except Exception as exc:
                 logger.exception("LLM 流式调用失败")
                 raise LLMError("模型服务暂时不可用") from exc
 

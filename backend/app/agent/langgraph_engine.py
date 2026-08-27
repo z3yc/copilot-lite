@@ -198,7 +198,7 @@ class LangGraphEngine(BaseAgent):
             for _ in range(self.max_turns):
                 try:
                     resp = await bound.ainvoke(messages)
-                except Exception as exc:  # noqa: BLE001  子 Agent 模型失败统一转 LLMError
+                except Exception as exc:
                     logger.exception("子 Agent LLM 调用失败")
                     raise LLMError("模型服务暂时不可用") from exc
                 if not resp.tool_calls:

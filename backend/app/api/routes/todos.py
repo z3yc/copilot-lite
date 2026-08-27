@@ -12,12 +12,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, parse_uuid
 from app.core.budget import add_token_usage, check_token_budget
+from app.core.config import settings
 from app.core.db import get_session
 from app.core.llm import get_llm, get_usage_stats
+from app.core.rate_limit import SlidingWindowLimiter
 from app.models import Category, Todo, User
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/todos", tags=["todos"])
+
+# AI 解析待办接口限流（纯 LLM 成本接口，比对话更紧）
+ai_create_limiter = SlidingWindowLimiter(
+    max_requests=settings.API_AI_CREATE_RATE_LIMIT,
+    window_seconds=settings.API_CHAT_WINDOW_SECONDS,
+)
+
+
+async def require_ai_create_quota(user: User = Depends(get_current_user)) -> None:
+    """AI 解析待办配额：窗口内超频返回 429。"""
+    if not ai_create_limiter.allow(f"aiparse:{user.id}"):
+        raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
 
 
 class CategoryOut(BaseModel):
@@ -197,6 +211,7 @@ async def ai_create_todo(
     req: AiCreateRequest,
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
+    _quota: None = Depends(require_ai_create_quota),
 ) -> TodoOut:
     """AI 快速创建：自然语言 → LLM 结构化解析 → 创建待办。
 

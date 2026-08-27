@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # 流式请求是否请求 usage 统计（stream_options.include_usage；
     # 个别兼容网关不支持时可关闭）
     LLM_TRACK_STREAM_USAGE: bool = True
+    # API 限流（滑动窗口，按用户维度；个人量级内存实现）
+    API_CHAT_RATE_LIMIT: int = 30  # 对话接口：窗口内最大请求数
+    API_CHAT_WINDOW_SECONDS: float = 60.0
+    API_AI_CREATE_RATE_LIMIT: int = 10  # AI 解析待办接口（更紧：纯 LLM 成本）
 
     # Agent 循环参数
     AGENT_MAX_TURNS: int = 5  # ReAct 循环最大轮数

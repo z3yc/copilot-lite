@@ -27,12 +27,25 @@ from app.core.budget import add_token_usage, check_token_budget
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.llm import LLMError, get_llm, get_usage_stats
+from app.core.rate_limit import SlidingWindowLimiter
 from app.memory import get_memory_service
 from app.models import ChatSession, Message, User
 from app.tools import registry
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+# 对话接口限流（按用户维度滑动窗口；测试可整体替换实例）
+chat_limiter = SlidingWindowLimiter(
+    max_requests=settings.API_CHAT_RATE_LIMIT,
+    window_seconds=settings.API_CHAT_WINDOW_SECONDS,
+)
+
+
+async def require_chat_quota(user: User = Depends(get_current_user)) -> None:
+    """对话接口配额：窗口内超频返回 429（保护 LLM 成本与 API 限额）。"""
+    if not chat_limiter.allow(f"chat:{user.id}"):
+        raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
 
 
 class ChatRequest(BaseModel):
@@ -360,6 +373,7 @@ async def chat(
     req: ChatRequest,
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
+    _quota: None = Depends(require_chat_quota),
 ) -> ChatResponse:
     """非流式对话。"""
     check_token_budget(user.id)
@@ -382,6 +396,7 @@ async def chat_stream(
     req: ChatRequest,
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
+    _quota: None = Depends(require_chat_quota),
 ):
     """SSE 流式对话（token 级流式，打字机效果）。
 

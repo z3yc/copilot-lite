@@ -8,9 +8,6 @@
 ## 目录
 
 - [📋 项目工作计划（PLAN）](PLAN.md)
-- [🩺 项目体检报告（面试备战）](docs/INTERVIEW_AUDIT.md)
-- [🎤 面试 Q&A 模拟](docs/INTERVIEW_QA.md)
-- [🔒 第 1 周安全修复清单（可复盘）](docs/SECURITY_FIX_WEEK1.md)
 - [项目简介](#项目简介)
 - [核心特性](#核心特性)
 - [技术栈](#技术栈)
@@ -20,11 +17,7 @@
 - [配置说明](#配置说明)
 - [开发路线图](#开发路线图)
 - [面试要点](#面试要点)
-- [🧭 开发交接手册](docs/DEV_GUIDE.md)
-- [🤖 CI/CD 方案记录](docs/CICD_PLAN.md)
 - [🔧 Jenkins CI/CD 手册](deploy/JENKINS_README.md)
-- [变更记录](docs/CHANGELOG.md)
-- [调试排障记录](docs/DEBUGGING.md)
 - [License](#license)
 
 ---
@@ -39,8 +32,6 @@ Copilot-Lite 是一个 **个人专属的 AI 智能助理**，定位为"第二大
 
 本项目为个人求职作品，核心逻辑**手写实现**（不直接依赖 LangChain），
 以深入理解大模型应用工程的各个环节，并借鉴主流框架的设计模式。
-
-> 技术全景图见 [`docs/architecture.md`](docs/architecture.md)。
 
 ---
 
@@ -127,9 +118,6 @@ Copilot-Lite 是一个 **个人专属的 AI 智能助理**，定位为"第二大
 
 ## 系统架构
 
-> 📐 完整架构图（系统架构图、Agent 时序图、RAG 流程图、数据模型 ER 图）见
-> **[`docs/architecture.md`](docs/architecture.md)**
-
 ```mermaid
 graph TB
     subgraph Client["客户端层"]
@@ -196,10 +184,6 @@ graph TB
 copilot-lite/
 ├── README.md                 # 项目说明（本文件）
 ├── PLAN.md                   # 工作计划与进度清单
-├── docs/
-│   ├── architecture.md       # 架构文档 + Mermaid 图
-│   └── CHANGELOG.md          # 变更记录（0.1.0 → 0.6.0）
-├── 知识点/                   # 学习沉淀（RAG 详解 / 面试问答）
 ├── backend/                  # FastAPI 后端
 │   ├── app/
 │   │   ├── main.py           # 应用入口
@@ -209,7 +193,7 @@ copilot-lite/
 │   │   ├── rag/              # 解析、分块、嵌入、检索、重排、摄取
 │   │   ├── tools/            # 工具注册表 + Todo/kb_search
 │   │   └── models/           # 数据模型（含 SessionFile）
-│   ├── tests/                # 65 用例，覆盖率 ≥80%
+│   ├── tests/                # 105 用例，覆盖率 ≥80%
 │   ├── alembic/              # 数据库迁移
 │   └── pyproject.toml
 ├── cli/                      # CLI 客户端（chat / ask / todo）

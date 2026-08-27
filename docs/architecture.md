@@ -29,15 +29,15 @@ graph TB
         subgraph Tools["工具层"]
             T_TODO["Todo 工具"]
             T_KB["知识库检索工具"]
-            T_CODE["代码检索/沙箱工具"]
-            T_SYS["监控/通知工具"]
+            T_CODE["代码检索/沙箱工具（预留）"]
+            T_SYS["监控/通知工具（预留）"]
         end
     end
 
     subgraph Infra["基础设施（Docker Compose）"]
         PG[("PostgreSQL<br/>业务数据")]
         QD[("Qdrant<br/>向量库")]
-        RD[("Redis<br/>缓存/会话/队列")]
+        RD[("Redis<br/>缓存/限流（预留）")]
         FS[("数据卷<br/>文档原件")]
         NX["Nginx<br/>静态资源 + 反向代理"]
     end

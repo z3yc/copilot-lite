@@ -132,12 +132,13 @@ pipeline {
                         def ok = (result == 'SUCCESS')
                         def statusIcon = ok ? '\u2705' : '\u274C'                     // check/ cross marks
                         def statusCn   = ok ? '\u6210\u529F' : '\u5931\u8D25'         // 成功 / 失败
-                        def text = "\uD83E\uDD16 Copilot-Lite CI/CD \u6784\u5EFA\u62A5\u544A\n" +          // title
-                            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n" +  // divider
-                            "\uD83D\uDCCC \u6784\u5EFA\uFF1Amain #${env.BUILD_NUMBER}\n" +                  // build line
-                            "\uD83D\uDCCA \u7ED3\u679C\uFF1A${statusIcon} ${statusCn}\n" +                  // result line
-                            "\u23F1\uFE0F \u8017\u65F6\uFF1A${currentBuild.durationString}\n" +            // duration line
-                            "\uD83C\uDF3F \u5206\u652F\uFF1A${env.GIT_BRANCH ?: 'main'}\n" +              // branch line
+                        // 注意：Groovy 双引号里 \n 是真实换行（会破坏 JSON），必须写成 \\n 让 JSON 收到字面转义
+                        def text = "\uD83E\uDD16 Copilot-Lite CI/CD \u6784\u5EFA\u62A5\u544A\\n" +          // title
+                            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\\n" +  // divider
+                            "\uD83D\uDCCC \u6784\u5EFA\uFF1Amain #${env.BUILD_NUMBER}\\n" +                  // build line
+                            "\uD83D\uDCCA \u7ED3\u679C\uFF1A${statusIcon} ${statusCn}\\n" +                  // result line
+                            "\u23F1\uFE0F \u8017\u65F6\uFF1A${currentBuild.durationString}\\n" +            // duration line
+                            "\uD83C\uDF3F \u5206\u652F\uFF1A${env.GIT_BRANCH ?: 'main'}\\n" +              // branch line
                             "\uD83D\uDD17 \u8BE6\u60C5\uFF1A${env.BUILD_URL}"                              // detail link
                         // 1) 获取 tenant_access_token（writeFile 必须显式 UTF-8，否则 Windows GBK 环境
                         //    会把中文写坏、emoji 写成 '?'，导致飞书 9499/230001）

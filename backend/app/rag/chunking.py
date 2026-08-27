@@ -25,23 +25,33 @@ class ChunkData:
 
 
 def _split_long_text(text: str, max_size: int, overlap: int) -> list[str]:
-    """按段落聚合切分长文本，相邻块重叠 overlap 字符。"""
+    """按段落聚合切分长文本，相邻块保留 overlap 字符重叠（含聚合边界）。"""
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    blocks: list[str] = []
+    pure: list[str] = []
     current = ""
     for para in paragraphs:
-        if len(current) + len(para) + 2 <= max_size:
-            current = f"{current}\n\n{para}" if current else para
-        else:
-            if current:
-                blocks.append(current)
-            # 超长段落自身再切
-            while len(para) > max_size:
-                blocks.append(para[:max_size])
-                para = para[max_size - overlap :]
+        if not current:
             current = para
+            continue
+        if len(current) + len(para) + 2 <= max_size:
+            current = f"{current}\n\n{para}"
+            continue
+        pure.append(current)
+        # 超长段落自身先切（滑动窗口，片间自重叠）
+        while len(para) > max_size:
+            pure.append(para[:max_size])
+            para = para[max_size - overlap :]
+        current = para
     if current:
-        blocks.append(current)
+        pure.append(current)
+
+    # 块边界重叠统一注入：每块头部携带上一块结尾 overlap 字符。
+    # 修复此前"多段聚合溢出边界零重叠"的问题（原实现仅超长单段落有重叠）。
+    blocks: list[str] = []
+    for i, block in enumerate(pure):
+        if i > 0 and overlap > 0:
+            block = f"{pure[i - 1][-overlap:]}\n\n{block}"
+        blocks.append(block)
     return blocks
 
 

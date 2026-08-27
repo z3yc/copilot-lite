@@ -64,6 +64,16 @@ def test_chunking_long_text_split() -> None:
     assert indexes == list(range(len(chunks)))
 
 
+def test_chunking_overlap_at_aggregation_boundary() -> None:
+    """聚合溢出边界也有 overlap（回归：此前仅超长单段落有重叠）。"""
+    p1 = "甲" * 60
+    p2 = "乙" * 60
+    parsed = get_parser("md").parse(f"# 标题\n\n{p1}\n\n{p2}".encode())
+    chunks = chunk_document(parsed, max_size=100, overlap=20)
+    assert len(chunks) == 2
+    assert chunks[1].content.startswith("甲" * 20), "第二块应以第一块结尾 20 字符开头"
+
+
 def test_parser_registry() -> None:
     """五种解析器全部注册。"""
     types = sorted(get_parser(t) is not None for t in ["md", "pdf", "docx", "code", "web"])

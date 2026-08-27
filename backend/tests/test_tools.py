@@ -189,3 +189,29 @@ async def test_todo_list_by_category(db_session) -> None:
     listed = await registry.execute("todo_list", '{"category": "学习"}', ctx)
     assert "学Python" in listed
     assert "买菜" not in listed
+
+
+@pytest.mark.asyncio
+async def test_todo_tools_reject_foreign_user(db_session) -> None:
+    """工具层归属校验：用户 B 不能改/完成/删除用户 A 的待办（回归：授权不对称）。"""
+    from sqlalchemy import select
+
+    from app.models import Todo
+
+    user_a, user_b = uuid.uuid4(), uuid.uuid4()
+    ctx_a = ToolContext(session=db_session, user_id=user_a)
+    created = await registry.execute("todo_create", '{"title": "A的私密待办"}', ctx_a)
+    todo_id = created.split('"id": "')[1].split('"')[0]
+
+    ctx_b = ToolContext(session=db_session, user_id=user_b)
+    for name, args in [
+        ("todo_update", f'{{"todo_id": "{todo_id}", "title": "被篡改"}}'),
+        ("todo_complete", f'{{"todo_id": "{todo_id}"}}'),
+        ("todo_delete", f'{{"todo_id": "{todo_id}"}}'),
+    ]:
+        result = await registry.execute(name, args, ctx_b)
+        assert "无权限" in result, f"{name} 应拒绝跨用户操作"
+
+    todo = (await db_session.scalars(select(Todo).where(Todo.id == uuid.UUID(todo_id)))).one()
+    assert todo.title == "A的私密待办"  # 未被篡改
+    assert todo.status == "pending"  # 未被完成/删除

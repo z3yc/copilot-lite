@@ -87,8 +87,8 @@ async def todo_update(
 ) -> dict:
     """编辑待办：按 id 修改任意字段（仅更新提供的字段）；priority 1-5（1 最高、5 最低）。"""
     todo = await ctx.session.get(Todo, uuid.UUID(todo_id))
-    if todo is None:
-        return {"error": f"待办 {todo_id} 不存在"}
+    if todo is None or todo.user_id != ctx.user_id:
+        return {"error": f"待办 {todo_id} 不存在或无权限"}
     if title is not None:
         todo.title = title
     if status in ("pending", "done"):
@@ -110,8 +110,8 @@ async def todo_update(
 async def todo_complete(ctx: ToolContext, todo_id: str) -> dict:
     """按 id 将待办标记为已完成。"""
     todo = await ctx.session.get(Todo, uuid.UUID(todo_id))
-    if todo is None:
-        return {"error": f"待办 {todo_id} 不存在"}
+    if todo is None or todo.user_id != ctx.user_id:
+        return {"error": f"待办 {todo_id} 不存在或无权限"}
     todo.status = "done"
     await ctx.session.commit()
     return _todo_out(todo)
@@ -121,8 +121,8 @@ async def todo_complete(ctx: ToolContext, todo_id: str) -> dict:
 async def todo_delete(ctx: ToolContext, todo_id: str) -> dict:
     """按 id 删除一条待办事项。"""
     todo = await ctx.session.get(Todo, uuid.UUID(todo_id))
-    if todo is None:
-        return {"error": f"待办 {todo_id} 不存在"}
+    if todo is None or todo.user_id != ctx.user_id:
+        return {"error": f"待办 {todo_id} 不存在或无权限"}
     await ctx.session.delete(todo)
     await ctx.session.commit()
     return {"deleted": todo_id}

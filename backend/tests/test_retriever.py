@@ -26,6 +26,15 @@ class FakeEmbeddings:
         return out
 
 
+def test_tokenize_chinese_words() -> None:
+    """jieba 分词：多字词作为整体检索词（优于逐字匹配的噪声）。"""
+    from app.rag.retriever import _tokenize
+
+    terms = _tokenize("数据库索引优化")
+    assert "数据库" in terms
+    assert "索引" in terms
+
+
 @pytest.fixture
 def vector_store():
     """Qdrant 实例（8 维匹配伪嵌入；目录由 conftest 隔离）。"""

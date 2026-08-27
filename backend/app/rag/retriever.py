@@ -26,6 +26,11 @@ from app.rag.embeddings import EmbeddingService
 from app.rag.reranker import Reranker, get_reranker
 from app.rag.vector_store import SearchHit, VectorStore
 
+try:  # 可选分词依赖：未安装时退化逐字切分
+    import jieba as _jieba
+except ImportError:  # pragma: no cover - 运行环境已安装 jieba
+    _jieba = None
+
 logger = logging.getLogger(__name__)
 
 RRF_K = 60  # RRF 平滑常数
@@ -45,8 +50,20 @@ class RetrievedChunk:
 
 
 def _tokenize(query: str) -> list[str]:
-    """查询词提取：英文单词整体，中文逐字。"""
-    return [t for t in _TOKEN_RE.findall(query) if t.strip()]
+    """查询词提取：中文用 jieba 分词（多字词召回优于逐字），英文单词整体。
+
+    jieba 不可用时退化为逐字切分（英文单词整体 + 中文逐字），行为可预期。
+    """
+    raw = [t for t in _TOKEN_RE.findall(query) if t.strip()]
+    if _jieba is not None:
+        zh_runs = re.findall(r"[\u4e00-\u9fff]+", query)
+        if zh_runs:
+            words: list[str] = []
+            for run in zh_runs:
+                words.extend(w for w in _jieba.lcut(run) if w.strip())
+            non_zh = [t for t in raw if not re.fullmatch(r"[\u4e00-\u9fff]+", t)]
+            return words + non_zh
+    return raw
 
 
 async def _bm25_search(

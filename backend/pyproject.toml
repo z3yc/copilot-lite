@@ -25,6 +25,7 @@ dependencies = [
     "pyjwt>=2.13.0",
     "langgraph>=1.2.11",
     "langchain-openai>=1.6.0",
+    "jieba>=0.42.1",
 ]
 
 [dependency-groups]

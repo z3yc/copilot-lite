@@ -20,6 +20,7 @@ async def kb_search(ctx: ToolContext, query: str, top_k: int = 3) -> str:
         embeddings=get_embedding_service(),
         vector_store=get_vector_store(),
         top_k=top_k,
+        user_id=str(ctx.user_id) if ctx.user_id else None,
     )
     payload = []
     for r in results:

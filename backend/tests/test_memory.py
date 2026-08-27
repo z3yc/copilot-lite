@@ -55,7 +55,7 @@ async def test_extract_from_session(monkeypatch, db_session) -> None:
         ),
     )
     # 跳过向量去重（避免维度/存储依赖）
-    async def _no_dup(self, fact):
+    async def _no_dup(self, fact, user_id):
         return False
 
     monkeypatch.setattr(MemoryService, "_is_duplicate", _no_dup)
@@ -116,6 +116,24 @@ async def test_recall(db_session) -> None:
 
     results = await svc.recall(db_session, DEFAULT_USER_ID, "用户喜欢简洁回答")
     assert results and "简洁回答" in results[0]
+
+
+@pytest.mark.asyncio
+async def test_recall_user_isolation(db_session) -> None:
+    """记忆召回按用户隔离：只召回自己的记忆（回归：跨用户记忆泄露）。"""
+    user_a, user_b = uuid.uuid4(), uuid.uuid4()
+    svc = MemoryService(embeddings=FakeEmbeddings512())
+    await svc._store(
+        db_session, user_a, uuid.uuid4(), "用户喜欢简洁回答", {"category": "preference"}
+    )
+    await svc._store(
+        db_session, user_b, uuid.uuid4(), "用户喜欢详细回答", {"category": "preference"}
+    )
+
+    results_a = await svc.recall(db_session, user_a, "用户喜欢简洁回答")
+    assert results_a, "应召回用户 A 自己的记忆"
+    assert any("简洁" in r for r in results_a)
+    assert all("详细" not in r for r in results_a), "绝不能召回用户 B 的记忆"
 
 
 @pytest.mark.asyncio

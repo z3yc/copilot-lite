@@ -122,3 +122,55 @@ async def test_hybrid_search_rrf_fusion(db_session, vector_store, doc_with_chunk
     # 不抛错且结果唯一（按 chunk_id 去重）
     ids = [r.chunk_id for r in results]
     assert len(ids) == len(set(ids))
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_user_isolation(db_session, vector_store) -> None:
+    """用户隔离：传 user_id 后只召回该用户的分块（回归：跨用户数据泄露）。"""
+    user_a, user_b = uuid.uuid4(), uuid.uuid4()
+    emb = FakeEmbeddings()
+
+    async def add_doc(uid, title, text):
+        doc = Document(
+            id=uuid.uuid4(), user_id=uid, title=title,
+            source_type="md", status="ready",
+        )
+        db_session.add(doc)
+        await db_session.commit()
+        await db_session.refresh(doc)
+        chunk = Chunk(
+            document_id=doc.id, chunk_index=0, content=text,
+            meta={"headings": [], "document_title": title},
+        )
+        db_session.add(chunk)
+        await db_session.commit()
+        await db_session.refresh(chunk)
+        vec = (await emb.embed([text]))[0]
+        await vector_store.upsert(
+            [
+                (
+                    chunk.id,
+                    vec,
+                    {
+                        "chunk_id": str(chunk.id),
+                        "document_id": str(doc.id),
+                        "user_id": str(uid),
+                        "content": text,
+                        "meta": chunk.meta,
+                    },
+                )
+            ]
+        )
+        return doc, chunk
+
+    # 用户 B 的内容同样含关键词"旅行计划"，验证 BM25/向量两路都会被隔离
+    await add_doc(user_a, "A的旅行计划", "我的旅行计划是去西藏看雪山和布达拉宫。")
+    await add_doc(user_b, "B的理财记录", "我的旅行计划基金收益率高达百分之二十。")
+
+    results = await hybrid_search(
+        db_session, "旅行计划", emb, vector_store, top_k=5, user_id=str(user_a)
+    )
+    contents = [r.content for r in results]
+    assert contents, "应召回用户 A 自己的分块"
+    assert any("西藏" in c for c in contents)
+    assert all("理财" not in c for c in contents), "绝不能召回用户 B 的分块"

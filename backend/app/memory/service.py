@@ -89,7 +89,7 @@ class MemoryService:
             fact = str(f.get("fact", "")).strip()
             if not fact or len(fact) > 300:
                 continue
-            if await self._is_duplicate(fact):
+            if await self._is_duplicate(fact, user_id):
                 continue
             await self._store(db, user_id, session_id, fact, f)
             added += 1
@@ -97,11 +97,17 @@ class MemoryService:
             logger.info("提取记忆 %d 条（user=%s）", added, user_id)
         return added
 
-    async def _is_duplicate(self, fact: str) -> bool:
-        """向量相似度去重：与已有记忆最高分超阈值视为重复。"""
+    async def _is_duplicate(self, fact: str, user_id) -> bool:
+        """向量相似度去重：与已有记忆最高分超阈值视为重复。
+
+        仅在当前用户的记忆子空间内比较（多用户数据隔离——
+        既防跨用户泄露，也防止被他人相似记忆误判重复而丢弃）。
+        """
         try:
             vec = (await self.embeddings.embed([fact]))[0]
-            hits = await self.vector_store.search(vec, top_k=1)
+            hits = await self.vector_store.search(
+                vec, top_k=1, user_id=str(user_id)
+            )
             return bool(hits and hits[0].score >= DEDUP_THRESHOLD)
         except Exception:  # noqa: BLE001
             return False
@@ -144,10 +150,13 @@ class MemoryService:
     # ---------- 召回 ----------
 
     async def recall(self, db: AsyncSession, user_id, query: str, top_k: int = MEMORY_TOP_K) -> list[str]:
-        """按当前问题向量召回 TopK 记忆（供注入对话上下文）。"""
+        """按当前问题向量召回 TopK 记忆（供注入对话上下文）。
+
+        仅召回当前用户的记忆（多用户数据隔离）。
+        """
         try:
             vec = (await self.embeddings.embed([query]))[0]
-            hits = await self.vector_store.search(vec, top_k=top_k)
+            hits = await self.vector_store.search(vec, top_k=top_k, user_id=str(user_id))
         except Exception as exc:  # noqa: BLE001
             logger.warning("记忆召回失败: %s", exc)
             return []

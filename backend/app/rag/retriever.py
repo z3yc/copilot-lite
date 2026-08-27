@@ -14,6 +14,7 @@ PostgreSQL FTS / Elasticsearch（接口不变）。
 
 import logging
 import re
+import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -48,16 +49,29 @@ def _tokenize(query: str) -> list[str]:
     return [t for t in _TOKEN_RE.findall(query) if t.strip()]
 
 
-async def _bm25_search(db: AsyncSession, query: str, top_k: int) -> list[SearchHit]:
-    """轻量 BM25：OR 召回含任一查询词的块，按命中词数占比打分。"""
+async def _bm25_search(
+    db: AsyncSession, query: str, top_k: int, user_id=None
+) -> list[SearchHit]:
+    """轻量 BM25：OR 召回含任一查询词的块，按命中词数占比打分。
+
+    user_id 提供时仅检索该用户的分块（多用户数据隔离，
+    需 JOIN documents 表按归属过滤）。
+    """
     from sqlalchemy import or_
+
+    from app.models import Document
 
     terms = _tokenize(query)
     if not terms:
         return []
 
     conditions = [Chunk.content.ilike(f"%{term}%") for term in terms[:12]]
-    stmt = select(Chunk).where(or_(*conditions)).limit(top_k * 5)
+    stmt = select(Chunk)
+    if user_id:
+        stmt = stmt.join(Document, Chunk.document_id == Document.id).where(
+            Document.user_id == uuid.UUID(str(user_id))
+        )
+    stmt = stmt.where(or_(*conditions)).limit(top_k * 5)
     rows = (await db.scalars(stmt)).all()
 
     hits: list[SearchHit] = []
@@ -140,19 +154,23 @@ async def hybrid_search(
     candidate_k: int = settings.RAG_RERANK_CANDIDATE_K,
     rerank_top_n: int = settings.RAG_RERANK_TOP_N,
     document_id: str | None = None,
+    user_id: str | None = None,
     reranker: Reranker | None = None,
 ) -> list[RetrievedChunk]:
     """混合检索主入口：向量 + BM25 → RRF 融合 → Rerank 精排 → 前 N 注入。
 
+    user_id 提供时两路检索均限定在该用户范围内（多用户数据隔离）；
     reranker 缺省时按配置取全局单例；开关 `RAG_RERANK_ENABLED` 关闭时
     退化为纯融合截断（与旧版行为一致），便于 A/B 对比效果。
     """
     # 1. 向量检索
     qvec = (await embeddings.embed([query]))[0]
-    vector_hits = await vector_store.search(qvec, top_k, document_id=document_id)
+    vector_hits = await vector_store.search(
+        qvec, top_k, document_id=document_id, user_id=user_id
+    )
 
     # 2. BM25 关键词检索
-    keyword_hits = await _bm25_search(db, query, top_k)
+    keyword_hits = await _bm25_search(db, query, top_k, user_id=user_id)
 
     # 3. RRF 融合 → candidate_k 条候选（保留足够候选供精排）
     candidates = _rrf_fuse(vector_hits, keyword_hits, candidate_k)

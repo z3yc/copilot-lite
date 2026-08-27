@@ -80,13 +80,24 @@ class VectorStore:
             None, self._client.upsert, self.collection, qm_points
         )
 
-    async def search(self, vector: list[float], top_k: int, document_id: str | None = None) -> list[SearchHit]:
-        """向量相似度检索，可限定文档范围。"""
-        qfilter = None
+    async def search(
+        self,
+        vector: list[float],
+        top_k: int,
+        document_id: str | None = None,
+        user_id: str | None = None,
+    ) -> list[SearchHit]:
+        """向量相似度检索，可限定文档范围与用户（多用户数据隔离）。"""
+        must: list[qm.FieldCondition] = []
         if document_id:
-            qfilter = qm.Filter(
-                must=[qm.FieldCondition(key="document_id", match=qm.MatchValue(value=document_id))]
+            must.append(
+                qm.FieldCondition(key="document_id", match=qm.MatchValue(value=document_id))
             )
+        if user_id:
+            must.append(
+                qm.FieldCondition(key="user_id", match=qm.MatchValue(value=str(user_id)))
+            )
+        qfilter = qm.Filter(must=must) if must else None
         loop = asyncio.get_running_loop()
         resp = await loop.run_in_executor(
             None,

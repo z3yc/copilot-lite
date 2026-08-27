@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: float = 60.0  # 单次请求超时
     LLM_MAX_RETRIES: int = 2  # SDK 层重试次数
     LLM_MAX_TOKENS: int = 2048  # 单次回复 token 上限（成本控制）
+    # LLM 并发上限（进程内信号量；防止多 SSE 同时打爆 API 限额与账单）
+    LLM_MAX_CONCURRENCY: int = 3
 
     # Agent 循环参数
     AGENT_MAX_TURNS: int = 5  # ReAct 循环最大轮数

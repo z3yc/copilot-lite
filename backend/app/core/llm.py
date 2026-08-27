@@ -5,10 +5,14 @@
 - 工具调用（tool_calls）被解析为结构化对象，供编排器执行；
 - API Key 从配置读取，缺失时给出清晰错误提示；
 - 客户端为进程级单例（AsyncOpenAI 自带连接池，复用连接降低握手成本）；
-- 超时/重试/max_tokens 显式配置（不依赖 SDK 默认值）。
+- 超时/重试/max_tokens 显式配置（不依赖 SDK 默认值）；
+- 进程内并发信号量：所有模型调用共享 LLM_MAX_CONCURRENCY 上限
+  （含流式——流结束/异常时才释放，防止多个 SSE 同时打爆 API 限额）。
 """
 
+import asyncio
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from functools import lru_cache
 
@@ -17,6 +21,16 @@ from openai import AsyncOpenAI
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# 并发信号量（懒创建：便于测试替换/按最新配置初始化）
+_llm_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_semaphore() -> asyncio.Semaphore:
+    global _llm_semaphore
+    if _llm_semaphore is None:
+        _llm_semaphore = asyncio.Semaphore(max(1, settings.LLM_MAX_CONCURRENCY))
+    return _llm_semaphore
 
 
 class LLMError(Exception):
@@ -42,6 +56,42 @@ class ChatResult:
     @property
     def has_tool_calls(self) -> bool:
         return bool(self.tool_calls)
+
+
+class _GuardedStream:
+    """包装流式响应：迭代结束（正常/异常/取消）时释放并发信号量。
+
+    防止流式请求长期持有并发额度：消费完或中断即归还。
+    """
+
+    def __init__(self, stream, semaphore: asyncio.Semaphore) -> None:
+        self._stream = stream
+        self._sem = semaphore
+        self._it: AsyncIterator | None = None
+        self._released = False
+
+    def __aiter__(self):
+        self._it = self._stream.__aiter__()
+        return self
+
+    async def __anext__(self):
+        assert self._it is not None
+        try:
+            return await self._it.__anext__()
+        except BaseException:
+            self._release()
+            raise
+
+    def _release(self) -> None:
+        if not self._released:
+            self._released = True
+            self._sem.release()
+
+    async def aclose(self) -> None:
+        self._release()
+        close = getattr(self._stream, "aclose", None)
+        if close is not None:
+            await close()
 
 
 class LLMClient:
@@ -77,7 +127,8 @@ class LLMClient:
         if settings.LLM_MAX_TOKENS:
             kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
 
-        resp = await self._client.chat.completions.create(**kwargs)
+        async with _get_semaphore():
+            resp = await self._client.chat.completions.create(**kwargs)
         msg = resp.choices[0].message
 
         tool_calls: list[ToolCall] = []
@@ -107,12 +158,18 @@ class LLMClient:
         if settings.LLM_MAX_TOKENS:
             kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
 
-        stream = await self._client.chat.completions.create(**kwargs)
-        async for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta:
-                delta = chunk.choices[0].delta
-                if delta.content:
-                    yield delta.content
+        # 并发额度覆盖整个流生命周期（create + 逐 chunk 消费）
+        sem = _get_semaphore()
+        await sem.acquire()
+        try:
+            stream = await self._client.chat.completions.create(**kwargs)
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta:
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        yield delta.content
+        finally:
+            sem.release()
 
     async def stream_raw(
         self,
@@ -136,7 +193,15 @@ class LLMClient:
         if settings.LLM_MAX_TOKENS:
             kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
 
-        return await self._client.chat.completions.create(**kwargs)
+        # 并发额度随流生命周期走：返回守卫迭代器，消费完/中断时自动释放
+        sem = _get_semaphore()
+        await sem.acquire()
+        try:
+            stream = await self._client.chat.completions.create(**kwargs)
+        except BaseException:
+            sem.release()
+            raise
+        return _GuardedStream(stream, sem)
 
     async def close(self) -> None:
         await self._client.close()

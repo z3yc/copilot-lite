@@ -8,7 +8,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, Text, func
+from sqlalchemy import ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -23,4 +23,6 @@ class SessionFile(Base):
     )
     filename: Mapped[str] = mapped_column(String(255))
     content: Mapped[str] = mapped_column(Text)  # 提取后的文本（已截断存储）
+    # 原始文件字节数（size 字段语义如实：解析文本长度 ≠ 文件大小）
+    bytes_size: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

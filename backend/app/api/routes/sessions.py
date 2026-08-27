@@ -20,6 +20,8 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 MAX_FILE_CHARS = 20000
 # 附件原始字节上限（防超大文件读入内存导致 DoS）
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB
+# 单会话附件数量上限（防无限堆积）
+MAX_FILES_PER_SESSION = 20
 
 # 扩展名 → 文本提取方式
 _MD_EXTS = {".md", ".markdown", ".txt"}
@@ -178,11 +180,21 @@ async def upload_session_file(
             status_code=400, detail=f"不支持的文件类型: {ext or '未知'}"
         )
 
+    # 数量上限：防单会话附件无限堆积
+    existing = await db.scalar(
+        select(func.count()).select_from(SessionFile).where(SessionFile.session_id == session.id)
+    )
+    if (existing or 0) >= MAX_FILES_PER_SESSION:
+        raise HTTPException(
+            status_code=400, detail=f"附件数量已达上限（{MAX_FILES_PER_SESSION} 个）"
+        )
+
     text = _extract_text(file.filename or "unnamed", content)
     sf = SessionFile(
         session_id=session.id,
         filename=file.filename or "unnamed",
         content=text,
+        bytes_size=len(content),
     )
     db.add(sf)
     await db.commit()
@@ -190,7 +202,7 @@ async def upload_session_file(
     return SessionFileOut(
         id=str(sf.id),
         filename=sf.filename,
-        size=len(text),
+        size=sf.bytes_size or len(content),  # 真实文件字节数（语义如实）
         created_at=sf.created_at.isoformat() if sf.created_at else None,
     )
 
@@ -213,7 +225,7 @@ async def list_session_files(
         SessionFileOut(
             id=str(f.id),
             filename=f.filename,
-            size=len(f.content),
+            size=f.bytes_size or 0,
             created_at=f.created_at.isoformat() if f.created_at else None,
         )
         for f in files

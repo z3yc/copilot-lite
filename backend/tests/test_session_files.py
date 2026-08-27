@@ -58,6 +58,44 @@ async def test_session_file_rejects_unsupported_type(authed_headers: dict) -> No
 
 
 @pytest.mark.asyncio
+async def test_session_file_size_is_real_bytes_and_count_limit(
+    authed_headers: dict, monkeypatch
+) -> None:
+    """附件 size 返回真实字节数；数量达上限后拒绝上传。"""
+    import app.api.routes.sessions as sessions_module
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post("/api/v1/sessions", json={"title": "t"}, headers=authed_headers)
+        sid = r.json()["id"]
+
+        raw = "## 标题\n\n内容123".encode()
+        r = await client.post(
+            f"/api/v1/sessions/{sid}/files",
+            files={"file": ("笔记.md", raw, "text/markdown")},
+            headers=authed_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["size"] == len(raw), "size 应为原始字节数而非文本长度"
+
+        # 数量上限：改小上限后第三个附件被拒
+        monkeypatch.setattr(sessions_module, "MAX_FILES_PER_SESSION", 2)
+        r = await client.post(
+            f"/api/v1/sessions/{sid}/files",
+            files={"file": ("二.md", b"x", "text/markdown")},
+            headers=authed_headers,
+        )
+        assert r.status_code == 200
+        r = await client.post(
+            f"/api/v1/sessions/{sid}/files",
+            files={"file": ("三.md", b"y", "text/markdown")},
+            headers=authed_headers,
+        )
+        assert r.status_code == 400
+        assert "上限" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_malformed_session_id_returns_404(authed_headers: dict) -> None:
     """畸形 session id 返回 404（而非 500 堆栈）。"""
     transport = ASGITransport(app=app)

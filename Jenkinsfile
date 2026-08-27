@@ -127,10 +127,18 @@ pipeline {
                         string(credentialsId: 'feishu-app-secret', variable: 'FEISHU_APP_SECRET')
                     ]) {
                         def result = currentBuild.currentResult
-                        // ⚠️ 注意：本机 GBK 环境下，Jenkinsfile 里的中文/emoji 字面量会在流水线
-                        // 加载时被损坏，导致飞书 payload 出现非法字节。这里保持纯 ASCII 消息。
-                        def icon = (result == 'SUCCESS') ? '[OK]' : '[FAIL]'
-                        def text = "${icon} Copilot-Lite CI/CD build #${env.BUILD_NUMBER}: ${result} branch=${env.GIT_BRANCH ?: 'main'} time=${currentBuild.durationString}"
+                        // ⚠️ 中文/emoji 用 \uXXXX 转义书写（规避本机 GBK 环境字面量损坏）；
+                        //    \u 仅认 4 位十六进制，星号字符（🤖📌 等）用代理对 \uD83E\uDD16 形式。
+                        def ok = (result == 'SUCCESS')
+                        def statusIcon = ok ? '\u2705' : '\u274C'                     // ✅ / ❌
+                        def statusCn   = ok ? '\u6210\u529F' : '\u5931\u8D25'         // 成功 / 失败
+                        def text = "\uD83E\uDD16 Copilot-Lite CI/CD \u6784\u5EFA\u62A5\u544A\n" +          // 🤖 …构建报告
+                            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n" +  // ━━━━━━━━━━━━━━━
+                            "\uD83D\uDCCC \u6784\u5EFA\uFF1Amain #${env.BUILD_NUMBER}\n" +                  // 📌 构建：main #N
+                            "\uD83D\uDCCA \u7ED3\u679C\uFF1A${statusIcon} ${statusCn}\n" +                  // 📊 结果：✅ 成功
+                            "\u23F1\uFE0F \u8017\u65F6\uFF1A${currentBuild.durationString}\n" +            // ⏱️ 耗时：…
+                            "\uD83C\uDF3F \u5206\u652F\uFF1A${env.GIT_BRANCH ?: 'main'}\n" +              // 🌿 分支：…
+                            "\uD83D\uDD17 \u8BE6\u60C5\uFF1A${env.BUILD_URL}"                              // 🔗 详情：…
                         // 1) 获取 tenant_access_token
                         writeFile file: 'feishu-token-req.json',
                             text: '{"app_id":"' + env.FEISHU_APP_ID + '","app_secret":"' + env.FEISHU_APP_SECRET + '"}'

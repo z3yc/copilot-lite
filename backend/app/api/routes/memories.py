@@ -1,13 +1,11 @@
 """长期记忆管理接口：列表 / 编辑 / 删除。"""
 
-import uuid
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, parse_uuid
 from app.core.db import get_session
 from app.memory import get_memory_service
 from app.models import MemoryFact, User
@@ -69,10 +67,11 @@ async def update_memory(
     user: User = Depends(get_current_user),
 ) -> MemoryOut:
     """编辑记忆：修正事实内容/分类（同步更新向量）。"""
-    ok = await get_memory_service().update(db, user.id, uuid.UUID(memory_id), req.fact, req.category)
+    mid = parse_uuid(memory_id)
+    ok = await get_memory_service().update(db, user.id, mid, req.fact, req.category)
     if not ok:
         raise HTTPException(status_code=404, detail="记忆不存在")
-    row = await db.get(MemoryFact, uuid.UUID(memory_id))
+    row = await db.get(MemoryFact, mid)
     return _to_out(row)
 
 
@@ -83,7 +82,7 @@ async def delete_memory(
     user: User = Depends(get_current_user),
 ) -> dict:
     """删除一条记忆（表 + 向量）。"""
-    ok = await get_memory_service().delete(db, user.id, uuid.UUID(memory_id))
+    ok = await get_memory_service().delete(db, user.id, parse_uuid(memory_id))
     if not ok:
         raise HTTPException(status_code=404, detail="记忆不存在")
     return {"deleted": memory_id}

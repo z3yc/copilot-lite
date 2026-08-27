@@ -1,7 +1,6 @@
 """会话管理接口：列表、详情（含历史消息）、创建、删除、会话附件。"""
 
 import logging
-import uuid
 from io import BytesIO
 from pathlib import Path
 
@@ -10,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, parse_uuid
 from app.core.db import get_session
 from app.models import ChatSession, Message, SessionFile, User
 
@@ -229,9 +228,10 @@ async def delete_session_file(
     user: User = Depends(get_current_user),
 ) -> dict:
     """删除会话附件。"""
-    await _get_session(db, session_id, user)
-    sf = await db.get(SessionFile, uuid.UUID(file_id))
-    if sf is None:
+    session = await _get_session(db, session_id, user)
+    sf = await db.get(SessionFile, parse_uuid(file_id))
+    if sf is None or sf.session_id != session.id:
+        # 附件必须属于该会话（对象级授权落在被操作对象上）
         raise HTTPException(status_code=404, detail="附件不存在")
     await db.delete(sf)
     await db.commit()
@@ -240,7 +240,7 @@ async def delete_session_file(
 
 async def _get_session(db: AsyncSession, session_id: str, user: User) -> ChatSession:
     """定位会话并校验归属（越权访问返回 404）。"""
-    session = await db.get(ChatSession, uuid.UUID(session_id))
+    session = await db.get(ChatSession, parse_uuid(session_id))
     if session is None or session.user_id != user.id:
         raise HTTPException(status_code=404, detail="会话不存在")
     return session

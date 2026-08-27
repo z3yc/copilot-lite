@@ -302,7 +302,7 @@ async def test_chat_persists_tool_audit(monkeypatch, authed_headers: dict) -> No
         from app.models import Message
 
         rows = (await session.scalars(select(Message))).all()
-        assistant = [m for m in rows if m.role == "assistant"][0]
+        assistant = next(m for m in rows if m.role == "assistant")
         calls = assistant.extra["tool_calls"]
         assert calls[0]["name"] == "todo_create"
         assert "审计测试" in calls[0]["arguments"]

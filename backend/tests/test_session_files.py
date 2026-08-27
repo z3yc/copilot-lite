@@ -58,6 +58,15 @@ async def test_session_file_rejects_unsupported_type(authed_headers: dict) -> No
 
 
 @pytest.mark.asyncio
+async def test_malformed_session_id_returns_404(authed_headers: dict) -> None:
+    """畸形 session id 返回 404（而非 500 堆栈）。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get("/api/v1/sessions/not-a-uuid/messages", headers=authed_headers)
+        assert r.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_document_upload_rejects_unsupported_type(authed_headers: dict) -> None:
     """文档上传类型白名单：未知扩展名拒绝而不是默认按 markdown 解析。"""
     transport = ASGITransport(app=app)

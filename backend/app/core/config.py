@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # JWT 签名密钥（生产必须通过 .env 覆盖为强随机值）
     SECRET_KEY: str = _DEFAULT_SECRET_KEY
 
+    # CORS 允许来源（本地开发默认前端地址；云端按部署域名配置）
+    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
     # ---- 存储 ----
     # 本地默认 SQLite；云端设置为 PostgreSQL，例如：
     # postgresql+asyncpg://user:pass@localhost:5432/copilot

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, parse_uuid
 from app.core.db import get_session
 from app.models import Chunk, Document, User
 from app.rag import (
@@ -128,7 +128,7 @@ async def upload_document(
             await db.execute(sa_delete(Chunk).where(Chunk.document_id == document.id))
             await get_vector_store().delete_by_document(document.id)
             await db.commit()
-        except Exception:  # noqa: BLE001  清理失败不影响原始异常
+        except Exception:  # 清理失败不影响原始异常
             logger.warning("摄取失败清理异常", exc_info=True)
         raise HTTPException(status_code=422, detail=f"文档摄取失败: {exc}") from exc
     finally:
@@ -238,7 +238,7 @@ async def delete_document(
 
 async def _get_doc(db: AsyncSession, doc_id: str, user: User) -> Document:
     """定位文档并校验归属（越权返回 404）。"""
-    doc = await db.get(Document, uuid.UUID(doc_id))
+    doc = await db.get(Document, parse_uuid(doc_id))
     if doc is None or doc.user_id != user.id:
         raise HTTPException(status_code=404, detail="文档不存在")
     return doc

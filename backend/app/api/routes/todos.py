@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, parse_uuid
 from app.core.db import get_session
 from app.core.llm import get_llm
 from app.models import Category, Todo, User
@@ -102,7 +102,11 @@ async def list_todos(
     if status:
         stmt = stmt.where(Todo.status == status)
     if category_id:
-        stmt = stmt.where(Todo.category_id == uuid.UUID(category_id))
+        try:
+            cat_id = uuid.UUID(category_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="无效的分类 id") from None
+        stmt = stmt.where(Todo.category_id == cat_id)
     stmt = stmt.order_by(Todo.created_at.desc())
     todos = (await db.scalars(stmt)).all()
     if tag:
@@ -139,7 +143,7 @@ async def update_todo(
     user: User = Depends(get_current_user),
 ) -> TodoOut:
     """全字段编辑（仅更新传入的字段）。"""
-    todo = await db.get(Todo, uuid.UUID(todo_id))
+    todo = await db.get(Todo, parse_uuid(todo_id))
     if todo is None or todo.user_id != user.id:
         raise HTTPException(status_code=404, detail="待办不存在")
 
@@ -167,7 +171,7 @@ async def delete_todo(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> dict:
-    todo = await db.get(Todo, uuid.UUID(todo_id))
+    todo = await db.get(Todo, parse_uuid(todo_id))
     if todo is None or todo.user_id != user.id:
         raise HTTPException(status_code=404, detail="待办不存在")
     await db.delete(todo)

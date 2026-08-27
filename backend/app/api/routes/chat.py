@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent import Orchestrator
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, parse_uuid
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.llm import LLMError, get_llm
@@ -57,7 +57,7 @@ async def _resolve_session(
 ) -> ChatSession:
     """定位（校验归属）或创建会话。"""
     if session_id:
-        session = await db.get(ChatSession, uuid.UUID(session_id))
+        session = await db.get(ChatSession, parse_uuid(session_id))
         if session is None or session.user_id != user.id:
             raise HTTPException(status_code=404, detail="会话不存在")
         return session

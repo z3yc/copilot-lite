@@ -87,8 +87,8 @@ async def ingest_document(
         await db.commit()
         try:
             await vector_store.delete_by_document(document.id)
-        except Exception:  # noqa: BLE001  清理失败不影响原始异常
-            pass
+        except Exception:
+            logger.warning("向量补偿清理失败", exc_info=True)
         logger.warning("Qdrant 写入失败，已补偿清理 %d 个分块", len(chunk_rows))
         raise
 

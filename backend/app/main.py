@@ -4,6 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 import app.models
 from app.api import api_router
@@ -56,7 +57,9 @@ async def lifespan(_: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("本地模式：数据表已就绪")
-    await _seed_default_user()
+    # 默认用户仅为本地单用户模式的历史简化；云模式不 seed 空密码账号
+    if settings.RUN_MODE == "local":
+        await _seed_default_user()
     await _seed_categories()
     yield
     await engine.dispose()
@@ -67,6 +70,15 @@ app = FastAPI(
     version=settings.APP_VERSION,
     description="个人 AI 智能助理后端服务",
     lifespan=lifespan,
+)
+
+# CORS：本地开发前端（Vite 5173）与云端部署域名按配置放行
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(api_router, prefix="/api/v1")

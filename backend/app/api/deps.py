@@ -14,6 +14,14 @@ from app.models import User
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+def parse_uuid(value: str) -> uuid.UUID:
+    """路径参数 UUID 解析；畸形输入返回 404（而非 500 堆栈）。"""
+    try:
+        return uuid.UUID(value)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="资源不存在") from None
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_session),

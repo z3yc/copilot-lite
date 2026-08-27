@@ -1,4 +1,5 @@
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { useEffect, useRef, useState } from "react";
 import {
   Avatar,
@@ -43,7 +44,10 @@ interface Props {
 
 function renderMarkdown(text: string): string {
   try {
-    return marked.parse(text, { async: false }) as string;
+    const html = marked.parse(text, { async: false }) as string;
+    // 消毒：LLM 输出会复述用户上传的不可信内容（附件/知识库），
+    // 必须视为攻击面（防存储型 XSS）
+    return DOMPurify.sanitize(html);
   } catch {
     return text;
   }

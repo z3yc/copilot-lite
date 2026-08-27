@@ -24,7 +24,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.base import BaseAgent
+from app.agent.base import BaseAgent, split_system_context
 from app.core.config import settings
 from app.tools.base import ToolContext, ToolRegistry
 from app.tools.base import registry as global_registry
@@ -148,8 +148,10 @@ class LangGraphEngine(BaseAgent):
         """Supervisor 节点：LLM 意图判断（JSON），失败时关键词兜底。"""
 
         async def node(state: AgentState) -> dict:
+            # Supervisor 只做意图路由：仅带滚动窗口内的对话历史（不含 system 注入）
+            _, convo = split_system_context(state["history"], settings.HISTORY_WINDOW)
             messages = [SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT)]
-            messages.extend(_to_langchain_messages(state["history"]))
+            messages.extend(_to_langchain_messages(convo))
             messages.append(HumanMessage(content=state["user_message"]))
             route = ""
             try:
@@ -174,8 +176,13 @@ class LangGraphEngine(BaseAgent):
         schemas = self._tool_schemas(AGENT_TOOLS[node_name])
 
         async def node(state: AgentState) -> dict:
+            # system 上下文（附件/记忆）常驻 + 对话历史滚动窗口（与手写引擎同策略）
+            system_msgs, convo = split_system_context(
+                state["history"], settings.HISTORY_WINDOW
+            )
             messages = [SystemMessage(content=system_prompt)]
-            messages.extend(_to_langchain_messages(state["history"]))
+            messages.extend(_to_langchain_messages(system_msgs))
+            messages.extend(_to_langchain_messages(convo))
             messages.append(HumanMessage(content=state["user_message"]))
             bound = self.llm.bind_tools(schemas) if schemas else self.llm
             for _ in range(self.max_turns):

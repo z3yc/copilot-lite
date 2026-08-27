@@ -82,6 +82,29 @@ async def test_max_turns_guard(db_session) -> None:
     assert "最大工具调用轮数" in reply
 
 
+@pytest.mark.asyncio
+async def test_history_window_keeps_system_context(db_session, monkeypatch) -> None:
+    """窗口截断只作用于对话历史；system 上下文（附件/记忆）常驻不被截掉。"""
+    fake = FakeLLM([ChatResult(content="ok")])
+    orch = Orchestrator(llm=fake, registry=registry, max_turns=3)
+
+    history = [{"role": "system", "content": "【附件】独特内容XYZ"}] + [
+        {"role": "user" if i % 2 == 0 else "assistant", "content": f"消息{i}"}
+        for i in range(60)
+    ]
+    monkeypatch.setattr("app.agent.orchestrator.settings.HISTORY_WINDOW", 10)
+    await orch.run(db_session, DEFAULT_USER_ID, history, "继续")
+
+    messages = fake.requests[0]["messages"]
+    system_msgs = [m for m in messages if m["role"] == "system"]
+    assert any("独特内容XYZ" in m["content"] for m in system_msgs), (
+        "system 上下文不能被窗口截掉"
+    )
+    convo = [m for m in messages if m["role"] in ("user", "assistant")]
+    assert len(convo) == 11  # 窗口 10 + 本轮新消息
+    assert convo[0]["content"] == "消息50"  # 最老的 50 条被滚动截断
+
+
 # ---------------- 流式编排（run_stream） ----------------
 
 from types import SimpleNamespace

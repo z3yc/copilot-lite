@@ -13,7 +13,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.base import BaseAgent
+from app.agent.base import BaseAgent, split_system_context
 from app.core.config import settings
 from app.core.llm import LLMClient, ToolCall
 from app.tools.base import ToolContext, ToolRegistry
@@ -31,8 +31,21 @@ SYSTEM_PROMPT = """你是 Copilot-Lite，一个个人专属助理，你的名字
 - 工具返回结果后，用自然语言向用户汇报结果；
 - 若工具不可用或执行失败，如实告知，不要编造结果。"""
 
-# 短期记忆：单次上下文最多携带的历史消息条数
-HISTORY_WINDOW = 20
+
+def _assemble_messages(
+    system_prompt: str, history: list[dict], user_message: str
+) -> list[dict]:
+    """组装消息序列：系统提示 + 常驻 system 上下文（附件/记忆）+ 滚动窗口历史 + 新消息。
+
+    system 上下文与对话历史双轨管理：system 部分不参与窗口截断，
+    对话历史按 settings.HISTORY_WINDOW 滚动（长对话不丢固定上下文，也不超窗）。
+    """
+    system_msgs, convo = split_system_context(history, settings.HISTORY_WINDOW)
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    messages.extend(system_msgs)
+    messages.extend(convo)
+    messages.append({"role": "user", "content": user_message})
+    return messages
 
 
 class Orchestrator(BaseAgent):
@@ -63,9 +76,7 @@ class Orchestrator(BaseAgent):
 
         history: 历史消息列表，元素为 {"role": ..., "content": ...}
         """
-        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend(history[-HISTORY_WINDOW:])
-        messages.append({"role": "user", "content": user_message})
+        messages = _assemble_messages(SYSTEM_PROMPT, history, user_message)
 
         ctx = ToolContext(session=session, user_id=user_id)
 
@@ -118,9 +129,7 @@ class Orchestrator(BaseAgent):
         实时产出增量。约定（DeepSeek 行为）：工具调用轮 content 为空，
         纯文本轮 tool_calls 为空，二者互斥——据此实时转发文本。
         """
-        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend(history[-HISTORY_WINDOW:])
-        messages.append({"role": "user", "content": user_message})
+        messages = _assemble_messages(SYSTEM_PROMPT, history, user_message)
 
         ctx = ToolContext(session=session, user_id=user_id)
 

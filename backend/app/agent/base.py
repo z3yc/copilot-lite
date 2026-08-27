@@ -17,6 +17,21 @@ from abc import ABC, abstractmethod
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
+def split_system_context(
+    history: list[dict], window: int
+) -> tuple[list[dict], list[dict]]:
+    """把固定注入的 system 上下文与滚动对话历史分开（双轨管理）。
+
+    返回 (system_msgs, convo[-window:])：
+    - system 上下文（附件/长期记忆等）常驻，不参与窗口截断，
+      避免长对话把固定上下文"挤掉"；
+    - 对话历史按 window 滚动截断，控制 token 成本。
+    """
+    system_msgs = [m for m in history if m.get("role") == "system"]
+    convo = [m for m in history if m.get("role") != "system"]
+    return system_msgs, convo[-window:]
+
+
 class BaseAgent(ABC):
     """所有 Agent 的公共协议。"""
 

@@ -49,9 +49,15 @@ class Settings(BaseSettings):
     DEEPSEEK_API_KEY: str = ""  # 从 .env 读取，必填
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     DEEPSEEK_MODEL: str = "deepseek-chat"
+    # LLM 调用健壮性（显式配置，不依赖 SDK 默认值）
+    LLM_TIMEOUT_SECONDS: float = 60.0  # 单次请求超时
+    LLM_MAX_RETRIES: int = 2  # SDK 层重试次数
+    LLM_MAX_TOKENS: int = 2048  # 单次回复 token 上限（成本控制）
 
     # Agent 循环参数
     AGENT_MAX_TURNS: int = 5  # ReAct 循环最大轮数
+    # 上下文窗口：注入 LLM 的最近对话消息条数（system 上下文不占窗口）
+    HISTORY_WINDOW: int = 20
     # Agent 引擎：langgraph（多 Agent 路由，默认）/ handwritten（手写 ReAct，可对比）
     AGENT_ENGINE: str = "langgraph"
 

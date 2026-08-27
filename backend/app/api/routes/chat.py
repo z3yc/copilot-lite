@@ -9,6 +9,7 @@ SSE 事件序列：
     event: done     data: {}
 """
 
+import asyncio
 import json
 import logging
 import uuid
@@ -45,6 +46,10 @@ class ChatResponse(BaseModel):
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+# SSE 心跳间隔（秒）：长工具轮期间无文本输出，靠注释帧保活连接
+_HEARTBEAT_SECONDS = 15.0
 
 
 async def _resolve_session(
@@ -177,6 +182,19 @@ async def _persist(db: AsyncSession, session_id, user_msg: str, reply: str) -> N
     await db.commit()
 
 
+async def _persist_partial(db: AsyncSession, session_id, reply_parts: list[str]) -> None:
+    """异常中断时尽力保存已生成的部分回复（防流式中断丢消息）。"""
+    if not reply_parts:
+        return
+    try:
+        db.add(
+            Message(session_id=session_id, role="assistant", content="".join(reply_parts))
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001  部分落库失败不应掩盖原始异常
+        logger.warning("部分回复落库失败", exc_info=True)
+
+
 async def _background_extract_memories(session_id, user_id) -> None:
     """会话结束后台提取记忆（独立会话，不阻塞响应）。"""
     try:
@@ -242,18 +260,42 @@ async def chat_stream(
     async def event_gen() -> AsyncIterator[str]:
         # 1. 先发会话事件
         yield _sse("session", {"session_id": str(session.id)})
-        # 2. token 级流式运行引擎
+
+        # 2. 先持久化用户消息（客户端中途断开也不丢用户输入）
+        db.add(Message(session_id=session.id, role="user", content=req.message))
+        await db.commit()
+
+        # 3. token 级流式运行引擎（逐 chunk 转发；长等待期间发心跳保活）
         reply_parts: list[str] = []
+        agent_stream = _run_agent_stream(db, history, req.message, user.id)
         try:
-            async for text in _run_agent_stream(db, history, req.message, user.id):
+            while True:
+                try:
+                    text = await asyncio.wait_for(
+                        anext(agent_stream), timeout=_HEARTBEAT_SECONDS
+                    )
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    yield ": ping\n\n"
+                    continue
                 reply_parts.append(text)
                 yield _sse("chunk", {"text": text})
         except HTTPException as exc:
+            await _persist_partial(db, session.id, reply_parts)
             yield _sse("error", {"detail": exc.detail})
             return
-        # 3. 完成事件 + 持久化
+        except Exception:  # noqa: BLE001  通用异常也必须显式终止，不能裸断 SSE
+            logger.exception("流式对话生成异常")
+            await _persist_partial(db, session.id, reply_parts)
+            yield _sse("error", {"detail": "生成中断，请重试"})
+            return
+
+        # 4. 落库成功后才发 done（done 语义 = 已持久化）
+        reply = "".join(reply_parts)
+        db.add(Message(session_id=session.id, role="assistant", content=reply))
+        await db.commit()
         yield _sse("done", {})
-        await _persist(db, session.id, req.message, "".join(reply_parts))
         _schedule_memory_extract(session.id, user.id)
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

@@ -155,6 +155,44 @@ async def test_chat_stream_sse(monkeypatch, authed_headers: dict) -> None:
     assert session_id
 
 
+@pytest.mark.asyncio
+async def test_chat_stream_error_event_and_user_persisted(monkeypatch, authed_headers: dict) -> None:
+    """流式生成中途异常：发 error 事件（不裸断），且用户消息已先落库。"""
+
+    class BoomLLM:
+        async def chat(self, messages, tools=None, temperature=0.7):
+            raise RuntimeError("模型挂了")
+
+        async def stream_raw(self, messages, tools=None, temperature=0.7):
+            raise RuntimeError("模型挂了")
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(chat_module, "get_llm", lambda: BoomLLM())
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:  # noqa: SIM117
+        async with client.stream(
+            "POST", "/api/v1/chat/stream", json={"message": "你好"}, headers=authed_headers
+        ) as resp:
+            assert resp.status_code == 200
+            events: list[str] = []
+            async for line in resp.aiter_lines():
+                if line.startswith("event: "):
+                    events.append(line[7:])
+
+    # 通用异常也必须有显式 error 终态
+    assert events[0] == "session"
+    assert events[-1] == "error"
+
+    # 用户消息先落库：流中断不丢用户输入
+    async with async_session_factory() as session:
+        from app.models import Message
+
+        rows = (await session.scalars(select(Message))).all()
+        assert [m.role for m in rows] == ["user"]
+
+
 # ---------------- LangGraph 引擎（经 API 全链路） ----------------
 
 

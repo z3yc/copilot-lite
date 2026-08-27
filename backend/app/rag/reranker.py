@@ -18,6 +18,8 @@ import logging
 import os
 from functools import lru_cache
 
+from app.core.config import settings
+
 # 模型下载镜像与协议配置（setdefault：用户显式配置优先）
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
@@ -50,19 +52,30 @@ class Reranker:
         return self._model
 
     async def rerank(self, query: str, passages: list[str], top_n: int) -> list[tuple[int, float]]:
-        """对候选段落精排，返回前 top_n 个 (原索引, 分数)，按分数降序。"""
+        """对候选段落精排，返回前 top_n 个 (原索引, 分数)，按分数降序。
+
+        结果按 (query, passages) 做 lru_cache——检索链路的候选集重复率较高，
+        缓存可省下交叉编码器的重复推理；缓存键基于内容而非对象。
+        """
         if not passages:
             return []
         if len(passages) == 1:
             return [(0, 1.0)]  # 唯一候选无需加载模型
-        model = self._load()
         loop = asyncio.get_running_loop()
-        scores = await loop.run_in_executor(None, self._rerank_sync, model, query, passages)
-        ranked = sorted(enumerate(scores), key=lambda item: item[1], reverse=True)
-        return ranked[:top_n]
+        ranked = await loop.run_in_executor(
+            None, self._rerank_cached, query, tuple(passages), top_n
+        )
+        return list(ranked)
 
-    def _rerank_sync(self, model, query: str, passages: list[str]) -> list[float]:
-        return list(model.rerank(query, passages, batch_size=self.batch_size))
+    @lru_cache(maxsize=settings.RERANK_CACHE_SIZE)  # noqa: B019  服务为进程级单例，缓存随生命周期有效
+    def _rerank_cached(
+        self, query: str, passages: tuple[str, ...], top_n: int
+    ) -> tuple[tuple[int, float], ...]:
+        """同步精排（线程池内执行；lru_cache 缓存，线程安全）。"""
+        model = self._load()
+        scores = model.rerank(query, list(passages), batch_size=self.batch_size)
+        ranked = sorted(enumerate(scores), key=lambda item: item[1], reverse=True)
+        return tuple((int(i), float(s)) for i, s in ranked[:top_n])
 
 
 @lru_cache

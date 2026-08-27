@@ -78,6 +78,79 @@ async def _load_history(db: AsyncSession, session_id) -> list[dict]:
     return [{"role": m.role, "content": m.content} for m in msgs]
 
 
+# ---------------- 会话摘要压缩（长对话不丢主线） ----------------
+
+# 历史消息超过该数量后，把滚动窗口外的旧消息压缩进 session.summary
+_SUMMARY_THRESHOLD = 40
+
+_SUMMARY_PROMPT = """你是对话摘要助手。请把以下对话内容压缩为一段简短摘要（200 字以内），
+保留：用户的关键事实与偏好、进行中的任务与结论、重要的时间/数字信息。
+只输出摘要本身，不要输出任何其他内容。"""
+
+_summary_locks: dict[str, asyncio.Lock] = {}
+_last_summary_count: dict[str, int] = {}
+
+
+def _get_summary_lock(session_id: str) -> asyncio.Lock:
+    if session_id not in _summary_locks:
+        _summary_locks[session_id] = asyncio.Lock()
+    return _summary_locks[session_id]
+
+
+async def _maybe_compress_history(db: AsyncSession, session_id: str) -> None:
+    """后台压缩：历史超过阈值时，把滚动窗口外的旧消息压缩为摘要。
+
+    节流：窗口外每新增一个窗口大小的消息量才重压一次（避免每轮都烧 LLM）；
+    会话级锁防止并发重复压缩。
+    """
+    sid = uuid.UUID(session_id)
+    lock = _get_summary_lock(session_id)
+    async with lock:
+        msgs = await _load_history(db, sid)
+        if len(msgs) <= _SUMMARY_THRESHOLD:
+            return
+        overflow = len(msgs) - settings.HISTORY_WINDOW
+        last = _last_summary_count.get(session_id, 0)
+        if overflow - last < settings.HISTORY_WINDOW:
+            return
+        try:
+            llm = get_llm()
+            transcript = "\n".join(
+                f"{'用户' if m['role'] == 'user' else '助手'}：{m['content'][:500]}"
+                for m in msgs[:overflow]
+            )
+            result = await llm.chat(
+                [
+                    {"role": "system", "content": _SUMMARY_PROMPT},
+                    {"role": "user", "content": f"对话内容：\n{transcript}"},
+                ]
+            )
+            summary = (result.content or "").strip()
+            if summary:
+                session = await db.get(ChatSession, sid)
+                if session is not None:
+                    session.summary = summary
+                    await db.commit()
+                _last_summary_count[session_id] = overflow
+                logger.info("会话 %s 摘要已更新（%d 条 → 摘要）", session_id[:8], overflow)
+        except Exception as exc:  # noqa: BLE001  摘要失败不影响主流程
+            logger.warning("会话摘要压缩失败: %s", exc)
+
+
+def _schedule_summary_compress(session_id) -> None:
+    """异步调度摘要压缩（不阻塞响应返回；测试环境关闭）。"""
+    if not settings.SUMMARY_COMPRESS_ENABLED:
+        return
+    asyncio.create_task(_compress_summary_task(str(session_id)))
+
+
+async def _compress_summary_task(session_id: str) -> None:
+    from app.core.db import async_session_factory
+
+    async with async_session_factory() as db:
+        await _maybe_compress_history(db, session_id)
+
+
 # 每个附件注入上下文的文本上限
 _MAX_FILE_CONTEXT = 1500
 # 最多注入的附件数
@@ -112,14 +185,26 @@ async def _load_session_file_context(db: AsyncSession, session_id) -> list[dict]
 
 
 async def _build_context(
-    db: AsyncSession, session_id, history: list[dict], user_message: str, user_id
+    db: AsyncSession,
+    session_id,
+    history: list[dict],
+    user_message: str,
+    user_id,
+    summary: str | None = None,
 ) -> list[dict]:
-    """组装上下文：会话附件（system）+ 长期记忆（system）+ 历史消息。
+    """组装上下文：会话摘要 + 会话附件 + 长期记忆（system）+ 历史消息。
 
     记忆召回按当前问题执行（向量检索，无 LLM 成本），
     等价于"会话开始注入 + 话题切换自动补充"的混合策略。
     """
     parts: list[dict] = []
+    if summary:
+        parts.append(
+            {
+                "role": "system",
+                "content": f"以下为本次会话更早内容的摘要（自然衔接，不要复述）：\n{summary}",
+            }
+        )
     file_ctx = await _load_session_file_context(db, session_id)
     if file_ctx:
         parts.extend(file_ctx)
@@ -208,25 +293,52 @@ async def _persist_partial(db: AsyncSession, session_id, reply_parts: list[str])
         logger.warning("部分回复落库失败", exc_info=True)
 
 
-async def _background_extract_memories(session_id, user_id) -> None:
-    """会话结束后台提取记忆（独立会话，不阻塞响应）。"""
-    try:
-        from app.core.db import async_session_factory
+# ---------------- 记忆提取节流（LLM 成本控制） ----------------
 
-        async with async_session_factory() as db:
-            history = await _load_history(db, session_id)
-            msgs = [{"role": m["role"], "content": m["content"]} for m in history]
-            await get_memory_service().extract_from_session(db, user_id, session_id, msgs)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("后台记忆提取失败: %s", exc)
+# 每新增多少条消息才触发一次提取（避免每条消息都烧一次 LLM）
+_EXTRACT_MIN_INTERVAL = 8
+
+_extract_locks: dict[str, asyncio.Lock] = {}
+_last_extract_count: dict[str, int] = {}
+
+
+def _should_extract_memories(count: int, last: int) -> bool:
+    """纯函数：消息总数相对上次提取的新增量是否达到节流间隔。"""
+    return count - last >= _EXTRACT_MIN_INTERVAL
+
+
+def _get_extract_lock(session_id: str) -> asyncio.Lock:
+    if session_id not in _extract_locks:
+        _extract_locks[session_id] = asyncio.Lock()
+    return _extract_locks[session_id]
+
+
+async def _background_extract_memories(session_id, user_id) -> None:
+    """会话后台提取记忆（节流：每会话同时只跑一个任务，新增 N 条消息才触发）。"""
+    key = str(session_id)
+    lock = _get_extract_lock(key)
+    async with lock:
+        try:
+            from app.core.db import async_session_factory
+
+            async with async_session_factory() as db:
+                history = await _load_history(db, session_id)
+                count = len(history)
+                if not _should_extract_memories(count, _last_extract_count.get(key, 0)):
+                    return
+                msgs = [{"role": m["role"], "content": m["content"]} for m in history]
+                await get_memory_service().extract_from_session(
+                    db, user_id, session_id, msgs
+                )
+                _last_extract_count[key] = count
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("后台记忆提取失败: %s", exc)
 
 
 def _schedule_memory_extract(session_id, user_id) -> None:
     """异步调度记忆提取（不阻塞响应返回；测试环境关闭）。"""
     if not settings.MEMORY_EXTRACT_ENABLED:
         return
-    import asyncio
-
     asyncio.create_task(_background_extract_memories(session_id, user_id))
 
 
@@ -239,11 +351,13 @@ async def chat(
     """非流式对话。"""
     session = await _resolve_session(db, req.session_id, req.message, user)
     history = await _build_context(
-        db, session.id, await _load_history(db, session.id), req.message, user.id
+        db, session.id, await _load_history(db, session.id), req.message, user.id,
+        summary=session.summary,
     )
     reply = await _run_agent(db, history, req.message, user.id)
     await _persist(db, session.id, req.message, reply)
     _schedule_memory_extract(session.id, user.id)
+    _schedule_summary_compress(session.id)
     return ChatResponse(session_id=str(session.id), reply=reply)
 
 
@@ -261,7 +375,8 @@ async def chat_stream(
     """
     session = await _resolve_session(db, req.session_id, req.message, user)
     history = await _build_context(
-        db, session.id, await _load_history(db, session.id), req.message, user.id
+        db, session.id, await _load_history(db, session.id), req.message, user.id,
+        summary=session.summary,
     )
 
     # 引擎/Key 检查提前到响应前（错误可返回 HTTP 状态码）
@@ -319,6 +434,7 @@ async def chat_stream(
             saved = True
             yield _sse("done", {})
             _schedule_memory_extract(session.id, user.id)
+            _schedule_summary_compress(session.id)
         finally:
             # 客户端断开/任务取消（CancelledError）时兜底保存已生成部分
             if not saved:

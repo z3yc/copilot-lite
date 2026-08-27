@@ -9,6 +9,8 @@ import uuid as _uuid
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_copilot.db"
 # 测试环境关闭后台记忆提取（避免后台任务占用测试库句柄）
 os.environ["MEMORY_EXTRACT_ENABLED"] = "false"
+# 测试环境关闭后台摘要压缩（同上）
+os.environ["SUMMARY_COMPRESS_ENABLED"] = "false"
 
 import pytest
 from httpx import ASGITransport, AsyncClient

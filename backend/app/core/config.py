@@ -77,6 +77,8 @@ class Settings(BaseSettings):
     # 长期记忆
     MEMORY_TOP_K: int = 5  # 每次召回记忆条数
     MEMORY_EXTRACT_ENABLED: bool = True  # 会话结束后台提取开关（测试环境关闭）
+    # 会话摘要后台压缩开关（测试环境关闭，避免后台任务占用测试库句柄）
+    SUMMARY_COMPRESS_ENABLED: bool = True
 
     @model_validator(mode="after")
     def _reject_default_secret(self) -> "Settings":

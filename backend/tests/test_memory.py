@@ -102,6 +102,16 @@ async def test_extract_empty_and_fallback(monkeypatch, db_session) -> None:
     assert added == 0
 
 
+def test_should_extract_memories_throttle() -> None:
+    """记忆提取节流：新增消息数达到间隔才触发。"""
+    from app.api.routes.chat import _should_extract_memories
+
+    assert _should_extract_memories(8, 0) is True
+    assert _should_extract_memories(7, 0) is False
+    assert _should_extract_memories(10, 5) is False
+    assert _should_extract_memories(13, 5) is True
+
+
 @pytest.mark.asyncio
 async def test_recall(db_session) -> None:
     """记忆召回：入库后按问题检索命中（相同文本保证向量一致）。"""

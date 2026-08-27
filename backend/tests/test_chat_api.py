@@ -1,5 +1,7 @@
 """聊天 API 集成测试（需认证）：FakeLLM 替换真实模型。"""
 
+import uuid
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
@@ -262,3 +264,188 @@ async def test_chat_stream_langgraph_engine(monkeypatch, authed_headers: dict) -
 
     assert events[0] == "session" and events[-1] == "done"
     assert "".join(text_parts) == "流式回复"
+
+
+# ---------------- 会话摘要压缩 ----------------
+
+@pytest.mark.asyncio
+async def test_summary_compression(monkeypatch, db_session, authed_headers: dict) -> None:
+    """历史超过阈值时：窗口外旧消息压缩进 session.summary，并注入上下文；节流生效。"""
+    from app.models import ChatSession, Message
+
+    uid = uuid.UUID(authed_headers["uid"])
+    s = ChatSession(user_id=uid, title="长会话")
+    db_session.add(s)
+    await db_session.commit()
+    await db_session.refresh(s)
+    for i in range(45):
+        db_session.add(
+            Message(
+                session_id=s.id,
+                role="user" if i % 2 == 0 else "assistant",
+                content=f"消息{i}",
+            )
+        )
+    await db_session.commit()
+
+    calls: list[str] = []
+
+    class FakeSummaryLLM:
+        async def chat(self, messages, tools=None, temperature=0.7):
+            calls.append("summary")
+            return ChatResult(content="这是压缩后的摘要")
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(chat_module, "get_llm", lambda: FakeSummaryLLM())
+    monkeypatch.setattr(chat_module, "_last_summary_count", {})
+    monkeypatch.setattr(chat_module, "_summary_locks", {})
+
+    await chat_module._maybe_compress_history(db_session, str(s.id))
+    await db_session.refresh(s)
+    assert s.summary == "这是压缩后的摘要"
+
+    # 节流：未新增一个窗口量的溢出消息前不再重复压缩
+    await chat_module._maybe_compress_history(db_session, str(s.id))
+    assert len(calls) == 1
+
+    # 摘要注入上下文（system 常驻，不参与窗口截断）
+    ctx = await chat_module._build_context(
+        db_session, s.id, [], "继续", uid, summary=s.summary
+    )
+    assert any(
+        "这是压缩后的摘要" in m["content"] for m in ctx if m["role"] == "system"
+    )
+
+
+@pytest.mark.asyncio
+async def test_summary_compression_below_threshold(monkeypatch, db_session, authed_headers: dict) -> None:
+    """消息数未达阈值：不触发 LLM 压缩。"""
+    from app.models import ChatSession, Message
+
+    uid = uuid.UUID(authed_headers["uid"])
+    s = ChatSession(user_id=uid, title="短会话")
+    db_session.add(s)
+    await db_session.commit()
+    await db_session.refresh(s)
+    db_session.add(Message(session_id=s.id, role="user", content="hi"))
+    await db_session.commit()
+
+    class NoLLM:
+        async def chat(self, messages, tools=None, temperature=0.7):
+            raise AssertionError("不应调用 LLM")
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(chat_module, "get_llm", lambda: NoLLM())
+    monkeypatch.setattr(chat_module, "_last_summary_count", {})
+    monkeypatch.setattr(chat_module, "_summary_locks", {})
+    await chat_module._maybe_compress_history(db_session, str(s.id))
+    await db_session.refresh(s)
+    assert s.summary is None
+
+
+@pytest.mark.asyncio
+async def test_background_memory_extract_throttle(monkeypatch, db_session, authed_headers: dict) -> None:
+    """记忆提取节流：新增不足 N 条跳过；达到 N 条提取一次；无新增再触发被跳过。"""
+    from app.models import ChatSession, Message
+
+    uid = uuid.UUID(authed_headers["uid"])
+    s = ChatSession(user_id=uid, title="t")
+    db_session.add(s)
+    await db_session.commit()
+    await db_session.refresh(s)
+
+    calls: list[int] = []
+
+    class FakeMemService:
+        async def extract_from_session(self, db, user_id, session_id, msgs):
+            calls.append(len(msgs))
+            return 1
+
+    monkeypatch.setattr(chat_module, "get_memory_service", lambda: FakeMemService())
+    monkeypatch.setattr(chat_module, "_last_extract_count", {})
+    monkeypatch.setattr(chat_module, "_extract_locks", {})
+
+    # 3 条 < 8：跳过
+    for i in range(3):
+        db_session.add(Message(session_id=s.id, role="user", content=f"m{i}"))
+    await db_session.commit()
+    await chat_module._background_extract_memories(s.id, uid)
+    assert calls == []
+
+    # 补到 8 条：触发一次
+    for i in range(3, 8):
+        db_session.add(Message(session_id=s.id, role="user", content=f"m{i}"))
+    await db_session.commit()
+    await chat_module._background_extract_memories(s.id, uid)
+    assert calls == [8]
+
+    # 无新增：再触发被跳过（节流）
+    await chat_module._background_extract_memories(s.id, uid)
+    assert calls == [8]
+
+
+@pytest.mark.asyncio
+async def test_chat_llm_error_returns_502(monkeypatch, authed_headers: dict) -> None:
+    """LLM 调用失败（运行时错误）→ 502 友好提示，而非 500 堆栈。"""
+
+    class ErrorLLM:
+        async def chat(self, messages, tools=None, temperature=0.7):
+            raise RuntimeError("模型服务挂了")
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(chat_module, "get_llm", lambda: ErrorLLM())
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/chat", json={"message": "你好"}, headers=authed_headers)
+    assert resp.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_heartbeat_on_slow_model(monkeypatch, authed_headers: dict) -> None:
+    """长等待期间发 SSE 心跳注释帧保活（超时分支）。"""
+    import asyncio as aio
+
+    class SlowStream:
+        def __init__(self) -> None:
+            self._chunks = [_FakeChunk("你好")]
+
+        def __aiter__(self):
+            self._it = iter(self._chunks)
+            return self
+
+        async def __anext__(self):
+            await aio.sleep(0.15)  # 先静默超过心跳间隔
+            try:
+                return next(self._it)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    class SlowLLM:
+        async def stream_raw(self, messages, tools=None, temperature=0.7):
+            return SlowStream()
+
+        async def chat(self, messages, tools=None, temperature=0.7):
+            raise AssertionError("不应调用非流式 chat")
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(chat_module, "_HEARTBEAT_SECONDS", 0.05)
+    monkeypatch.setattr(chat_module, "get_llm", lambda: SlowLLM())
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:  # noqa: SIM117
+        async with client.stream(
+            "POST", "/api/v1/chat/stream", json={"message": "你好"}, headers=authed_headers
+        ) as resp:
+            lines = [line async for line in resp.aiter_lines()]
+
+    assert any(line.startswith(": ping") for line in lines), "静默期应发心跳帧"
+    events = [line[7:] for line in lines if line.startswith("event: ")]
+    assert events[-1] == "done"

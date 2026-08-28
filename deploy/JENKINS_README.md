@@ -48,21 +48,28 @@ java -jar .jenkins\jenkins.war --httpPort=8080
 3. **创建管理员账号**（记住用户名密码）；
 4. 保持默认实例地址即可。
 
-### 2.3 注册为 Windows 服务（开机自启，之后无需手动启动）
+### 2.3 开机自启（本机已配置：登录自启 ✅）
 
-推荐用 Jenkins 官方 MSI（`jenkins.msi`）或 NSSM 包一层服务：
+本机采用 **HKCU Run 键 + vbs 隐藏启动**（无需管理员权限，登录 Windows 即自动拉起 Jenkins）：
 
-```powershell
-# 方式 A：官方 MSI（需要管理员权限，安装时勾选“以服务方式运行”并设置 JENKINS_HOME）
-Invoke-WebRequest https://mirrors.tuna.tsinghua.edu.cn/jenkins/windows-stable/latest/jenkins.msi -OutFile .jenkins\jenkins.msi
-# 然后双击安装；安装后服务名 jenkins，自动开机启动
+| 文件 | 作用 |
+|---|---|
+| `.jenkins/start-jenkins.bat` | 启动脚本（设置 JENKINS_HOME → 端口占用检测 → 启动 java） |
+| `.jenkins/start-jenkins.vbs` | 隐藏窗口包装（避免弹黑色控制台） |
+| `HKCU\...\Run` 键 `Jenkins` | 登录自启注册，值：`wscript.exe "...start-jenkins.vbs"` |
 
-# 方式 B：NSSM 包 java 命令（非管理员也能用，可手动设为服务）
-#   nssm install jenkins "C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot\bin\java.exe" "-jar C:\...\copilot-lite\.jenkins\jenkins.war --httpPort=8080"
-#   nssm set jenkins AppEnvironmentExtra JENKINS_HOME=C:\...\copilot-lite\.jenkins-home
-#   nssm start jenkins
-```
+**验证**：停掉实例后运行 `wscript.exe .jenkins\start-jenkins.vbs`，8080 端口与 API 均恢复 ✅
 
+> ⚠️ **bat/vbs 必须纯 ASCII（无中文注释）**：cmd/wscript 按 GBK 读文件，中文字节错位会把 `set "JENKINS_HOME=..."` 啃坏（踩坑实录：`'NKINS_HOME' is not recognized`）。
+
+> 若要严格的**开机即启（登录前）**，需管理员权限装成服务（官方 MSI 或 NSSM）：
+> ```powershell
+> # NSSM 方式（管理员）
+> nssm install jenkins "C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot\bin\java.exe" "-jar C:\...\copilot-lite\.jenkins\jenkins.war --httpPort=8080"
+> nssm set jenkins AppEnvironmentExtra JENKINS_HOME=C:\...\copilot-lite\.jenkins-home
+> nssm start jenkins
+> ```
+>
 > ⚠️ 服务运行身份决定 PATH：若用系统服务跑，PATH 可能不含用户级目录，`Jenkinsfile` 顶部已显式补齐
 > `C:\Users\asus\.local\bin`（uv）与 `C:\nvm4w\nodejs`（node），按本机实际路径核对。
 

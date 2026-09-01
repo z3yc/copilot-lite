@@ -108,6 +108,8 @@ def _parse_route(text: str) -> str | None:
     return m.group(1) if m else None
 
 
+
+
 def _keyword_route(user_message: str) -> str:
     """关键词兜底路由：工具 > 知识库 > 日常对话。"""
     msg = user_message.lower()

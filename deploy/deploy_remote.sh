@@ -40,9 +40,11 @@ fi
 # ---------- 常规部署 ----------
 cd "$APP_DIR" || fail "目录不存在：$APP_DIR"
 
-log "1/5 拉取最新代码（main）"
+log "1/5 拉取最新代码（main，仅快进合并，绝不强覆本地改动）"
+PREV_SHA="$(git rev-parse HEAD)"
 git fetch origin main
-git reset --hard origin/main
+git merge --ff-only origin/main \
+  || fail "远端与本地分叉，拒绝强拉（git reset --hard 会销毁服务器本地改动）。请人工处理：git status / git log origin/main..HEAD"
 
 log "2/5 校验前端产物"
 [[ -d "$DIST_NEW" ]] || fail "未找到 $DIST_NEW —— 请先由 CI 上传 web/dist 到该路径"
@@ -65,8 +67,13 @@ for i in $(seq 1 24); do
   sleep 5
 done
 
-log "✗ 健康检查失败，自动回滚到上一版本"
+log "✗ 健康检查失败，自动回滚（前端产物 + 后端代码）"
 rm -rf "$DIST_DIR"
 [[ -d "$DIST_PREV" ]] && mv "$DIST_PREV" "$DIST_DIR"
-( cd "$APP_DIR/deploy" && docker compose up -d --build web )
+if git checkout "$PREV_SHA" 2>/dev/null; then
+  log "后端已回滚到 $PREV_SHA"
+else
+  log "⚠ 后端回滚失败：$PREV_SHA 不可达，请人工介入"
+fi
+( cd "$APP_DIR/deploy" && docker compose up -d --build )
 fail "部署失败并已回滚，请查看日志：docker compose -f $APP_DIR/deploy/docker-compose.yml logs backend"

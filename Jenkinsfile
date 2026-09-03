@@ -106,12 +106,15 @@ pipeline {
                     withCredentials([
                         sshUserPrivateKey(credentialsId: 'deploy-ssh-key', keyFileVariable: 'SSH_KEY')
                     ]) {
+                        // SSH 主机校验：accept-new 仅首次连接自动记录主机指纹，之后严格校验
+                        // （取代 StrictHostKeyChecking=no 的中间人风险；
+                        //   首次部署前建议手工 ssh 一次核对服务器指纹）
                         // 1) 服务器上准备产物接收目录
-                        bat "ssh -i \"%SSH_KEY%\" -o StrictHostKeyChecking=no ${params.DEPLOY_SERVER} \"mkdir -p /opt/copilot-lite/web/dist.new\""
+                        bat "ssh -i \"%SSH_KEY%\" -o StrictHostKeyChecking=accept-new ${params.DEPLOY_SERVER} \"mkdir -p /opt/copilot-lite/web/dist.new\""
                         // 2) 上传前端产物
-                        bat "scp -i \"%SSH_KEY%\" -o StrictHostKeyChecking=no -r web\\dist\\* ${params.DEPLOY_SERVER}:/opt/copilot-lite/web/dist.new/"
+                        bat "scp -i \"%SSH_KEY%\" -o StrictHostKeyChecking=accept-new -r web\\dist\\* ${params.DEPLOY_SERVER}:/opt/copilot-lite/web/dist.new/"
                         // 3) 远端执行部署脚本（拉码 + 重建容器 + 健康检查 + 失败回滚）
-                        bat "ssh -i \"%SSH_KEY%\" -o StrictHostKeyChecking=no ${params.DEPLOY_SERVER} \"bash /opt/copilot-lite/deploy/deploy_remote.sh\""
+                        bat "ssh -i \"%SSH_KEY%\" -o StrictHostKeyChecking=accept-new ${params.DEPLOY_SERVER} \"bash /opt/copilot-lite/deploy/deploy_remote.sh\""
                     }
                 }
             }

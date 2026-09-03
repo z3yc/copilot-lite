@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     # Qdrant 本地模式（磁盘持久化，无需服务器）；云端可切换为 http(s) 地址
     QDRANT_PATH: str = "./qdrant_data"
     QDRANT_URL: str = "http://localhost:6333"
+    # Qdrant 远程模式 API Key（云端部署必配；本地模式忽略）
+    QDRANT_API_KEY: str = ""
     # 检索参数
     RAG_TOP_K: int = 5  # 向量/BM25 各自召回数
     RAG_RERANK_CANDIDATE_K: int = 10  # RRF 融合后进入精排的候选数

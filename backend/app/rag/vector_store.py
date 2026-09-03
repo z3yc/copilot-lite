@@ -43,7 +43,10 @@ def get_qdrant_client() -> QdrantClient:
     """
     if settings.QDRANT_URL and not settings.QDRANT_URL.startswith("http://localhost:6333"):
         logger.info("Qdrant 远程模式: %s", settings.QDRANT_URL)
-        return QdrantClient(url=settings.QDRANT_URL)
+        return QdrantClient(
+            url=settings.QDRANT_URL,
+            api_key=settings.QDRANT_API_KEY or None,  # 云端部署需 API Key 认证
+        )
     logger.info("Qdrant 本地模式: %s", settings.QDRANT_PATH)
     return QdrantClient(path=settings.QDRANT_PATH)
 

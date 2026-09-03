@@ -60,14 +60,21 @@ cd copilot-lite
 ```bash
 cd deploy
 cp .env.example .env
-vim .env   # 填入 DEEPSEEK_API_KEY（必填），按需改数据库密码
+vim .env   # 必填：DEEPSEEK_API_KEY / SECRET_KEY / POSTGRES_PASSWORD / QDRANT_API_KEY / REDIS_PASSWORD
 ```
 
-`.env` 关键项：
+`.env` 关键项（密钥生成命令见 `.env.example` 内注释）：
 ```
 DEEPSEEK_API_KEY=sk-xxx          # 必填
-DATABASE_URL=postgresql+asyncpg://copilot:copilot@postgres:5432/copilot
+SECRET_KEY=<强随机值>             # 必填（云模式默认值会被启动自检拒绝）
+POSTGRES_PASSWORD=<强随机口令>    # 必填（compose 缺省拒绝启动，须与 DATABASE_URL 一致）
+DATABASE_URL=postgresql+asyncpg://copilot:<口令>@postgres:5432/copilot
 QDRANT_URL=http://qdrant:6333
+QDRANT_API_KEY=<强随机值>         # 必填（Qdrant 开启 API Key 认证）
+REDIS_PASSWORD=<强随机口令>       # 必填
+REDIS_URL=redis://:<口令>@redis:6379/0
+# 云端前端与后端同域部署（nginx 反代），无需配置 CORS_ORIGINS；
+# 如前后端不同域，需在 .env 配置 CORS_ORIGINS=["https://你的前端域名"]
 ```
 
 ### 3.3 构建前端静态资源
@@ -109,6 +116,60 @@ docker compose logs -f backend
 ```
 
 浏览器访问：**http://服务器IP/** （Nginx → Web UI → API 代理）
+
+---
+
+## 3.6 启用 HTTPS（TLS）【线上安全必做】
+
+> HTTP 明文传输登录密码与 JWT，公网部署必须上 TLS。流程：申请证书 → 挂载 → 启用 443 段 → 重建 web 容器。
+
+### 步骤 1：域名解析（IP 直访无法签发可信证书）
+
+```bash
+# 在域名服务商处添加 A 记录：你的域名 → 服务器公网 IP
+# 安全组放行 443 端口
+```
+
+### 步骤 2：安装 certbot 并签发证书（Let's Encrypt 免费）
+
+```bash
+apt-get update && apt-get install -y certbot
+# 使用 webroot 方式签发（80 端口已有 nginx 在跑）
+mkdir -p /opt/copilot-lite/certs
+certbot certonly --webroot -w /var/www/certbot \
+  -d 你的域名 --email 你的邮箱 --agree-tos --no-eff-email
+# 证书默认落 /etc/letsencrypt/live/你的域名/{fullchain.pem,privkey.pem}
+```
+
+### 步骤 3：挂载证书并启用 443 段
+
+编辑 `deploy/docker-compose.yml` 的 web 服务 volumes 增加：
+
+```yaml
+    volumes:
+      - ../web/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt:/etc/nginx/certs:ro      # 新增：挂载证书目录
+      - /var/www/certbot:/var/www/certbot:ro      # certbot webroot 续期用
+    ports:
+      - "80:80"
+      - "443:443"                                  # 新增：放行 443
+```
+
+然后取消 `deploy/nginx.conf` 中 **443 server 段的注释** 和 **80 段的 301 跳转注释**，重建：
+
+```bash
+cd /opt/copilot-lite/deploy && docker compose up -d --build web
+curl -I https://你的域名/   # 应看到 301/200 与 Strict-Transport-Security 头
+```
+
+### 步骤 4：自动续期
+
+```bash
+# certbot 证书 90 天有效；加 crontab 自动续期 + 重载 nginx
+crontab -e
+# 0 3 * * * certbot renew --quiet && docker restart deploy-web-1
+```
 
 ---
 
@@ -156,3 +217,20 @@ docker compose logs -f backend
 3. **演示后**：可展示 `/docs`（OpenAPI 文档）与 `docker compose ps`（架构可视化）
 
 > 隐私红线：云端**不要**上传真实公司文档，使用脱敏示例数据。
+
+---
+
+## 8. 上线安全自检清单（每次部署前逐项确认）
+
+| # | 检查项 | 说明 |
+|---|---|---|
+| 1 | HTTPS 已启用 | 80 强制跳 443、HSTS 生效（curl -I https://域名 可见） |
+| 2 | SECRET_KEY 为强随机值 | 云模式启动自检会拒绝默认值，但请确认 .env 已覆盖 |
+| 3 | POSTGRES_PASSWORD 非默认 | compose 缺省拒绝启动；口令与 DATABASE_URL 一致 |
+| 4 | Qdrant/Redis 已认证 | QDRANT_API_KEY 与 REDIS_PASSWORD 已配置且不为空 |
+| 5 | 端口收敛 | 仅 80/443 对外（安全组）；backend/postgres/qdrant/redis 仅内网 |
+| 6 | 非 root 运行 | 后端容器 USER app（Dockerfile 已固化） |
+| 7 | CORS 与部署形态一致 | 同域部署无需配置；跨域时白名单仅放行可信域名 |
+| 8 | 限流与预算生效 | LLM_DAILY_TOKEN_BUDGET 按需开启；API_CHAT_RATE_LIMIT 按用户限频 |
+| 9 | 镜像与依赖可复现 | uv 版本固定（Dockerfile tag）、uv.lock --frozen 安装 |
+| 10 | 备份与回滚 | pgdata/qdrantdata/models 卷持久化；deploy_remote.sh 支持代码+产物双回滚 |

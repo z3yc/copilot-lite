@@ -9,17 +9,31 @@ backend/.env
 backend/**/*.pyc
 backend/**/__pycache__
 backend/.pytest_cache
+backend/.ruff_cache
+backend/.coverage
 backend/qdrant_data
 backend/test_copilot.db
 backend/copilot.db
 backend/htmlcov
+backend/data
 
 # ---- 前端 ----
 web/node_modules
 web/dist
+web/.npm-cache
+
+# ---- 本机工具链 / 私有内容（不进构建上下文，防泄露与体积膨胀）----
+.venv
+cli/.venv
+.jenkins-home
+.jenkins
+.uv-cache
+copilot.db
+面试准备/
 
 # ---- 本地/其他 ----
 *.log
+*.tsbuildinfo
 .DS_Store
 .idea
 .vscode

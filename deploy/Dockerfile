@@ -6,12 +6,14 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     # 国内网络：uv 装依赖走清华 PyPI 镜像（用户显式配置可覆盖）
-    UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+    UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple \
+    # 非 root 运行：HOME 指向 app 用户目录（uv 运行时缓存可写）
+    HOME=/home/app
 
 WORKDIR /app
 
-# 安装 uv（轻量包管理）
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# 安装 uv（固定版本 tag，构建可复现；避免 latest 漂移）
+COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /bin/
 
 # 先复制依赖清单，利用缓存层（README 为 hatchling 构建本地包所需）
 COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
@@ -21,6 +23,13 @@ RUN uv sync --frozen --no-dev
 COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./
+
+# 非 root 用户运行；/models 目录预创建并授权
+# （命名卷首次挂载会继承镜像内目录的属主，保证 app 用户可写模型缓存）
+RUN useradd -m -u 1000 app \
+    && mkdir -p /models \
+    && chown -R app:app /app /models
+USER app
 
 EXPOSE 8000
 

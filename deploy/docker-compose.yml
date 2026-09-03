@@ -89,8 +89,8 @@ services:
       sh -c "uv run alembic upgrade head &&
              uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"
     healthcheck:
-      # 容器内 python 自带 urllib，无需 curl/wget
-      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=3)"]
+      # 直接用镜像内 venv 的 python 探活（uv run 每次启动有开销）
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 5

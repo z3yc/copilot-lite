@@ -35,6 +35,8 @@ pipeline {
         GITEE_URL = 'https://gitee.com/zyc66x/copilot-lite.git'
         // 飞书通知目标：接收人的 open_id（非机密，可放仓库；如换人接收改这里）
         FEISHU_OPEN_ID = 'ou_6bc25da3c78f41193e801d900dcaaa62'
+        // Python 输出强制 UTF-8：否则中文测试名经 GBK 控制台进日志变乱码（错误摘要/控制台都受影响）
+        PYTHONUTF8 = '1'
     }
 
     parameters {

@@ -144,10 +144,13 @@ pipeline {
                             "\u23F1\uFE0F \u8017\u65F6\uFF1A${currentBuild.durationString}\n" +            // duration line
                             "\uD83C\uDF3F \u5206\u652F\uFF1A${env.GIT_BRANCH ?: 'main'}\n" +              // branch line
                             "\uD83D\uDD17 \u8BE6\u60C5\uFF1A${env.BUILD_URL}"                              // detail link
-                        // 失败/中止时附加错误摘要（从控制台日志提取关键错误行，最多 12 条）
+                        // 失败/中止时附加错误摘要（从控制台日志文件提取关键错误行，最多 12 条）
+                        // 注：rawBuild.getLog 需脚本审批，这里用 readFile 直接读构建日志文件
                         if (!ok) {
                             try {
-                                def logLines = currentBuild.rawBuild.getLog(400)
+                                def base = env.WORKSPACE - '\\workspace\\copilot-lite'
+                                def logPath = base + '\\jobs\\' + env.JOB_NAME + '\\builds\\' + env.BUILD_NUMBER + '\\log'
+                                def logLines = readFile(file: logPath).readLines()
                                 def errRe = ~/(?i)(FAILED|error|exception|assertionerror|traceback|not recognized|cannot find|finished: failure|E\s{1,2}\w)/
                                 def picked = [] as LinkedHashSet
                                 for (l in logLines) {
@@ -160,7 +163,7 @@ pipeline {
                                     text += '\n\n\u26A0 \u9519\u8BEF\u6458\u8981\uFF1A\n' + picked.join('\n')
                                 }
                             } catch (ignoreLog) {
-                                // 读取日志失败则不带错误摘要（不影响消息本身）
+                                echo "错误摘要读取失败（不影响消息）：${ignoreLog}"
                             }
                         }
                         // JSON 字符串转义（content 是"字符串化的 JSON"，必须两层转义，否则飞书 230001）

@@ -35,8 +35,6 @@ pipeline {
         GITEE_URL = 'https://gitee.com/zyc66x/copilot-lite.git'
         // 飞书通知目标：接收人的 open_id（非机密，可放仓库；如换人接收改这里）
         FEISHU_OPEN_ID = 'ou_6bc25da3c78f41193e801d900dcaaa62'
-        // Python 输出强制 UTF-8：否则中文测试名经 GBK 控制台进日志变乱码（错误摘要/控制台都受影响）
-        PYTHONUTF8 = '1'
     }
 
     parameters {
@@ -146,19 +144,35 @@ pipeline {
                             "\u23F1\uFE0F \u8017\u65F6\uFF1A${currentBuild.durationString}\n" +            // duration line
                             "\uD83C\uDF3F \u5206\u652F\uFF1A${env.GIT_BRANCH ?: 'main'}\n" +              // branch line
                             "\uD83D\uDD17 \u8BE6\u60C5\uFF1A${env.BUILD_URL}"                              // detail link
-                        // 失败/中止时附加错误摘要（从控制台日志文件提取关键错误行，最多 12 条）
-                        // 注：rawBuild.getLog 需脚本审批，这里用 readFile 直接读构建日志文件
+                        // 失败/中止时附加错误摘要（最多 12 条）
+                        // 策略：优先 junit.xml（pytest 直接产出，UTF-8 无损、中文不乱码）；
+                        //       junit 缺失（前端等失败）时回退到构建日志正则提取。
                         if (!ok) {
                             try {
-                                def base = env.WORKSPACE - '\\workspace\\copilot-lite'
-                                def logPath = base + '\\jobs\\' + env.JOB_NAME + '\\builds\\' + env.BUILD_NUMBER + '\\log'
-                                def logLines = readFile(file: logPath).readLines()
-                                def errRe = ~/(?i)(FAILED|Found \d+ errors|error TS|Exception|AssertionError|Traceback|not recognized|Cannot find|No test report|Finished: FAILURE|ERROR: script)|(?-i:^E\s{1,2}\w)/
                                 def picked = [] as LinkedHashSet
-                                for (l in logLines) {
-                                    if (picked.size() >= 12) break
-                                    if (l.length() > 250) continue
-                                    if (l =~ errRe) picked.add(l.trim())
+                                def junitPath = env.WORKSPACE + '\\backend\\reports\\junit.xml'
+                                if (fileExists(junitPath)) {
+                                    def xml = readFile(file: junitPath)
+                                    def tcRe = ~/<testcase classname="([^"]+)" name="([^"]+)"[^>]*>\s*<failure message="([^"]*)"/
+                                    def mm = (xml =~ tcRe)
+                                    while (mm.find() && picked.size() < 12) {
+                                        def name = mm.group(2)
+                                        def msg = mm.group(3)
+                                        msg = msg.replace('&#10;', ' ').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"').replace('&amp;', '&')
+                                        if (msg.length() > 160) msg = msg.substring(0, 160)
+                                        picked.add(name + ' - ' + msg)
+                                    }
+                                }
+                                if (!picked) {
+                                    def base = env.WORKSPACE - '\\workspace\\copilot-lite'
+                                    def logPath = base + '\\jobs\\' + env.JOB_NAME + '\\builds\\' + env.BUILD_NUMBER + '\\log'
+                                    def logLines = readFile(file: logPath).readLines()
+                                    def errRe = ~/(?i)(FAILED|Found \d+ errors|error TS|Exception|AssertionError|Traceback|not recognized|Cannot find|No test report|Finished: FAILURE|ERROR: script)|(?-i:^E\s{1,2}\w)/
+                                    for (l in logLines) {
+                                        if (picked.size() >= 12) break
+                                        if (l.length() > 250) continue
+                                        if (l =~ errRe) picked.add(l.trim())
+                                    }
                                 }
                                 if (picked) {
                                     // 错误摘要小节（⚠ 错误摘要：）

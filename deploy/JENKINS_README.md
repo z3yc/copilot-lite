@@ -155,5 +155,3 @@ copilot-lite/
 └── docs/CICD_PLAN.md           # 方案记录与实施清单
 ```
 
-<!-- trigger-test-155152 trigger-test -->
-

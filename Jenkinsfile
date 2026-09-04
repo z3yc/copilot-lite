@@ -152,7 +152,8 @@ pipeline {
                                 def picked = [] as LinkedHashSet
                                 def junitPath = env.WORKSPACE + '\\backend\\reports\\junit.xml'
                                 if (fileExists(junitPath)) {
-                                    def xml = readFile(file: junitPath)
+                                    // readFile 默认平台编码（GBK），junit 是 UTF-8——必须显式指定
+                                    def xml = readFile(file: junitPath, encoding: 'UTF-8')
                                     def tcRe = ~/<testcase classname="([^"]+)" name="([^"]+)"[^>]*>\s*<failure message="([^"]*)"/
                                     def mm = (xml =~ tcRe)
                                     while (mm.find() && picked.size() < 12) {
@@ -166,7 +167,7 @@ pipeline {
                                 if (!picked) {
                                     def base = env.WORKSPACE - '\\workspace\\copilot-lite'
                                     def logPath = base + '\\jobs\\' + env.JOB_NAME + '\\builds\\' + env.BUILD_NUMBER + '\\log'
-                                    def logLines = readFile(file: logPath).readLines()
+                                    def logLines = readFile(file: logPath, encoding: 'UTF-8').readLines()
                                     def errRe = ~/(?i)(FAILED|Found \d+ errors|error TS|Exception|AssertionError|Traceback|not recognized|Cannot find|No test report|Finished: FAILURE|ERROR: script)|(?-i:^E\s{1,2}\w)/
                                     for (l in logLines) {
                                         if (picked.size() >= 12) break

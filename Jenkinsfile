@@ -151,7 +151,7 @@ pipeline {
                                 def base = env.WORKSPACE - '\\workspace\\copilot-lite'
                                 def logPath = base + '\\jobs\\' + env.JOB_NAME + '\\builds\\' + env.BUILD_NUMBER + '\\log'
                                 def logLines = readFile(file: logPath).readLines()
-                                def errRe = ~/(?i)(FAILED|error|exception|assertionerror|traceback|not recognized|cannot find|finished: failure|E\s{1,2}\w)/
+                                def errRe = ~/(?i)(FAILED|Found \d+ errors|error TS|Exception|AssertionError|Traceback|not recognized|Cannot find|No test report|Finished: FAILURE|ERROR: script)|(?-i:^E\s{1,2}\w)/
                                 def picked = [] as LinkedHashSet
                                 for (l in logLines) {
                                     if (picked.size() >= 12) break

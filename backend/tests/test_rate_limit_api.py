@@ -29,7 +29,8 @@ def test_limiter_window_slides() -> None:
     assert limiter.allow("k")
     assert limiter.allow("k")
     assert not limiter.allow("k")
-    time.sleep(0.06)
+    # 睡眠余量放大到窗口的 4 倍（0.2s vs 0.05s）：CI 全量负载下 0.06s 曾偶发不足
+    time.sleep(0.2)
     assert limiter.allow("k")
 
 

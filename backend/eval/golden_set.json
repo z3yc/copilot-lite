@@ -5,52 +5,92 @@
     {
       "query": "FastAPI 的依赖注入怎么用",
       "expected_doc_title": "FastAPI",
-      "must_contain": ["依赖注入", "Depends"]
+      "must_contain": [
+        "依赖注入",
+        "Depends"
+      ],
+      "ground_truth": "FastAPI 通过 Depends 实现依赖注入：在路径操作函数参数中声明依赖，由框架自动解析并注入。"
     },
     {
       "query": "PostgreSQL 索引失效的排查思路",
       "expected_doc_title": "数据库",
-      "must_contain": ["索引", "执行计划"]
+      "must_contain": [
+        "索引",
+        "执行计划"
+      ],
+      "ground_truth": "用 EXPLAIN 查看执行计划，确认是否全表扫描；常见原因有类型不匹配、函数包裹列、统计信息过期。"
     },
     {
       "query": "Docker 镜像瘦身的方法",
       "expected_doc_title": "Docker",
-      "must_contain": ["多阶段构建", "alpine"]
+      "must_contain": [
+        "多阶段构建",
+        "alpine"
+      ],
+      "ground_truth": "使用多阶段构建、以 alpine 为基础镜像、清理构建缓存与无用层。"
     },
     {
       "query": "Qdrant 本地模式与远程模式的区别",
       "expected_doc_title": "向量数据库",
-      "must_contain": ["本地模式", "payload"]
+      "must_contain": [
+        "本地模式",
+        "payload"
+      ],
+      "ground_truth": "本地模式基于文件持久化、同一目录仅允许一个客户端；远程模式通过 HTTP 服务访问，支持多实例共享。"
     },
     {
       "query": "Python 异步编程的常见坑",
       "expected_doc_title": "Python",
-      "must_contain": ["事件循环", "async"]
+      "must_contain": [
+        "事件循环",
+        "async"
+      ],
+      "ground_truth": "避免在事件循环中做阻塞调用、注意协程未 await 不执行、共享状态需要加锁。"
     },
     {
       "query": "JWT 的撤销方案有哪些",
       "expected_doc_title": "认证",
-      "must_contain": ["token_version", "黑名单"]
+      "must_contain": [
+        "token_version",
+        "黑名单"
+      ],
+      "ground_truth": "使用 token_version 版本号、短期过期时间或服务端黑名单实现撤销。"
     },
     {
       "query": "React 状态管理的选型",
       "expected_doc_title": "前端",
-      "must_contain": ["useState", "状态管理"]
+      "must_contain": [
+        "useState",
+        "状态管理"
+      ],
+      "ground_truth": "局部状态用 useState，跨组件共享用 Context 或状态库如 Zustand/Redux。"
     },
     {
       "query": "Prompt 注入的防护手段",
       "expected_doc_title": "大模型安全",
-      "must_contain": ["间接注入", "定界"]
+      "must_contain": [
+        "间接注入",
+        "定界"
+      ],
+      "ground_truth": "数据定界、声明数据身份、工具参数白名单校验、高危操作人机确认。"
     },
     {
       "query": "RRF 融合的原理",
       "expected_doc_title": "RAG",
-      "must_contain": ["倒数排名", "RRF"]
+      "must_contain": [
+        "倒数排名",
+        "RRF"
+      ],
+      "ground_truth": "RRF 按各检索路排名倒数求和（1/(k+rank)），免调参且对分数尺度不敏感。"
     },
     {
       "query": "面试自我介绍怎么组织",
       "expected_doc_title": "面试",
-      "must_contain": ["项目亮点", "STAR"]
+      "must_contain": [
+        "项目亮点",
+        "STAR"
+      ],
+      "ground_truth": "用项目亮点开场，按 STAR 法则组织经历，30 秒内讲清定位与亮点。"
     }
   ]
 }

@@ -17,6 +17,16 @@ def test_golden_set_schema() -> None:
         assert item.get("expected_doc_title"), f"缺 expected_doc_title: {item}"
         must = item.get("must_contain")
         assert isinstance(must, list) and must, f"must_contain 必填非空: {item}"
+        # RAGAS 评测的参考答案（可选，提供时必须是字符串）
+        gt = item.get("ground_truth")
+        assert gt is None or isinstance(gt, str), f"ground_truth 必须是字符串: {item}"
+
+
+def test_golden_set_has_ground_truth_for_ragas() -> None:
+    """至少 5 条带参考答案，保证 RAGAS 评测脚本可用。"""
+    data = json.loads(_GOLDEN.read_text(encoding="utf-8"))
+    with_gt = [i for i in data["items"] if i.get("ground_truth")]
+    assert len(with_gt) >= 5, "RAGAS 评测需要至少 5 条带 ground_truth 的条目"
 
 
 def test_golden_set_has_name_and_notes() -> None:

@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     EMBED_QUERY_CACHE_SIZE: int = 512
     # Rerank 结果缓存条数（(query, passages) → 分数）
     RERANK_CACHE_SIZE: int = 128
+    # 查询改写（multi-query 召回）：LLM 生成多个检索表述后跨查询 RRF 融合
+    RAG_QUERY_REWRITE_ENABLED: bool = True
+    RAG_QUERY_REWRITE_VARIANTS: int = 2  # 除原问题外的改写数量
 
     # 长期记忆
     MEMORY_TOP_K: int = 5  # 每次召回记忆条数

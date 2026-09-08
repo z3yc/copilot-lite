@@ -2,11 +2,22 @@
 
 通过 ToolRegistry 注册，Agent 在用户问题涉及文档/笔记/资料时自动调用。
 返回带来源（文档标题/标题路径/页码）的片段，供主 Agent 生成带引用的回答。
+
+查询改写（multi-query）：开启 RAG_QUERY_REWRITE_ENABLED 时，先用 LLM 把
+口语化问题改写成多个检索表述，多路召回后跨查询 RRF 融合——
+补"用户问法"与"文档写法"之间的表达鸿沟；改写失败自动回退单查询。
 """
 
 import json
 
-from app.rag import get_embedding_service, get_vector_store, hybrid_search
+from app.core.config import settings
+from app.rag import (
+    get_embedding_service,
+    get_rewriter,
+    get_vector_store,
+    hybrid_search,
+    multi_query_search,
+)
 from app.tools.base import ToolContext, registry
 
 
@@ -18,14 +29,26 @@ async def kb_search(ctx: ToolContext, query: str, top_k: int = 3) -> str:
     便于用户核对来源，避免模型自由复述来源时编造。
     """
     top_k = max(1, min(5, top_k))
-    results = await hybrid_search(
-        db=ctx.session,
-        query=query,
-        embeddings=get_embedding_service(),
-        vector_store=get_vector_store(),
-        top_k=top_k,
-        user_id=str(ctx.user_id) if ctx.user_id else None,
-    )
+    user_filter = str(ctx.user_id) if ctx.user_id else None
+    if settings.RAG_QUERY_REWRITE_ENABLED:
+        variants = await get_rewriter().rewrite(query)
+        results = await multi_query_search(
+            db=ctx.session,
+            queries=variants,
+            embeddings=get_embedding_service(),
+            vector_store=get_vector_store(),
+            top_k=top_k,
+            user_id=user_filter,
+        )
+    else:
+        results = await hybrid_search(
+            db=ctx.session,
+            query=query,
+            embeddings=get_embedding_service(),
+            vector_store=get_vector_store(),
+            top_k=top_k,
+            user_id=user_filter,
+        )
     payload = []
     for i, r in enumerate(results, start=1):
         meta = r.meta or {}

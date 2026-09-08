@@ -206,3 +206,48 @@ async def hybrid_search(
         settings.RAG_RERANK_ENABLED,
     )
     return merged
+
+
+async def multi_query_search(
+    db: AsyncSession,
+    queries: list[str],
+    embeddings: EmbeddingService,
+    vector_store: VectorStore,
+    top_k: int = settings.RAG_TOP_K,
+    candidate_k: int = settings.RAG_RERANK_CANDIDATE_K,
+    rerank_top_n: int = settings.RAG_RERANK_TOP_N,
+    document_id: str | None = None,
+    user_id: str | None = None,
+    reranker: Reranker | None = None,
+) -> list[RetrievedChunk]:
+    """多查询召回：对每个改写分别混合检索，再跨查询 RRF 融合。
+
+    单查询内部已完成 BM25+向量 RRF + Rerank；跨查询融合让
+    "被某个改写命中、但原始问题未命中"的文档也有机会进入最终结果
+    （multi-query 是补召回率的经典手段）。
+    """
+    if not queries:
+        return []
+    hit_lists = [
+        await hybrid_search(
+            db, q, embeddings, vector_store,
+            top_k=top_k, candidate_k=candidate_k, rerank_top_n=rerank_top_n,
+            document_id=document_id, user_id=user_id, reranker=reranker,
+        )
+        for q in queries
+    ]
+
+    # 跨查询 RRF：同一 chunk 在不同查询的排名倒数求和
+    scores: dict[str, tuple[float, RetrievedChunk]] = {}
+    for hits in hit_lists:
+        for rank, h in enumerate(hits, start=1):
+            if h.chunk_id in scores:
+                s, _ = scores[h.chunk_id]
+                scores[h.chunk_id] = (s + 1.0 / (RRF_K + rank), h)
+            else:
+                scores[h.chunk_id] = (1.0 / (RRF_K + rank), h)
+    merged = [
+        RetrievedChunk(chunk_id=h.chunk_id, content=h.content, meta=h.meta, score=s)
+        for s, h in sorted(scores.values(), key=lambda item: item[0], reverse=True)
+    ]
+    return merged[:rerank_top_n]

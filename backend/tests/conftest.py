@@ -104,6 +104,17 @@ def _disable_rerank(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _disable_query_rewrite(monkeypatch):
+    """测试默认关闭查询改写（避免 kb_search 触发真实 LLM 改写调用）。
+
+    相关测试显式开启开关并注入 Fake 改写器。
+    """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "RAG_QUERY_REWRITE_ENABLED", False)
+
+
+@pytest.fixture(autouse=True)
 def _isolated_qdrant(tmp_path, monkeypatch):
     """隔离测试用 Qdrant 目录（避免污染开发库 ./qdrant_data 与目录锁冲突）。
 

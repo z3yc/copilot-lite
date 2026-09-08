@@ -61,6 +61,9 @@ Thumbs.db
 logs/
 *.log
 
+# ===== 本地开发规范（含本机路径，不入库）=====
+AGENTS.md
+
 # ===== 本机 Jenkins（CI/CD） =====
 .jenkins-home/
 .jenkins/

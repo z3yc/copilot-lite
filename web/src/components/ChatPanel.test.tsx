@@ -18,6 +18,10 @@ vi.mock("../api", () => ({
   streamChat: vi.fn(),
   uploadSessionFile: vi.fn(),
   deleteSessionFile: vi.fn(),
+  // 头部 ModelSelect 依赖
+  fetchLlmSettings: vi.fn(),
+  fetchLlmModels: vi.fn(),
+  saveLlmSettings: vi.fn(),
 }));
 
 const mocked = vi.mocked(api);
@@ -40,6 +44,21 @@ describe("ChatPanel", () => {
     vi.clearAllMocks(); // 隔离用例间的调用记录与实现
     mocked.fetchSessionFiles.mockResolvedValue([]);
     mocked.fetchMessages.mockResolvedValue([]);
+    // 默认：使用环境变量默认模型 → ModelSelect 只读，不触发额外交互
+    mocked.fetchLlmSettings.mockResolvedValue({
+      base_url: "https://api.deepseek.com",
+      model: "deepseek-chat",
+      temperature: 0.7,
+      max_tokens: 2048,
+      api_key_set: true,
+      api_key_preview: "sk-****test",
+      source: "env",
+    });
+    mocked.fetchLlmModels.mockResolvedValue({
+      models: ["deepseek-chat"],
+      current: "deepseek-chat",
+      source: "env",
+    });
   });
 
   it("渲染历史消息与标题", () => {

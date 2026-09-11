@@ -30,6 +30,7 @@ import {
 import { ACCEPT_EXTENSIONS } from "../constants";
 import type { ChatMessage, SessionFile } from "../types";
 import { renderMarkdown } from "../utils/markdown";
+import ModelSelect from "./ModelSelect";
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -47,6 +48,8 @@ interface Props {
   onNewSession: () => void;
   busy: boolean;
   setBusy: (b: boolean) => void;
+  /** 未配置模型时，引导前往「个人主页 → 模型设置」 */
+  onOpenSettings?: () => void;
 }
 
 export default function ChatPanel({
@@ -57,6 +60,7 @@ export default function ChatPanel({
   onNewSession,
   busy,
   setBusy,
+  onOpenSettings,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -242,9 +246,12 @@ export default function ChatPanel({
             {sessionTitle || "Copilot-Lite · 青木"}
           </Text>
         </Space>
-        <Button size="small" onClick={onNewSession} disabled={busy}>
-          ＋ 新会话
-        </Button>
+        <Space size={8}>
+          <ModelSelect onOpenSettings={onOpenSettings} />
+          <Button size="small" onClick={onNewSession} disabled={busy}>
+            ＋ 新会话
+          </Button>
+        </Space>
       </div>
 
       <div className="messages" ref={scrollRef} onScroll={handleScroll}>

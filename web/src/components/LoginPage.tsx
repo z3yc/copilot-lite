@@ -58,6 +58,7 @@ export default function LoginPage({ onSuccess }: Props) {
         <Form form={form} onFinish={submit} size="large">
           <Form.Item
             name="username"
+            label="用户名"
             rules={[
               { required: true, message: "请输入用户名" },
               { min: 2, max: 64, message: "2-64 位字母/数字/下划线" },
@@ -67,10 +68,15 @@ export default function LoginPage({ onSuccess }: Props) {
               },
             ]}
           >
-            <Input prefix={<UserOutlined />} placeholder="用户名" autoComplete="username" />
+            <Input
+              prefix={<UserOutlined />}
+              placeholder="请输入用户名"
+              autoComplete="username"
+            />
           </Form.Item>
           <Form.Item
             name="password"
+            label="密码"
             rules={[
               { required: true, message: "请输入密码" },
               { min: 6, max: 64, message: "密码至少 6 位" },
@@ -78,7 +84,7 @@ export default function LoginPage({ onSuccess }: Props) {
           >
             <Input.Password
               prefix={<LockOutlined />}
-              placeholder="密码（至少 6 位）"
+              placeholder="至少 6 位"
               autoComplete={mode === "login" ? "current-password" : "new-password"}
             />
           </Form.Item>

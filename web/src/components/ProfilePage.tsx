@@ -274,7 +274,10 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
               <>
                 <Card className="profile-card">
                   <Space align="center" size={20}>
-                    <Avatar size={72} style={{ backgroundColor: "#4f6ef7", fontSize: 30 }}>
+                    <Avatar
+                      size={72}
+                      style={{ backgroundColor: "var(--color-primary)", fontSize: 30 }}
+                    >
                       {profile?.username?.[0]?.toUpperCase() ?? "U"}
                     </Avatar>
                     <div>
@@ -436,7 +439,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                         ]}
                       >
                         <List.Item.Meta
-                          avatar={<BulbOutlined style={{ fontSize: 20, color: "#4f6ef7" }} />}
+                          avatar={
+                            <BulbOutlined
+                              style={{ fontSize: 20, color: "var(--color-primary)" }}
+                            />
+                          }
                           title={m.fact}
                           description={
                             <Space size={8}>

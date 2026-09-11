@@ -13,6 +13,7 @@ import {
 import zhCN from "antd/locale/zh_CN";
 import { BulbOutlined, LogoutOutlined, MoonOutlined } from "@ant-design/icons";
 import { clearToken, fetchMessages, getToken } from "./api";
+import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
 import ChatPanel from "./components/ChatPanel";
 import DocCategoryNav from "./components/DocCategoryNav";
 import KbPanel from "./components/KbPanel";
@@ -79,8 +80,8 @@ export default function App() {
       theme={{
         algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: {
-          colorPrimary: "#4f6ef7",
-          borderRadius: 10,
+          colorPrimary: BRAND_PRIMARY,
+          borderRadius: BRAND_RADIUS,
         },
       }}
     >
@@ -141,7 +142,7 @@ export default function App() {
                     onClick={() => setShowProfile(true)}
                     title="个人主页"
                   >
-                    <Avatar size={28} style={{ backgroundColor: "#4f6ef7" }}>
+                    <Avatar size={28} style={{ backgroundColor: "var(--color-primary)" }}>
                       {(getToken() ? "青" : "U")[0]}
                     </Avatar>
                     <span style={{ fontSize: 13, color: "var(--text)" }}>

@@ -35,7 +35,7 @@ export default function LoginPage({ onSuccess }: Props) {
     <div className="login-wrap">
       <Card className="login-card">
         <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <RobotOutlined style={{ fontSize: 44, color: "#4f6ef7" }} />
+          <RobotOutlined style={{ fontSize: 44, color: "var(--color-primary)" }} />
           <Title level={3} style={{ margin: "8px 0 0" }}>
             Copilot-Lite
           </Title>

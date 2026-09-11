@@ -67,7 +67,11 @@ export default function DocCategoryNav({ activeCat, onChange }: Props) {
               <Text>
                 {c.icon} {c.label}
               </Text>
-              <Badge count={c.count} showZero color={activeCat === c.key ? "#4f6ef7" : "#d9d9d9"} />
+              <Badge
+                count={c.count}
+                showZero
+                color={activeCat === c.key ? "var(--color-primary)" : "var(--color-neutral)"}
+              />
             </List.Item>
           )}
         />

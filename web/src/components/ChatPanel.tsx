@@ -213,7 +213,7 @@ export default function ChatPanel({
     <div className="chat-panel">
       <div className="chat-header">
         <Space>
-          <RobotOutlined style={{ color: "#4f6ef7", fontSize: 18 }} />
+          <RobotOutlined style={{ color: "var(--color-primary)", fontSize: 18 }} />
           <Text strong>Copilot-Lite · 青木</Text>
         </Space>
         <Button size="small" onClick={onNewSession} disabled={busy}>
@@ -239,8 +239,9 @@ export default function ChatPanel({
               size={32}
               icon={m.role === "user" ? <UserOutlined /> : <RobotOutlined />}
               style={{
-                backgroundColor: m.role === "user" ? "#4f6ef7" : "#e8ecff",
-                color: m.role === "user" ? "#fff" : "#4f6ef7",
+                backgroundColor:
+                  m.role === "user" ? "var(--color-primary)" : "#e8ecff",
+                color: m.role === "user" ? "#fff" : "var(--color-primary)",
               }}
             />
             <div

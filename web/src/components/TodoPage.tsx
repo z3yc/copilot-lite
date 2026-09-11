@@ -246,7 +246,7 @@ export default function TodoPage() {
         <div className="todo-toolbar">
           <Space.Compact style={{ width: "60%", maxWidth: 560 }}>
             <Input
-              prefix={<RobotOutlined style={{ color: "#4f6ef7" }} />}
+              prefix={<RobotOutlined style={{ color: "var(--color-primary)" }} />}
               placeholder='🤖 AI 快速添加："明天下午3点买菜 生活 #采购"'
               value={aiText}
               onChange={(e) => setAiText(e.target.value)}

@@ -1,21 +1,73 @@
-/* Copilot-Lite Web 样式（基于 Ant Design + CSS 变量支持暗色模式） */
+/* Copilot-Lite Web 样式（基于 Ant Design + 语义令牌，支持亮/暗双主题） */
 :root {
-  --bg: #f5f6fa;
-  --panel: #ffffff;
-  --border: #e4e7ef;
-  --msg-bg: #fafbfe;
-  --ai-bubble: #ffffff;
-  --text: #1f2330;
-  --dim: #8a90a3;
+  /* ---- 品牌 / 语义色 ---- */
+  --color-primary: #4f6ef7; /* 必须与 src/theme.ts 的 BRAND_PRIMARY 一致 */
+  --color-primary-hover: #3b5bdb;
+  --color-primary-soft: #eef1ff; /* 激活/选中态浅底（P0-3 将接入暗色） */
+  --color-primary-soft-text: #3b5bdb;
+  --color-danger: #e5484d;
+  --color-warning: #f08c00;
+  --color-success: #16a34a;
+  --color-neutral: #d9d9d9;
+
+  /* ---- 文字层级（四级）---- */
+  --text-primary: #1f2330;
+  --text-secondary: #4b5163;
+  --text-tertiary: #8a90a3; /* 原 --dim；对比度提升见 P0-5 */
+  --text-muted: #b0b5c3;
+
+  /* ---- 表面 / 边框 ---- */
+  --surface-base: #f5f6fa;
+  --surface-panel: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: #fafbfe;
+  --border-default: #e4e7ef;
+  --border-strong: #cdd2e0;
+
+  /* ---- 圆角 / 阴影 / 间距 scale（P1-2 全面接入）---- */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+
+  /* ---- 兼容旧变量名（组件仍在使用，逐步迁移）---- */
+  --bg: var(--surface-base);
+  --panel: var(--surface-panel);
+  --border: var(--border-default);
+  --msg-bg: var(--surface-sunken);
+  --ai-bubble: var(--surface-raised);
+  --text: var(--text-primary);
+  --dim: var(--text-tertiary);
 }
 body.dark {
-  --bg: #141414;
-  --panel: #1f1f1f;
-  --border: #303030;
-  --msg-bg: #171717;
-  --ai-bubble: #262626;
-  --text: #e6e6e6;
-  --dim: #8c8c8c;
+  --color-primary: #6b86ff;
+  --color-primary-hover: #8399ff;
+  --color-primary-soft: #232a44;
+  --color-primary-soft-text: #a9b8ff;
+  --color-neutral: #3d3d3d;
+
+  --text-primary: #e6e6e6;
+  --text-secondary: #b8b8b8;
+  --text-tertiary: #8c8c8c;
+  --text-muted: #6f6f6f;
+
+  --surface-base: #141414;
+  --surface-panel: #1f1f1f;
+  --surface-raised: #262626;
+  --surface-sunken: #171717;
+  --border-default: #303030;
+  --border-strong: #3d3d3d;
 }
 
 * {
@@ -98,7 +150,7 @@ body.dark .login-wrap {
   min-width: 40px;
 }
 .msg.user .bubble {
-  background: #4f6ef7;
+  background: var(--color-primary);
   color: #fff;
   border-top-right-radius: 4px;
 }
@@ -191,7 +243,7 @@ body.dark .login-wrap {
 }
 .session-item.active {
   background: #eef1ff !important;
-  border-color: #4f6ef7 !important;
+  border-color: var(--color-primary) !important;
 }
 .session-item .ant-list-item-action {
   margin-inline-start: 8px;
@@ -208,7 +260,7 @@ body.dark .login-wrap {
 }
 .cat-item.active {
   background: #eef1ff !important;
-  border-color: #4f6ef7 !important;
+  border-color: var(--color-primary) !important;
 }
 
 /* ===== 知识库 ===== */
@@ -256,7 +308,7 @@ body.dark .login-wrap {
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
-  border-left: 3px solid #4f6ef7;
+  border-left: 3px solid var(--color-primary);
   padding: 4px 2px 4px 10px;
 }
 .kb-group-title .dim {
@@ -317,7 +369,7 @@ body.dark .login-wrap {
 }
 .todo-nav-item.active {
   background: #eef1ff;
-  color: #4f6ef7;
+  color: var(--color-primary);
   font-weight: 600;
 }
 .todo-nav-count {
@@ -360,7 +412,7 @@ body.dark .login-wrap {
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
-  border-left: 3px solid #4f6ef7;
+  border-left: 3px solid var(--color-primary);
   padding: 4px 2px 4px 10px;
   margin-bottom: 6px;
 }
@@ -456,5 +508,5 @@ body.dark .login-wrap {
 }
 .citations .cite {
   margin-right: 8px;
-  color: #4f6ef7;
+  color: var(--color-primary);
 }

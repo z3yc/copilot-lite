@@ -24,6 +24,9 @@ class ObsidianConnector(SourceConnector):
     async def import_archive(self, db, user_id, space, data: bytes) -> int:
         return await service.import_zip(db, user_id, space, data)
 
+    async def import_files(self, db, user_id, space, items: list) -> int:
+        return await service.import_files(db, user_id, space, items)
+
     async def sync(self, db, user_id, space) -> dict:
         return await service.sync_space(db, user_id, space)
 

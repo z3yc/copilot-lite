@@ -26,6 +26,35 @@ def safe_join(root: Path, rel: str) -> Path:
     return target
 
 
+def save_uploaded_files(dest: Path, items: list[tuple[str, bytes]]) -> int:
+    """保存上传的（相对路径, 内容）文件到受管目录，返回写入数。
+
+    与 zip 导入同等的路径沙箱与限额；用于单/多文件与文件夹（含相对路径）导入。
+    """
+    dest = Path(dest).resolve()
+    dest.mkdir(parents=True, exist_ok=True)
+    total_bytes = 0
+    written = 0
+    for rel_path, data in items:
+        rel = (rel_path or "").replace("\\", "/").lstrip("/")
+        if not rel or rel.endswith("/"):
+            continue
+        if rel.startswith("__MACOSX/") or Path(rel).name.startswith("._"):
+            continue
+        written += 1
+        if written > settings.WIKI_MAX_FILES:
+            raise WikiImportError(f"文件数超过上限 {settings.WIKI_MAX_FILES}")
+        total_bytes += len(data)
+        if total_bytes > settings.WIKI_MAX_EXTRACT_BYTES:
+            raise WikiImportError(
+                f"文件总大小超过上限 {settings.WIKI_MAX_EXTRACT_BYTES // 1024 // 1024}MB"
+            )
+        target = safe_join(dest, rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    return written
+
+
 def extract_zip(zip_bytes: bytes, dest: Path) -> int:
     """安全解压 zip 到 dest，返回写入的文件数。"""
     if len(zip_bytes) > settings.WIKI_MAX_ARCHIVE_BYTES:

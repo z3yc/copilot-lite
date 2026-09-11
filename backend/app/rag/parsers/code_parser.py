@@ -4,7 +4,13 @@
 meta 提供 file_path；每个文件 = 一个 Section，标题为相对路径。
 """
 
-from app.rag.parsers.base import DocumentParser, ParsedDocument, Section, register_parser
+from app.rag.parsers.base import (
+    DocumentParser,
+    ParsedDocument,
+    Section,
+    decode_text,
+    register_parser,
+)
 
 # 常见文本源码扩展名（其余视为二进制跳过）
 _TEXT_EXTS = {
@@ -21,7 +27,7 @@ class CodeParser(DocumentParser):
     def parse(self, content: bytes, meta: dict | None = None) -> ParsedDocument:
         meta = meta or {}
         file_path = meta.get("file_path", "code")
-        text = content.decode("utf-8", errors="replace")
+        text = decode_text(content)
 
         sections = [
             Section(heading=file_path, level=0, content=text, meta={"file_path": file_path})

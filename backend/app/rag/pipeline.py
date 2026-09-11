@@ -52,11 +52,13 @@ async def ingest_document(
     # 4. 写入 chunks 表
     chunk_rows: list[Chunk] = []
     for i, c in enumerate(chunks):
+        # 防御：PostgreSQL UTF-8 不接受 NUL（部分 UTF-16 文本解码后会残留）
+        safe_content = c.content.replace("\x00", "")
         chunk_rows.append(
             Chunk(
                 document_id=document.id,
                 chunk_index=i,
-                content=c.content,
+                content=safe_content,
                 meta={**c.meta, "document_title": document.title, **(extra_meta or {})},
             )
         )

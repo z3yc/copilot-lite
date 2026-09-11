@@ -144,3 +144,24 @@ def test_pdf_parser_blank() -> None:
     parsed = get_parser("pdf").parse(buf.getvalue())
     assert parsed.source_type == "pdf"
     assert parsed.sections == []
+
+
+def test_decode_text_handles_utf16_and_strips_nul():
+    """UTF-16/含 NUL 文本：解码后不得残留 NUL（PostgreSQL 不接受）。"""
+    from app.rag.parsers.base import decode_text
+
+    raw = "hello ==1\n".encode("utf-16")  # 带 BOM + 字节间 \x00
+    text = decode_text(raw)
+    assert "\x00" not in text
+    assert "hello ==1" in text
+    assert decode_text(b"a\x00b") == "ab"
+    assert decode_text(b"") == ""
+
+
+def test_markdown_parser_handles_utf16():
+    from app.rag.parsers.markdown_parser import MarkdownParser
+
+    parsed = MarkdownParser().parse("# 标题\n\n正文".encode("utf-16"))
+    joined = "".join(s.content for s in parsed.sections)
+    assert "\x00" not in joined
+    assert "正文" in joined

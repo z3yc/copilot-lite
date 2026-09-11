@@ -9,12 +9,13 @@
 - GET    /wiki/pages/{id}                 页面详情（正文 + 出链/反向链接）
 """
 
+import json
 import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,11 +24,16 @@ from app.api.deps import get_current_user, parse_uuid
 from app.connectors.base import get_connector
 from app.connectors.obsidian import connector as _obsidian_connector  # noqa: F401  导入即注册
 from app.connectors.obsidian.importer import WikiImportError
-from app.connectors.obsidian.service import WikiServiceError, _delete_page
+from app.connectors.obsidian.service import (
+    WikiServiceError,
+    _delete_page,
+    is_managed_path,
+    refresh_page,
+)
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.pagination import DEFAULT_PAGE_SIZE, PageOut, normalize_page, page_offset
-from app.models import Chunk, User, WikiLink, WikiPage, WikiSpace
+from app.models import Chunk, Document, User, WikiLink, WikiPage, WikiSpace
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/wiki", tags=["wiki"])
@@ -58,6 +64,7 @@ class WikiPageOut(BaseModel):
     title: str
     slug: str
     document_id: str | None = None
+    page_type: str = "md"  # md / pdf / docx / txt
 
 
 class LinkOut(BaseModel):
@@ -77,6 +84,7 @@ class PageDetail(WikiPageOut):
     tags: list[str] = []
     links: list[LinkOut] = []
     backlinks: list[BacklinkOut] = []
+    document_status: str | None = None  # ready / parsing / failed（供重试提示）
 
 
 class SyncResult(BaseModel):
@@ -86,6 +94,7 @@ class SyncResult(BaseModel):
     deleted: int
     failed: int
     total: int
+    skipped: int = 0  # 未索引的无关文件数（不支持的扩展名）
     imported_files: int | None = None
 
 
@@ -181,10 +190,15 @@ async def delete_wiki_space(
         await _delete_page(db, page)
     await db.delete(space)
     await db.commit()
-    try:
-        shutil.rmtree(Path(space.root_path), ignore_errors=True)
-    except OSError:
-        logger.warning("Wiki 目录清理失败: %s", space.root_path, exc_info=True)
+    # 安全护栏：仅在受管副本目录下才物理删除；local 空间只解除登记（绝不删用户文件）
+    root_path = Path(space.root_path)
+    if is_managed_path(root_path):
+        try:
+            shutil.rmtree(root_path, ignore_errors=True)
+        except OSError:
+            logger.warning("Wiki 目录清理失败: %s", root_path, exc_info=True)
+    else:
+        logger.info("local 空间仅解除登记，不删除磁盘文件: %s", root_path)
     return {"deleted": space_id}
 
 
@@ -214,6 +228,48 @@ async def import_wiki_zip(
     return SyncResult(**stats, imported_files=imported)
 
 
+@router.post("/spaces/{space_id}/import-files", response_model=SyncResult)
+async def import_wiki_files(
+    space_id: str,
+    files: list[UploadFile] = File(...),
+    paths: str = Form("[]"),
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> SyncResult:
+    """上传单/多文件（或文件夹，带相对路径）到 Wiki 空间后同步。
+
+    paths：与 files 同序的 JSON 数组（相对路径），用于保留文件夹结构；缺省用文件名。
+    """
+    _ensure_enabled()
+    space = await _get_space(db, space_id, user)
+    try:
+        rel_paths = json.loads(paths) if paths else []
+    except (ValueError, TypeError):
+        rel_paths = []
+    if not isinstance(rel_paths, list):
+        rel_paths = []
+
+    items: list[tuple[str, bytes]] = []
+    for i, upload in enumerate(files):
+        data = await upload.read(settings.WIKI_MAX_EXTRACT_BYTES + 1)
+        if len(data) > settings.WIKI_MAX_EXTRACT_BYTES:
+            raise HTTPException(status_code=413, detail=f"文件过大: {upload.filename}")
+        rel = (
+            str(rel_paths[i])
+            if i < len(rel_paths) and rel_paths[i]
+            else (upload.filename or f"file-{i}")
+        )
+        items.append((rel, data))
+    if not items:
+        raise HTTPException(status_code=400, detail="未收到文件")
+    try:
+        imported = await _connector().import_files(db, user.id, space, items)
+    except (WikiImportError, WikiServiceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    stats = await _sync(db, user, space)
+    return SyncResult(**stats, imported_files=imported)
+
+
 @router.post("/spaces/{space_id}/sync", response_model=SyncResult)
 async def sync_wiki_space(
     space_id: str,
@@ -234,10 +290,31 @@ async def _sync(db: AsyncSession, user: User, space: WikiSpace) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/spaces/{space_id}/resolve")
+async def resolve_wiki_page(
+    space_id: str,
+    slug: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """按 slug 解析 Wiki 页面（供前端点击 `[[双链]]` 跳转）。"""
+    space = await _get_space(db, space_id, user)
+    page = await db.scalar(
+        select(WikiPage)
+        .where(WikiPage.space_id == space.id, WikiPage.slug == slug)
+        .limit(1)
+    )
+    if page is None:
+        raise HTTPException(status_code=404, detail="页面不存在")
+    return {"page_id": str(page.id), "title": page.title}
+
+
 # ---------------- 页面 ----------------
 
 
 def _page_out(page: WikiPage, space_name: str | None = None) -> WikiPageOut:
+    ext = Path(page.rel_path).suffix.lower().lstrip(".")
+    page_type = {"markdown": "md", "doc": "docx"}.get(ext, ext or "md")
     return WikiPageOut(
         id=str(page.id),
         space_id=str(page.space_id),
@@ -246,6 +323,7 @@ def _page_out(page: WikiPage, space_name: str | None = None) -> WikiPageOut:
         title=page.title,
         slug=page.slug,
         document_id=str(page.document_id) if page.document_id else None,
+        page_type=page_type,
     )
 
 
@@ -304,22 +382,44 @@ async def get_wiki_page(
     space = await db.get(WikiSpace, wp.space_id)
     if space is None or (space.owner_id is not None and space.owner_id != user.id):
         raise HTTPException(status_code=404, detail="Wiki 页面不存在")
+    return await _build_page_detail(db, space, wp)
 
+
+async def _build_page_detail(
+    db: AsyncSession, space: WikiSpace, wp: WikiPage
+) -> PageDetail:
+    """组装页面详情（正文/标签/出链/反向链接/文档状态）。"""
     content = ""
-    try:
-        content = (Path(space.root_path) / wp.rel_path).read_text(
-            encoding="utf-8", errors="replace"
-        )
-    except OSError:
-        content = ""
+    ext = Path(wp.rel_path).suffix.lower()
+    if ext in {".md", ".markdown", ".txt"}:
+        try:
+            content = (Path(space.root_path) / wp.rel_path).read_text(
+                encoding="utf-8", errors="replace"
+            )
+        except OSError:
+            content = ""
+    elif wp.document_id:
+        # 非文本（PDF/DOCX）：展示已抽取的分块文本
+        chunk_rows = (
+            await db.scalars(
+                select(Chunk)
+                .where(Chunk.document_id == wp.document_id)
+                .order_by(Chunk.chunk_index)
+            )
+        ).all()
+        content = "\n\n".join(c.content for c in chunk_rows)
 
     tags: list[str] = []
+    document_status: str | None = None
     if wp.document_id:
         meta = await db.scalar(
             select(Chunk.meta).where(Chunk.document_id == wp.document_id).limit(1)
         )
         if meta:
             tags = list(meta.get("wiki_tags") or [])
+        doc = await db.get(Document, wp.document_id)
+        if doc is not None:
+            document_status = doc.status
 
     outgoing = (
         await db.scalars(select(WikiLink).where(WikiLink.source_page_id == wp.id))
@@ -327,21 +427,26 @@ async def get_wiki_page(
     backlinks_rows = (
         await db.scalars(select(WikiLink).where(WikiLink.target_page_id == wp.id))
     ).all()
-    source_titles = {
-        p.id: p.title
-        for p in (
-            await db.scalars(
-                select(WikiPage).where(
-                    WikiPage.id.in_([link.source_page_id for link in backlinks_rows])
+    source_titles = (
+        {
+            p.id: p.title
+            for p in (
+                await db.scalars(
+                    select(WikiPage).where(
+                        WikiPage.id.in_([link.source_page_id for link in backlinks_rows])
+                    )
                 )
-            )
-        ).all()
-    } if backlinks_rows else {}
+            ).all()
+        }
+        if backlinks_rows
+        else {}
+    )
 
-    detail = PageDetail(
+    return PageDetail(
         **_page_out(wp, space.name).model_dump(),
         content=content,
         tags=tags,
+        document_status=document_status,
         links=[
             LinkOut(
                 target_slug=link.target_slug,
@@ -359,4 +464,23 @@ async def get_wiki_page(
             for link in backlinks_rows
         ],
     )
-    return detail
+
+
+@router.post("/pages/{page_id}/sync", response_model=PageDetail)
+async def resync_wiki_page(
+    page_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> PageDetail:
+    """单页重新索引（失败/内容变更时无需全量同步）。"""
+    wp = await db.get(WikiPage, parse_uuid(page_id))
+    if wp is None:
+        raise HTTPException(status_code=404, detail="Wiki 页面不存在")
+    space = await db.get(WikiSpace, wp.space_id)
+    if space is None or (space.owner_id is not None and space.owner_id != user.id):
+        raise HTTPException(status_code=404, detail="Wiki 页面不存在")
+    try:
+        await refresh_page(db, user.id, space, wp)
+    except WikiServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await _build_page_detail(db, space, wp)

@@ -3,7 +3,13 @@
 简化策略：解析 HTML 的 h1-h6 与段落，剔除脚本/样式/导航等噪声。
 """
 
-from app.rag.parsers.base import DocumentParser, ParsedDocument, Section, register_parser
+from app.rag.parsers.base import (
+    DocumentParser,
+    ParsedDocument,
+    Section,
+    decode_text,
+    register_parser,
+)
 
 
 class WebParser(DocumentParser):
@@ -13,7 +19,7 @@ class WebParser(DocumentParser):
         from bs4 import BeautifulSoup
 
         meta = meta or {}
-        soup = BeautifulSoup(content.decode("utf-8", errors="replace"), "html.parser")
+        soup = BeautifulSoup(decode_text(content), "html.parser")
 
         # 移除噪声节点
         for tag in soup(["script", "style", "nav", "footer", "aside", "header"]):

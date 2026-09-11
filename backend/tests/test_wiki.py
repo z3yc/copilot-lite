@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import json
 import uuid
 import zipfile
 from pathlib import Path
@@ -189,6 +190,61 @@ async def test_wiki_update_and_delete(authed_headers, wiki_env):
         assert pages["items"][0]["rel_path"] == "A.md"
 
 
+async def test_wiki_import_files_and_skipped(authed_headers, wiki_env):
+    """多文件（含相对路径）导入；不支持的扩展名计入 skipped。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "files")
+        resp = await client.post(
+            f"/api/v1/wiki/spaces/{sid}/import-files",
+            data={"paths": json.dumps(["A.md", "sub/B.md"])},
+            files=[
+                ("files", ("A.md", "# A\n\n[[B]] 内容", "text/markdown")),
+                ("files", ("B.md", "# B\n\n内容", "text/markdown")),
+            ],
+            headers=authed_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        stats = resp.json()["data"]
+        assert stats["imported_files"] == 2
+        assert stats["added"] == 2
+
+        pages = (
+            await client.get(f"/api/v1/wiki/pages?space={sid}", headers=authed_headers)
+        ).json()["data"]
+        assert pages["total"] == 2
+        assert any(p["rel_path"] == "sub/B.md" for p in pages["items"])
+
+
+async def test_wiki_scan_includes_non_md_and_reports_skipped(authed_headers, wiki_env):
+    """非 md（txt）也索引；不支持的（png）计入 skipped。"""
+    root = Path(settings.WIKI_STORAGE_ROOT)
+    (root / "mixed").mkdir(parents=True, exist_ok=True)
+    (root / "mixed" / "a.md").write_text("# A\n\n正文", encoding="utf-8")
+    (root / "mixed" / "note.txt").write_text("纯文本内容", encoding="utf-8")
+    (root / "mixed" / "pic.png").write_bytes(b"\x89PNG\r\n")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/wiki/spaces",
+            json={"name": "mixed", "source_type": "local", "server_path": "mixed"},
+            headers=authed_headers,
+        )
+        sid = resp.json()["data"]["id"]
+        stats = (
+            await client.post(f"/api/v1/wiki/spaces/{sid}/sync", headers=authed_headers)
+        ).json()["data"]
+        assert stats["added"] == 2  # a.md + note.txt
+        assert stats["skipped"] == 1  # pic.png
+
+        pages = (
+            await client.get(f"/api/v1/wiki/pages?space={sid}", headers=authed_headers)
+        ).json()["data"]
+        txt_page = next(p for p in pages["items"] if p["rel_path"] == "note.txt")
+        assert txt_page["page_type"] == "txt"
+
+
 async def test_wiki_cross_user_isolation(authed_headers, wiki_env):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -355,3 +411,106 @@ async def test_wiki_absolute_path_disallowed(authed_headers, wiki_env, tmp_path,
             headers=authed_headers,
         )
         assert resp.status_code == 400
+
+
+async def test_wiki_scan_excludes_template_dirs(authed_headers, wiki_env):
+    """模板目录（templates/模板）默认排除，不计入页面与 skipped。"""
+    root = Path(settings.WIKI_STORAGE_ROOT)
+    (root / "tvault" / "templates").mkdir(parents=True, exist_ok=True)
+    (root / "tvault" / "note.md").write_text("# N\n\n正文", encoding="utf-8")
+    (root / "tvault" / "templates" / "tpl.md").write_text("# T\n\n模板", encoding="utf-8")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/wiki/spaces",
+            json={"name": "tpl", "source_type": "local", "server_path": "tvault"},
+            headers=authed_headers,
+        )
+        sid = resp.json()["data"]["id"]
+        stats = (
+            await client.post(f"/api/v1/wiki/spaces/{sid}/sync", headers=authed_headers)
+        ).json()["data"]
+        assert stats["added"] == 1  # 仅 note.md，模板被排除
+        assert stats["skipped"] == 0
+
+
+async def test_wiki_resolve_page(authed_headers, wiki_env):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "resolve")
+        await client.post(
+            f"/api/v1/wiki/spaces/{sid}/import-files",
+            data={"paths": json.dumps(["Note A.md"])},
+            files=[("files", ("Note A.md", "# A\n\n正文", "text/markdown"))],
+            headers=authed_headers,
+        )
+        ok = await client.get(
+            f"/api/v1/wiki/spaces/{sid}/resolve?slug=note-a", headers=authed_headers
+        )
+        assert ok.status_code == 200
+        assert ok.json()["data"]["title"] == "A"
+        missing = await client.get(
+            f"/api/v1/wiki/spaces/{sid}/resolve?slug=nope", headers=authed_headers
+        )
+        assert missing.status_code == 404
+
+
+async def test_wiki_page_resync(authed_headers, wiki_env):
+    """单页重新索引：返回页面详情（含 document_status）。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "resync")
+        await client.post(
+            f"/api/v1/wiki/spaces/{sid}/import-files",
+            data={"paths": json.dumps(["A.md"])},
+            files=[("files", ("A.md", "# A\n\n正文", "text/markdown"))],
+            headers=authed_headers,
+        )
+        pages = (
+            await client.get(f"/api/v1/wiki/pages?space={sid}", headers=authed_headers)
+        ).json()["data"]["items"]
+        pid = pages[0]["id"]
+        resp = await client.post(f"/api/v1/wiki/pages/{pid}/sync", headers=authed_headers)
+        assert resp.status_code == 200, resp.text
+        detail = resp.json()["data"]
+        assert detail["page_type"] == "md"
+        assert detail["document_status"] == "ready"
+
+
+async def test_delete_local_space_keeps_user_files(
+    authed_headers, wiki_env, tmp_path, monkeypatch
+):
+    """安全护栏：删除 local 空间只解除登记，绝不删除用户真实目录/文件。"""
+    monkeypatch.setattr(settings, "WIKI_ALLOW_LOCAL_PATH", True)
+    vault = tmp_path / "real_vault"
+    vault.mkdir()
+    (vault / "note.md").write_text("# Note\n\n正文", encoding="utf-8")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/wiki/spaces",
+            json={"name": "real", "source_type": "local", "server_path": str(vault)},
+            headers=authed_headers,
+        )
+        sid = resp.json()["data"]["id"]
+        await client.post(f"/api/v1/wiki/spaces/{sid}/sync", headers=authed_headers)
+        deleted = await client.delete(f"/api/v1/wiki/spaces/{sid}", headers=authed_headers)
+        assert deleted.status_code == 200
+
+    assert vault.is_dir()
+    assert (vault / "note.md").exists()
+
+
+async def test_delete_upload_space_removes_managed_copy(authed_headers, wiki_env):
+    """upload 空间：删除时清理受管副本目录。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "managed")
+        await _import(client, authed_headers, sid, {"A.md": "# A\n\n正文"})
+        imported_dir = Path(settings.WIKI_STORAGE_ROOT) / sid
+        assert imported_dir.is_dir()
+        resp = await client.delete(f"/api/v1/wiki/spaces/{sid}", headers=authed_headers)
+        assert resp.status_code == 200
+    assert not imported_dir.exists()

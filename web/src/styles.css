@@ -392,16 +392,13 @@ body.dark .login-wrap {
 .todo-page {
   flex: 1;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--msg-bg);
 }
+/* 待办目录现由 SiderPortal 渲染进「工作区」侧栏，此处仅保留内容样式 */
 .todo-nav {
-  width: 190px;
-  background: var(--panel);
-  border-right: 1px solid var(--border);
-  padding: 12px 8px;
-  overflow-y: auto;
-  flex-shrink: 0;
+  padding: var(--space-3) var(--space-2);
 }
 .todo-nav-item {
   display: flex;
@@ -442,6 +439,7 @@ body.dark .login-wrap {
 
 .todo-main {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--space-4) var(--space-5);
 }
@@ -563,46 +561,33 @@ body.dark .login-wrap {
   text-decoration: underline;
 }
 
-/* ===== Wiki 双栏容器 ===== */
+/* ===== Wiki 容器（目录现由 SiderPortal 渲染进侧栏）===== */
 .wiki-panel {
   flex: 1;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 .wiki-side {
-  width: 340px;
-  min-width: 300px;
-  border-right: 1px solid var(--border);
   padding: var(--space-3);
-  overflow: auto;
 }
 .wiki-main {
   flex: 1;
+  min-height: 0;
   padding: var(--space-4);
   overflow: auto;
 }
 
+/* ===== 侧栏导航挂载点（Wiki/待办目录）===== */
+.sider-nav {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
 /* ===== 响应式断点 ===== */
-@media (max-width: 1024px) {
-  .wiki-side {
-    width: 280px;
-    min-width: 260px;
-  }
-}
-
-@media (max-width: 900px) {
-  .wiki-panel {
-    flex-direction: column;
-  }
-  .wiki-side {
-    width: 100%;
-    min-width: 0;
-    max-height: 45vh;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-}
-
 @media (max-width: 768px) {
   .chat-header,
   .kb-toolbar,
@@ -621,26 +606,6 @@ body.dark .login-wrap {
   }
   .kb-toolbar .ant-input-search {
     width: 100% !important;
-  }
-  .todo-page {
-    flex-direction: column;
-  }
-  /* 待办侧导航在窄屏变为顶部横向筛选条 */
-  .todo-nav {
-    width: 100%;
-    display: flex;
-    gap: var(--space-1);
-    overflow-x: auto;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-    padding: var(--space-2);
-    flex-shrink: 0;
-  }
-  .todo-nav-item {
-    flex: 0 0 auto;
-  }
-  .todo-nav-divider {
-    display: none;
   }
   .todo-toolbar {
     flex-direction: column;

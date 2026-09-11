@@ -43,6 +43,7 @@ import {
 import type { WikiPage, WikiPageDetail, WikiSpace } from "../types";
 import { renderObsidian } from "../utils/obsidian";
 import { keyboardActivate } from "../utils/a11y";
+import SiderPortal from "./SiderPortal";
 
 const { Text, Title } = Typography;
 const { Dragger } = Upload;
@@ -256,6 +257,7 @@ export default function WikiPanel() {
 
   return (
     <div className="wiki-panel">
+      <SiderPortal>
       <div className="wiki-side">
         <Space orientation="vertical" style={{ width: "100%" }} size={10}>
           <Space style={{ width: "100%", justifyContent: "space-between" }}>
@@ -421,6 +423,7 @@ export default function WikiPanel() {
           </Card>
         </Space>
       </div>
+      </SiderPortal>
 
       <div className="wiki-main">
         {!detail ? (

@@ -27,6 +27,7 @@ import {
   PartitionOutlined,
 } from "@ant-design/icons";
 import { clearToken, fetchMessages, fetchProfile, getToken } from "./api";
+import { SiderNavContext } from "./contexts/SiderNav";
 import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
 import { keyboardActivate } from "./utils/a11y";
 import ChatPanel from "./components/ChatPanel";
@@ -58,6 +59,8 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [me, setMe] = useState<Profile | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  // 「工作区」侧栏中、Wiki/待办导航的挂载点
+  const [siderNavEl, setSiderNavEl] = useState<HTMLDivElement | null>(null);
   const [siderWidth, setSiderWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem(SIDER_WIDTH_KEY));
     return saved >= SIDER_MIN && saved <= SIDER_MAX ? saved : SIDER_DEFAULT;
@@ -194,6 +197,7 @@ export default function App() {
         {!authed ? (
           <LoginPage onSuccess={() => setAuthed(true)} />
         ) : (
+        <SiderNavContext.Provider value={{ el: siderNavEl, enabled: true }}>
         <Layout style={{ height: "100vh" }}>
           <Sider
             width={siderWidth}
@@ -257,14 +261,9 @@ export default function App() {
               />
             ) : tab === "kb" ? (
               <DocCategoryNav activeCat={activeCat} onChange={setActiveCat} />
-            ) : tab === "wiki" ? (
-              <div className="dim" style={{ textAlign: "center", padding: 24 }}>
-                Wiki 空间与页面（右侧操作）
-              </div>
             ) : (
-              <div className="dim" style={{ textAlign: "center", padding: 24 }}>
-                待办工作区（右侧操作）
-              </div>
+              /* Wiki / 待办：页面目录 portal 到此处（工作区侧栏） */
+              <div className="sider-nav" ref={setSiderNavEl} />
             )}
             <div
               style={{
@@ -357,6 +356,7 @@ export default function App() {
             )}
           </Content>
         </Layout>
+        </SiderNavContext.Provider>
         )}
       </AntApp>
     </ConfigProvider>

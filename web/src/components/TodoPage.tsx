@@ -38,6 +38,7 @@ import {
 } from "../api";
 import type { Category, TodoItem } from "../types";
 import { keyboardActivate } from "../utils/a11y";
+import SiderPortal from "./SiderPortal";
 
 const { Text } = Typography;
 
@@ -231,7 +232,8 @@ export default function TodoPage() {
 
   return (
     <div className="todo-page">
-      {/* 左侧导航 */}
+      {/* 导航目录：portal 到「工作区」侧栏 */}
+      <SiderPortal>
       <div className="todo-nav">
         {navItems.map((n) => (
           <div
@@ -280,6 +282,7 @@ export default function TodoPage() {
           </div>
         ))}
       </div>
+      </SiderPortal>
 
       {/* 主区 */}
       <div className="todo-main">

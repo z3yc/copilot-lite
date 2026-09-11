@@ -89,11 +89,13 @@ body {
 
 #root {
   height: 100vh;
+  height: 100dvh;
 }
 
 /* ===== 登录页 ===== */
 .login-wrap {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -104,6 +106,7 @@ body.dark .login-wrap {
 }
 .login-card {
   width: 380px;
+  max-width: 92vw;
   box-shadow: var(--shadow-lg);
   border-radius: var(--radius-lg);
 }
@@ -532,6 +535,104 @@ body.dark .login-wrap {
   margin-right: 8px;
   color: var(--color-primary-strong);
   text-decoration: underline;
+}
+
+/* ===== Wiki 双栏容器 ===== */
+.wiki-panel {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+.wiki-side {
+  width: 340px;
+  min-width: 300px;
+  border-right: 1px solid var(--border);
+  padding: var(--space-3);
+  overflow: auto;
+}
+.wiki-main {
+  flex: 1;
+  padding: var(--space-4);
+  overflow: auto;
+}
+
+/* ===== 响应式断点 ===== */
+@media (max-width: 1024px) {
+  .wiki-side {
+    width: 280px;
+    min-width: 260px;
+  }
+}
+
+@media (max-width: 900px) {
+  .wiki-panel {
+    flex-direction: column;
+  }
+  .wiki-side {
+    width: 100%;
+    min-width: 0;
+    max-height: 45vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 768px) {
+  .chat-header,
+  .kb-toolbar,
+  .input-bar {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+  .messages,
+  .profile-wrap {
+    padding: var(--space-4);
+  }
+  .kb-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+  .kb-toolbar .ant-input-search {
+    width: 100% !important;
+  }
+  .todo-page {
+    flex-direction: column;
+  }
+  /* 待办侧导航在窄屏变为顶部横向筛选条 */
+  .todo-nav {
+    width: 100%;
+    display: flex;
+    gap: var(--space-1);
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: var(--space-2);
+    flex-shrink: 0;
+  }
+  .todo-nav-item {
+    flex: 0 0 auto;
+  }
+  .todo-nav-divider {
+    display: none;
+  }
+  .todo-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .todo-toolbar .ant-space-compact {
+    width: 100% !important;
+    max-width: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .messages {
+    padding: var(--space-3);
+  }
+  .msg {
+    max-width: 96%;
+  }
 }
 
 /* ===== 动效降级：尊重系统 prefers-reduced-motion ===== */

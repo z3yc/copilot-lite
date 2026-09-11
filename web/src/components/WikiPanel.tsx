@@ -253,16 +253,8 @@ export default function WikiPanel() {
   };
 
   return (
-    <div className="wiki-panel" style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-      <div
-        style={{
-          width: 340,
-          minWidth: 300,
-          borderRight: "1px solid var(--border)",
-          padding: 12,
-          overflow: "auto",
-        }}
-      >
+    <div className="wiki-panel">
+      <div className="wiki-side">
         <Space direction="vertical" style={{ width: "100%" }} size={10}>
           <Space style={{ width: "100%", justifyContent: "space-between" }}>
             <Text strong>🕸️ Wiki 空间</Text>
@@ -426,7 +418,7 @@ export default function WikiPanel() {
         </Space>
       </div>
 
-      <div style={{ flex: 1, padding: 16, overflow: "auto" }}>
+      <div className="wiki-main">
         {!detail ? (
           <Empty description="从左侧选择一个 Wiki 页面查看内容与双链" />
         ) : (

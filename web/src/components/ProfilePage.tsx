@@ -317,7 +317,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                 </Card>
                 <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
                   {stats.map((s) => (
-                    <Col span={8} key={s.title}>
+                    <Col xs={12} sm={8} key={s.title}>
                       <Card size="small">
                         <Statistic title={s.title} value={s.value} prefix={s.icon} />
                       </Card>

@@ -94,6 +94,8 @@ export default function App() {
           <Sider
             width={280}
             theme="light"
+            breakpoint="lg"
+            collapsedWidth={0}
             style={{
               borderRight: "1px solid var(--border)",
               display: "flex",

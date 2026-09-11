@@ -106,10 +106,18 @@ body.dark .login-wrap {
 
 /* ===== 聊天面板 ===== */
 .chat-panel {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
   background: var(--panel);
+}
+.scroll-bottom-btn {
+  position: absolute;
+  right: var(--space-6);
+  bottom: 96px;
+  z-index: 5;
+  box-shadow: var(--shadow-md);
 }
 .chat-header {
   display: flex;

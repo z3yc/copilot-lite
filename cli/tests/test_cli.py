@@ -4,6 +4,7 @@ import json
 
 import httpx
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from copilot_cli import auth
@@ -138,3 +139,38 @@ def test_credentials_file_is_valid_json():
     path = auth.save_credentials("tok", "alice")
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data == {"token": "tok", "username": "alice"}
+
+
+def test_request_unwraps_envelope(monkeypatch):
+    """统一响应结构：成功时解包 data。"""
+
+    def fake_request(method, url, timeout=120, headers=None, **kwargs):
+        return _resp({"code": 0, "message": "ok", "data": {"reply": "hi"}})
+
+    monkeypatch.setattr("copilot_cli.main.httpx.request", fake_request)
+    from copilot_cli.main import _request
+
+    assert _request("POST", "/api/v1/chat") == {"reply": "hi"}
+
+
+def test_request_raises_on_error_envelope(monkeypatch):
+    """统一响应结构：code!=0 抛出 message。"""
+
+    def fake_request(method, url, timeout=120, headers=None, **kwargs):
+        return _resp({"code": 2001, "message": "会话不存在", "data": None})
+
+    monkeypatch.setattr("copilot_cli.main.httpx.request", fake_request)
+    from copilot_cli.main import _request
+
+    with pytest.raises(typer.Exit):
+        _request("GET", "/api/v1/sessions/x")
+
+
+def test_error_envelope_message_shown(monkeypatch, runner):
+    def fake_request(method, url, timeout=120, headers=None, **kwargs):
+        return _resp({"code": 2001, "message": "会话不存在", "data": None})
+
+    monkeypatch.setattr("copilot_cli.main.httpx.request", fake_request)
+    result = runner.invoke(app, ["todo", "list"])
+    assert result.exit_code != 0
+    assert "会话不存在" in result.output

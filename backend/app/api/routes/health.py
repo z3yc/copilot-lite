@@ -16,6 +16,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.db import async_session_factory
+from app.core.errors import envelope
 from app.rag import vector_store as vector_store_module
 
 logger = logging.getLogger(__name__)
@@ -60,14 +61,17 @@ def _check_vector_store() -> bool:
 
 
 @router.get("/health/ready")
-async def ready() -> JSONResponse:
+async def ready():
     """就绪探针：依赖全部可用返回 200，否则 503（附各项明细）。"""
     checks = {
         "database": await _check_database(),
         "vector_store": _check_vector_store(),
     }
     ok = all(checks.values())
+    payload = {"status": "ok" if ok else "degraded", "checks": checks}
+    if ok:
+        return payload  # 成功由 EnvelopeMiddleware 包成 {code:0,...}
     return JSONResponse(
-        status_code=200 if ok else 503,
-        content={"status": "ok" if ok else "degraded", "checks": checks},
+        status_code=503,
+        content=envelope(code=3002, message="依赖未就绪", data=payload),
     )

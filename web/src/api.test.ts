@@ -17,7 +17,12 @@ import {
 } from "./api";
 
 function okJson(data: unknown) {
-  return { status: 200, ok: true, json: async () => data, text: async () => "" };
+  return {
+    status: 200,
+    ok: true,
+    json: async () => ({ code: 0, message: "ok", data }),
+    text: async () => "",
+  };
 }
 
 describe("token 管理", () => {
@@ -69,6 +74,26 @@ describe("request 封装", () => {
   it("非 2xx 抛出带状态码的错误信息", async () => {
     fetchMock.mockResolvedValue({ status: 500, ok: false, text: async () => "boom" });
     await expect(fetchSessions()).rejects.toThrow("请求失败 500");
+  });
+
+  it("非 2xx 优先使用后端统一错误体的 message", async () => {
+    fetchMock.mockResolvedValue({
+      status: 404,
+      ok: false,
+      json: async () => ({ code: 2001, message: "会话不存在", data: null }),
+      text: async () => "",
+    });
+    await expect(fetchSessions()).rejects.toThrow("会话不存在");
+  });
+
+  it("信封 code!=0 时抛出 message", async () => {
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ code: 2001, message: "会话不存在", data: null }),
+      text: async () => "",
+    });
+    await expect(fetchSessions()).rejects.toThrow("会话不存在");
   });
 
   it("fetchTodos 按参数拼接查询串", async () => {

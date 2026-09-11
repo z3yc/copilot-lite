@@ -79,7 +79,7 @@ async def test_chat_creates_session_and_persists(monkeypatch, authed_headers: di
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post("/api/v1/chat", json={"message": "你好"}, headers=authed_headers)
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["reply"] == "你好！我是你的 AI 助理"
     assert data["session_id"]
 
@@ -101,7 +101,7 @@ async def test_chat_continues_session(monkeypatch, authed_headers: dict) -> None
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r1 = await client.post("/api/v1/chat", json={"message": "第一条"}, headers=authed_headers)
-        sid = r1.json()["session_id"]
+        sid = r1.json()["data"]["session_id"]
         r2 = await client.post(
             "/api/v1/chat",
             json={"message": "第二条", "session_id": sid},
@@ -109,8 +109,8 @@ async def test_chat_continues_session(monkeypatch, authed_headers: dict) -> None
         )
 
     assert r2.status_code == 200
-    assert r2.json()["session_id"] == sid
-    assert r2.json()["reply"] == "第二轮"
+    assert r2.json()["data"]["session_id"] == sid
+    assert r2.json()["data"]["reply"] == "第二轮"
 
 
 @pytest.mark.asyncio
@@ -226,7 +226,7 @@ async def test_chat_uses_langgraph_engine(monkeypatch, authed_headers: dict) -> 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post("/api/v1/chat", json={"message": "你好"}, headers=authed_headers)
     assert resp.status_code == 200
-    assert resp.json()["reply"] == "LangGraph 引擎回复"
+    assert resp.json()["data"]["reply"] == "LangGraph 引擎回复"
 
 
 @pytest.mark.asyncio

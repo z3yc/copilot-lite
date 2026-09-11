@@ -34,7 +34,7 @@ async def test_document_detail_chunks(authed_headers: dict) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.get(f"/api/v1/documents/{doc_id}/chunks", headers=authed_headers)
         assert r.status_code == 200
-        data = r.json()
+        data = r.json()["data"]
         assert data["chunk_count"] == 1
         assert data["chunks"][0]["headings"] == ["第一章"]
         assert data["chunks"][0]["content"] == "分块内容A"
@@ -60,12 +60,12 @@ async def test_sessions_crud(authed_headers: dict) -> None:
         # 列表
         r = await client.get("/api/v1/sessions", headers=authed_headers)
         assert r.status_code == 200
-        assert any(x["id"] == sid for x in r.json())
+        assert any(x["id"] == sid for x in r.json()["data"])
 
         # 历史消息
         r = await client.get(f"/api/v1/sessions/{sid}/messages", headers=authed_headers)
         assert r.status_code == 200
-        roles = [m["role"] for m in r.json()]
+        roles = [m["role"] for m in r.json()["data"]]
         assert roles == ["user", "assistant"]
 
         # 删除
@@ -85,17 +85,17 @@ async def test_todos_api_crud(authed_headers: dict) -> None:
             "/api/v1/todos", json={"title": "学习 React", "priority": 1}, headers=authed_headers
         )
         assert r.status_code == 200
-        tid = r.json()["id"]
-        assert r.json()["status"] == "pending"
+        tid = r.json()["data"]["id"]
+        assert r.json()["data"]["status"] == "pending"
 
         # 列表
         r = await client.get("/api/v1/todos", headers=authed_headers)
         assert r.status_code == 200
-        assert any(x["id"] == tid for x in r.json())
+        assert any(x["id"] == tid for x in r.json()["data"])
 
         # 完成
         r = await client.patch(f"/api/v1/todos/{tid}", json={"status": "done"}, headers=authed_headers)
-        assert r.json()["status"] == "done"
+        assert r.json()["data"]["status"] == "done"
 
         # 删除
         r = await client.delete(f"/api/v1/todos/{tid}", headers=authed_headers)

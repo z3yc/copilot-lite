@@ -148,7 +148,7 @@ async def test_recall_user_isolation(db_session) -> None:
 
 @pytest.mark.asyncio
 async def test_delete_removes(db_session) -> None:
-    """删除记忆：表记录移除且返回 True；不存在返回 False。"""
+    """软删除记忆：标记 deleted_at（不物理删除）；再删已删除的返回 False。"""
     from sqlalchemy import select
 
     svc = MemoryService(embeddings=FakeEmbeddings512())
@@ -159,8 +159,12 @@ async def test_delete_removes(db_session) -> None:
 
     ok = await svc.delete(db_session, DEFAULT_USER_ID, row.id)
     assert ok is True
-    assert (await db_session.scalars(select(MemoryFact))).all() == []
+    remaining = (await db_session.scalars(select(MemoryFact))).all()
+    assert len(remaining) == 1
+    assert remaining[0].deleted_at is not None  # 软删除：仍在库，仅标记
 
+    # 已删除的再删 → False
+    assert await svc.delete(db_session, DEFAULT_USER_ID, row.id) is False
     not_ok = await svc.delete(db_session, DEFAULT_USER_ID, uuid.uuid4())
     assert not_ok is False
 

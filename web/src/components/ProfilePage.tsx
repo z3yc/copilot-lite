@@ -50,6 +50,7 @@ import {
   updateMemory,
   updateTodo,
 } from "../api";
+import TrashPanel from "./TrashPanel";
 import type { LLMSettings, MemoryItem, Profile, Session, TodoItem } from "../types";
 
 const { Title, Text } = Typography;
@@ -323,7 +324,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                         actions={[
                           <Popconfirm
                             key="del"
-                            title="删除该会话？"
+                            title="删除该会话？可在回收站恢复"
                             onConfirm={() => removeSession(s.id)}
                           >
                             <Button type="text" size="small" danger icon={<DeleteOutlined />} />
@@ -373,7 +374,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                           ),
                           <Popconfirm
                             key="del"
-                            title="删除该待办？"
+                            title="删除该待办？可在回收站恢复"
                             onConfirm={() => removeTodo(t.id)}
                           >
                             <Button type="text" size="small" danger icon={<DeleteOutlined />} />
@@ -427,7 +428,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                           />,
                           <Popconfirm
                             key="del"
-                            title="忘记这条记忆？"
+                            title="忘记这条记忆？可在回收站恢复"
                             onConfirm={() => removeMemory(m.id)}
                           >
                             <Button type="text" size="small" danger icon={<DeleteOutlined />} />
@@ -541,6 +542,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                 </Form>
               </Card>
             ),
+          },
+          {
+            key: "trash",
+            label: "🗑️ 回收站",
+            children: <TrashPanel />,
           },
           {
             key: "account",

@@ -24,6 +24,7 @@ from app.core.pagination import (
 )
 from app.core.prompts.todo import AI_PARSE_PROMPT
 from app.core.rate_limit import SlidingWindowLimiter
+from app.core.soft_delete import soft_delete
 from app.models import Category, Todo, User
 
 logger = logging.getLogger(__name__)
@@ -123,7 +124,7 @@ async def list_todos(
     user: User = Depends(get_current_user),
 ) -> PageOut[TodoOut]:
     """待办列表（分页）；支持按状态 / 分类 / 标签过滤。"""
-    stmt = select(Todo).where(Todo.user_id == user.id)
+    stmt = select(Todo).where(Todo.user_id == user.id, Todo.deleted_at.is_(None))
     if status:
         stmt = stmt.where(Todo.status == status)
     if category_id:
@@ -180,7 +181,7 @@ async def update_todo(
 ) -> TodoOut:
     """全字段编辑（仅更新传入的字段）。"""
     todo = await db.get(Todo, parse_uuid(todo_id))
-    if todo is None or todo.user_id != user.id:
+    if todo is None or todo.user_id != user.id or todo.deleted_at is not None:
         raise HTTPException(status_code=404, detail="待办不存在")
 
     if req.title is not None:
@@ -208,11 +209,10 @@ async def delete_todo(
     user: User = Depends(get_current_user),
 ) -> dict:
     todo = await db.get(Todo, parse_uuid(todo_id))
-    if todo is None or todo.user_id != user.id:
+    if todo is None or todo.user_id != user.id or todo.deleted_at is not None:
         raise HTTPException(status_code=404, detail="待办不存在")
-    await db.delete(todo)
-    await db.commit()
-    return {"deleted": todo_id}
+    await soft_delete(db, todo, user.id)
+    return {"deleted": todo_id, "soft": True}
 
 
 # ---------------- AI 快速创建 ----------------

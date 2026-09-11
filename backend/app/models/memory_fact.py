@@ -10,7 +10,7 @@ from datetime import datetime
 from sqlalchemy import Float, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base
+from app.core.db import Base, SoftDeleteMixin
 
 # 记忆类别
 CATEGORY_PREFERENCE = "preference"  # 偏好（喜欢简洁回答等）
@@ -18,7 +18,7 @@ CATEGORY_FACT = "fact"  # 事实（在准备面试、住在北京等）
 CATEGORY_BACKGROUND = "background"  # 背景（职业、兴趣等）
 
 
-class MemoryFact(Base):
+class MemoryFact(SoftDeleteMixin, Base):
     __tablename__ = "memory_facts"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

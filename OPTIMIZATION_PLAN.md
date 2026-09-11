@@ -18,13 +18,13 @@
 | F | 模型配置页面化 | ✅ 完成 |
 | G | 本地 Wiki 知识库（Obsidian 接入） | ✅ M1/M1.5/M2 + 导入体验 P1–P3 完成；M3/M4 待做 |
 | H | 连接器化收口（Obsidian → connectors） | ✅ 完成 |
-| **L** | **软删除与审计（强制红线）** | ⬜ **优先做（待批准后开分支）** |
+| **L** | **软删除与审计（强制红线）** | ✅ 完成（后端+回收站前端） |
 | I | 企业化：租户与权限（混合模式） | ⬜ 待做 |
 | J | 可靠性与治理（企业可运营） | ⬜ 待做（J5 并入 L） |
 | K | 连接器生态与直连能力 | ⬜ 待做 |
 | Z | 其他暂缓项（B3/B5/C3/C4/D5/E5） | ⏸ 暂缓 |
 
-**当前基线**：后端 **221 用例 / 覆盖率 80.10%**、ruff 全过；前端 **47 用例**、build 零错误；CLI **15 用例**、ruff 全过。
+**当前基线**：后端 **221 用例 / 覆盖率 80.10%**、ruff 全过；前端 **50 用例**、build 零错误；CLI **15 用例**、ruff 全过。
 （以上为分支 `fix/wiki-delete-safety` 上的数据；待合并后即为 `develop` 基线。）
 
 ---
@@ -89,12 +89,12 @@
 > 驱动：删除空间误删用户本地目录事故（见 `docs/优化落地记录.md`）。
 > 规范：AGENTS §6/§13/§14/§15 已更新——**所有删除一律软删除且可溯源，禁止物理删除业务/用户数据**。
 
-- [ ] **L1 模型与迁移**：业务表（documents / chat_sessions / messages / todos / session_files / memory_facts / wiki_spaces / wiki_pages）加 `deleted_at` + `deleted_by`（可选 `delete_reason`）；唯一约束改**部分唯一索引**（`WHERE deleted_at IS NULL`）。
-- [ ] **L2 查询/检索统一过滤**：列表、详情、统计、**向量 payload 与 BM25 召回**统一排除已删除；补"已删除不被召回"回归测试。
-- [ ] **L3 软删除服务**：`soft_delete()/restore()`；父子级联软删；删除写审计（request_id/user_id/资源/时间/结果）。
-- [ ] **L4 回收站**：`GET /trash`、`POST /trash/{type}/{id}/restore`、彻底删除（仅管理员/合规，需二次确认）；前端「回收站」入口。
-- [ ] **L5 文件与副本**：受管副本删除改为**移入回收目录**（可恢复）；**继续禁止触碰 local 外部真实目录**。
-- [ ] **L6 删除二次确认**：前端删除危险操作统一二次确认 + 文案说明影响范围。
+- [x] **L1 模型与迁移**：业务表（documents / chat_sessions / messages / todos / session_files / memory_facts / wiki_spaces / wiki_pages）加 `deleted_at` + `deleted_by`（可选 `delete_reason`）；唯一约束改**部分唯一索引**（`WHERE deleted_at IS NULL`）。
+- [x] **L2 查询/检索统一过滤**：列表、详情、统计、**向量 payload 与 BM25 召回**统一排除已删除；补"已删除不被召回"回归测试。
+- [x] **L3 软删除服务**：`soft_delete()/restore()`；父子级联软删；删除写审计（request_id/user_id/资源/时间/结果）。
+- [x] **L4 回收站**：`GET /trash`、`POST /trash/{type}/{id}/restore`、彻底删除（仅管理员/合规，需二次确认）；前端「回收站」入口。
+- [x] **L5 文件与副本**：受管副本删除改为**移入回收目录**（可恢复）；**继续禁止触碰 local 外部真实目录**。
+- [x] **L6 删除二次确认 + 前端回收站入口**：前端删除危险操作统一二次确认 + 文案说明影响范围。
 
 ---
 

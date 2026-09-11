@@ -11,6 +11,7 @@ from app.api.routes import (
     sessions,
     settings,
     todos,
+    trash,
     wiki,
 )
 
@@ -24,3 +25,4 @@ api_router.include_router(todos.router)
 api_router.include_router(memories.router)
 api_router.include_router(settings.router)
 api_router.include_router(wiki.router)
+api_router.include_router(trash.router)

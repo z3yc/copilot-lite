@@ -85,10 +85,11 @@ async def _bm25_search(
         return []
 
     conditions = [Chunk.content.ilike(f"%{term}%") for term in terms[:12]]
-    stmt = select(Chunk)
+    stmt = select(Chunk).where(Chunk.deleted_at.is_(None))
     if user_id:
         stmt = stmt.join(Document, Chunk.document_id == Document.id).where(
-            Document.user_id == uuid.UUID(str(user_id))
+            Document.user_id == uuid.UUID(str(user_id)),
+            Document.deleted_at.is_(None),
         )
     stmt = stmt.where(or_(*conditions)).limit(top_k * 5)
     rows = (await db.scalars(stmt)).all()

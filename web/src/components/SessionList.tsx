@@ -154,7 +154,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
                 />,
                 <Popconfirm
                   key="del"
-                  title="删除该会话？"
+                  title="删除该会话？可在回收站恢复"
                   onConfirm={(e) => {
                     e?.stopPropagation();
                     remove(s.id);

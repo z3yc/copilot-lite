@@ -18,6 +18,7 @@ from app.core.pagination import (
     normalize_page,
     page_offset,
 )
+from app.core.soft_delete import soft_delete
 from app.models import ChatSession, Message, SessionFile, User
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,7 @@ async def list_sessions(
     stmt = (
         select(ChatSession, func.count(Message.id).label("cnt"))
         .outerjoin(Message, Message.session_id == ChatSession.id)
-        .where(ChatSession.user_id == user.id)
+        .where(ChatSession.user_id == user.id, ChatSession.deleted_at.is_(None))
         .group_by(ChatSession.id)
         .order_by(ChatSession.updated_at.desc())
     )
@@ -172,7 +173,7 @@ async def export_session(
     session = await _get_session(db, session_id, user)
     stmt = (
         select(Message)
-        .where(Message.session_id == session.id)
+        .where(Message.session_id == session.id, Message.deleted_at.is_(None))
         .order_by(Message.created_at)
     )
     msgs = (await db.scalars(stmt)).all()
@@ -202,7 +203,7 @@ async def session_messages(
     session = await _get_session(db, session_id, user)
     stmt = (
         select(Message)
-        .where(Message.session_id == session.id)
+        .where(Message.session_id == session.id, Message.deleted_at.is_(None))
         .order_by(Message.created_at)
     )
     msgs = (await db.scalars(stmt)).all()
@@ -224,11 +225,10 @@ async def delete_session(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> dict:
-    """删除会话（消息与附件级联删除）。"""
+    """删除会话（软删除；消息与附件保留可恢复）。"""
     session = await _get_session(db, session_id, user)
-    await db.delete(session)
-    await db.commit()
-    return {"deleted": session_id}
+    await soft_delete(db, session, user.id)
+    return {"deleted": session_id, "soft": True}
 
 
 # ---------------- 会话附件 ----------------
@@ -294,7 +294,7 @@ async def list_session_files(
     session = await _get_session(db, session_id, user)
     stmt = (
         select(SessionFile)
-        .where(SessionFile.session_id == session.id)
+        .where(SessionFile.session_id == session.id, SessionFile.deleted_at.is_(None))
         .order_by(SessionFile.created_at)
     )
     files = (await db.scalars(stmt)).all()
@@ -319,17 +319,16 @@ async def delete_session_file(
     """删除会话附件。"""
     session = await _get_session(db, session_id, user)
     sf = await db.get(SessionFile, parse_uuid(file_id))
-    if sf is None or sf.session_id != session.id:
+    if sf is None or sf.session_id != session.id or sf.deleted_at is not None:
         # 附件必须属于该会话（对象级授权落在被操作对象上）
         raise HTTPException(status_code=404, detail="附件不存在")
-    await db.delete(sf)
-    await db.commit()
-    return {"deleted": file_id}
+    await soft_delete(db, sf, user.id)
+    return {"deleted": file_id, "soft": True}
 
 
 async def _get_session(db: AsyncSession, session_id: str, user: User) -> ChatSession:
     """定位会话并校验归属（越权访问返回 404）。"""
     session = await db.get(ChatSession, parse_uuid(session_id))
-    if session is None or session.user_id != user.id:
+    if session is None or session.user_id != user.id or session.deleted_at is not None:
         raise HTTPException(status_code=404, detail="会话不存在")
     return session

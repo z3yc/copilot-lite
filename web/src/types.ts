@@ -93,6 +93,14 @@ export interface WikiPageDetail extends WikiPage {
   document_status?: string | null;
 }
 
+// ---- 回收站（软删除）----
+export interface TrashItem {
+  type: "todo" | "document" | "session" | "memory" | "wiki_page";
+  id: string;
+  label: string;
+  deleted_at?: string | null;
+}
+
 export interface DocItem {
   id: string;
   title: string;

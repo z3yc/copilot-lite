@@ -11,7 +11,6 @@
 
 import json
 import logging
-import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -27,12 +26,12 @@ from app.connectors.obsidian.importer import WikiImportError
 from app.connectors.obsidian.service import (
     WikiServiceError,
     _delete_page,
-    is_managed_path,
     refresh_page,
 )
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.pagination import DEFAULT_PAGE_SIZE, PageOut, normalize_page, page_offset
+from app.core.soft_delete import mark_deleted
 from app.models import Chunk, Document, User, WikiLink, WikiPage, WikiSpace
 
 logger = logging.getLogger(__name__)
@@ -113,8 +112,12 @@ def _space_out(space: WikiSpace, page_count: int = 0) -> SpaceOut:
 
 async def _get_space(db: AsyncSession, space_id: str, user: User) -> WikiSpace:
     space = await db.get(WikiSpace, parse_uuid(space_id))
-    # owner 为空 = 共享空间
-    if space is None or (space.owner_id is not None and space.owner_id != user.id):
+    # owner 为空 = 共享空间；已软删除不可见
+    if (
+        space is None
+        or space.deleted_at is not None
+        or (space.owner_id is not None and space.owner_id != user.id)
+    ):
         raise HTTPException(status_code=404, detail="Wiki 空间不存在")
     return space
 
@@ -160,7 +163,8 @@ async def list_wiki_spaces(
 ) -> list[SpaceOut]:
     """当前用户可见的 Wiki 空间（含共享空间）。"""
     stmt = select(WikiSpace).where(
-        or_(WikiSpace.owner_id == user.id, WikiSpace.owner_id.is_(None))
+        or_(WikiSpace.owner_id == user.id, WikiSpace.owner_id.is_(None)),
+        WikiSpace.deleted_at.is_(None),
     )
     spaces = (await db.scalars(stmt)).all()
     counts = dict(
@@ -181,25 +185,22 @@ async def delete_wiki_space(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> dict:
-    """删除空间：级联清理页面/分块/向量/链接与受管副本目录。"""
+    """删除空间（软删除：页面/文档/向量标记，不物理删副本，可恢复）。"""
     space = await _get_space(db, space_id, user)
     pages = (
-        await db.scalars(select(WikiPage).where(WikiPage.space_id == space.id))
+        await db.scalars(
+            select(WikiPage).where(
+                WikiPage.space_id == space.id, WikiPage.deleted_at.is_(None)
+            )
+        )
     ).all()
     for page in pages:
-        await _delete_page(db, page)
-    await db.delete(space)
+        await _delete_page(db, page, user.id)
+    mark_deleted(space, user.id)
     await db.commit()
-    # 安全护栏：仅在受管副本目录下才物理删除；local 空间只解除登记（绝不删用户文件）
-    root_path = Path(space.root_path)
-    if is_managed_path(root_path):
-        try:
-            shutil.rmtree(root_path, ignore_errors=True)
-        except OSError:
-            logger.warning("Wiki 目录清理失败: %s", root_path, exc_info=True)
-    else:
-        logger.info("local 空间仅解除登记，不删除磁盘文件: %s", root_path)
-    return {"deleted": space_id}
+    # 软删除：不物理删除受管副本/外部目录（可恢复）；索引向量已标记 deleted
+    logger.info("Wiki 空间已软删除: %s", space_id)
+    return {"deleted": space_id, "soft": True}
 
 
 # ---------------- 导入 / 同步 ----------------
@@ -301,7 +302,11 @@ async def resolve_wiki_page(
     space = await _get_space(db, space_id, user)
     page = await db.scalar(
         select(WikiPage)
-        .where(WikiPage.space_id == space.id, WikiPage.slug == slug)
+        .where(
+            WikiPage.space_id == space.id,
+            WikiPage.slug == slug,
+            WikiPage.deleted_at.is_(None),
+        )
         .limit(1)
     )
     if page is None:
@@ -340,11 +345,14 @@ async def list_wiki_pages(
     space_ids = (
         await db.scalars(
             select(WikiSpace.id).where(
-                or_(WikiSpace.owner_id == user.id, WikiSpace.owner_id.is_(None))
+                or_(WikiSpace.owner_id == user.id, WikiSpace.owner_id.is_(None)),
+                WikiSpace.deleted_at.is_(None),
             )
         )
     ).all()
-    stmt = select(WikiPage).where(WikiPage.space_id.in_(space_ids))
+    stmt = select(WikiPage).where(
+        WikiPage.space_id.in_(space_ids), WikiPage.deleted_at.is_(None)
+    )
     if space:
         stmt = stmt.where(WikiPage.space_id == parse_uuid(space))
     if q and q.strip():
@@ -377,10 +385,14 @@ async def get_wiki_page(
 ) -> PageDetail:
     """页面详情：正文（只读）+ frontmatter 标签 + 出链/反向链接。"""
     wp = await db.get(WikiPage, parse_uuid(page_id))
-    if wp is None:
+    if wp is None or wp.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Wiki 页面不存在")
     space = await db.get(WikiSpace, wp.space_id)
-    if space is None or (space.owner_id is not None and space.owner_id != user.id):
+    if (
+        space is None
+        or space.deleted_at is not None
+        or (space.owner_id is not None and space.owner_id != user.id)
+    ):
         raise HTTPException(status_code=404, detail="Wiki 页面不存在")
     return await _build_page_detail(db, space, wp)
 
@@ -474,10 +486,14 @@ async def resync_wiki_page(
 ) -> PageDetail:
     """单页重新索引（失败/内容变更时无需全量同步）。"""
     wp = await db.get(WikiPage, parse_uuid(page_id))
-    if wp is None:
+    if wp is None or wp.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Wiki 页面不存在")
     space = await db.get(WikiSpace, wp.space_id)
-    if space is None or (space.owner_id is not None and space.owner_id != user.id):
+    if (
+        space is None
+        or space.deleted_at is not None
+        or (space.owner_id is not None and space.owner_id != user.id)
+    ):
         raise HTTPException(status_code=404, detail="Wiki 页面不存在")
     try:
         await refresh_page(db, user.id, space, wp)

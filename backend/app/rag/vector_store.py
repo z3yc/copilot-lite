@@ -75,7 +75,7 @@ class VectorStore:
         if not points:
             return
         qm_points = [
-            qm.PointStruct(id=str(cid), vector=vector, payload=payload)
+            qm.PointStruct(id=str(cid), vector=vector, payload={"deleted": False, **payload})
             for cid, vector, payload in points
         ]
         loop = asyncio.get_running_loop()
@@ -100,7 +100,13 @@ class VectorStore:
             must.append(
                 qm.FieldCondition(key="user_id", match=qm.MatchValue(value=str(user_id)))
             )
-        qfilter = qm.Filter(must=must) if must else None
+        qfilter = qm.Filter(
+            must=must or None,
+            # 软删除过滤：已删除文档/记忆的向量不得被召回（AGENTS §13）
+            must_not=[
+                qm.FieldCondition(key="deleted", match=qm.MatchValue(value=True))
+            ],
+        )
         loop = asyncio.get_running_loop()
         resp = await loop.run_in_executor(
             None,
@@ -124,12 +130,35 @@ class VectorStore:
         ]
 
     async def delete_by_document(self, document_id: uuid.UUID) -> None:
-        """删除某文档的全部向量点。"""
+        """删除某文档的全部向量点（仅用于派生索引清理/硬删除）。"""
         await self._delete_by_filter("document_id", str(document_id))
 
     async def delete_by_memory(self, memory_id: str) -> None:
         """删除某条记忆的向量点。"""
         await self._delete_by_filter("memory_id", memory_id)
+
+    async def set_deleted_by_document(self, document_id: uuid.UUID, deleted: bool) -> None:
+        """软删除/恢复某文档的向量（仅改 payload `deleted` 标记，不删点）。"""
+        await self._set_payload("document_id", str(document_id), {"deleted": deleted})
+
+    async def set_deleted_by_memory(self, memory_id: str, deleted: bool) -> None:
+        """软删除/恢复某条记忆的向量。"""
+        await self._set_payload("memory_id", memory_id, {"deleted": deleted})
+
+    async def _set_payload(self, key: str, value: str, payload: dict) -> None:
+        """按 payload 字段过滤后更新 payload（软删除标记）。"""
+        qfilter = qm.Filter(
+            must=[qm.FieldCondition(key=key, match=qm.MatchValue(value=value))]
+        )
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: self._client.set_payload(
+                collection_name=self.collection,
+                payload=payload,
+                points=qm.FilterSelector(filter=qfilter),
+            ),
+        )
 
     async def _delete_by_filter(self, key: str, value: str) -> None:
         """按 payload 字段值过滤删除。"""

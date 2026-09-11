@@ -173,6 +173,8 @@ class LangGraphEngine(BaseAgent):
         self.pending_confirmation: list[dict] = []
         # 本轮检索引用（供上层落 Message.extra.citations）
         self.last_citations: list[dict] = []
+        # 是否流式运行（run_stream 置 True）：决定子 Agent 用 astream 还是 ainvoke
+        self._streaming = False
         self._ctx: ToolContext | None = None  # 每次 run 注入（引擎按请求新建，无并发问题）
         self.graph = self._build_graph().compile()
 
@@ -226,10 +228,20 @@ class LangGraphEngine(BaseAgent):
             bound = self.llm.bind_tools(schemas) if schemas else self.llm
             for _ in range(self.max_turns):
                 try:
-                    resp = await bound.ainvoke(messages)
+                    if self._streaming:
+                        # 流式运行：用 astream 聚合，真实模型才会产生 on_chat_model_stream
+                        # 事件（ainvoke 不产生）——否则客户端只收到空 done。
+                        full = None
+                        async for chunk in bound.astream(messages):
+                            full = chunk if full is None else full + chunk
+                        resp = full
+                    else:
+                        resp = await bound.ainvoke(messages)
                 except Exception as exc:
                     logger.exception("子 Agent LLM 调用失败")
                     raise LLMError("模型服务暂时不可用") from exc
+                if resp is None:
+                    return {"reply": "（模型未返回内容）"}
                 if not resp.tool_calls:
                     return {"reply": resp.content or "（模型未返回内容）"}
                 # 追加 assistant 工具调用声明，逐个执行并回填 ToolMessage
@@ -309,6 +321,7 @@ class LangGraphEngine(BaseAgent):
         self.last_tool_calls = []
         self.pending_confirmation = []
         self.last_citations = []
+        self._streaming = False
         state: AgentState = {
             "history": history,
             "user_message": user_message,
@@ -325,6 +338,7 @@ class LangGraphEngine(BaseAgent):
         self.last_tool_calls = []
         self.pending_confirmation = []
         self.last_citations = []
+        self._streaming = True
         state: AgentState = {
             "history": history,
             "user_message": user_message,

@@ -9,12 +9,13 @@
 - GET    /wiki/pages/{id}                 页面详情（正文 + 出链/反向链接）
 """
 
+import json
 import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,6 +59,7 @@ class WikiPageOut(BaseModel):
     title: str
     slug: str
     document_id: str | None = None
+    page_type: str = "md"  # md / pdf / docx / txt
 
 
 class LinkOut(BaseModel):
@@ -86,6 +88,7 @@ class SyncResult(BaseModel):
     deleted: int
     failed: int
     total: int
+    skipped: int = 0  # 未索引的无关文件数（不支持的扩展名）
     imported_files: int | None = None
 
 
@@ -214,6 +217,48 @@ async def import_wiki_zip(
     return SyncResult(**stats, imported_files=imported)
 
 
+@router.post("/spaces/{space_id}/import-files", response_model=SyncResult)
+async def import_wiki_files(
+    space_id: str,
+    files: list[UploadFile] = File(...),
+    paths: str = Form("[]"),
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> SyncResult:
+    """上传单/多文件（或文件夹，带相对路径）到 Wiki 空间后同步。
+
+    paths：与 files 同序的 JSON 数组（相对路径），用于保留文件夹结构；缺省用文件名。
+    """
+    _ensure_enabled()
+    space = await _get_space(db, space_id, user)
+    try:
+        rel_paths = json.loads(paths) if paths else []
+    except (ValueError, TypeError):
+        rel_paths = []
+    if not isinstance(rel_paths, list):
+        rel_paths = []
+
+    items: list[tuple[str, bytes]] = []
+    for i, upload in enumerate(files):
+        data = await upload.read(settings.WIKI_MAX_EXTRACT_BYTES + 1)
+        if len(data) > settings.WIKI_MAX_EXTRACT_BYTES:
+            raise HTTPException(status_code=413, detail=f"文件过大: {upload.filename}")
+        rel = (
+            str(rel_paths[i])
+            if i < len(rel_paths) and rel_paths[i]
+            else (upload.filename or f"file-{i}")
+        )
+        items.append((rel, data))
+    if not items:
+        raise HTTPException(status_code=400, detail="未收到文件")
+    try:
+        imported = await _connector().import_files(db, user.id, space, items)
+    except (WikiImportError, WikiServiceError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    stats = await _sync(db, user, space)
+    return SyncResult(**stats, imported_files=imported)
+
+
 @router.post("/spaces/{space_id}/sync", response_model=SyncResult)
 async def sync_wiki_space(
     space_id: str,
@@ -238,6 +283,8 @@ async def _sync(db: AsyncSession, user: User, space: WikiSpace) -> dict:
 
 
 def _page_out(page: WikiPage, space_name: str | None = None) -> WikiPageOut:
+    ext = Path(page.rel_path).suffix.lower().lstrip(".")
+    page_type = {"markdown": "md", "doc": "docx"}.get(ext, ext or "md")
     return WikiPageOut(
         id=str(page.id),
         space_id=str(page.space_id),
@@ -246,6 +293,7 @@ def _page_out(page: WikiPage, space_name: str | None = None) -> WikiPageOut:
         title=page.title,
         slug=page.slug,
         document_id=str(page.document_id) if page.document_id else None,
+        page_type=page_type,
     )
 
 
@@ -306,12 +354,24 @@ async def get_wiki_page(
         raise HTTPException(status_code=404, detail="Wiki 页面不存在")
 
     content = ""
-    try:
-        content = (Path(space.root_path) / wp.rel_path).read_text(
-            encoding="utf-8", errors="replace"
-        )
-    except OSError:
-        content = ""
+    ext = Path(wp.rel_path).suffix.lower()
+    if ext in {".md", ".markdown", ".txt"}:
+        try:
+            content = (Path(space.root_path) / wp.rel_path).read_text(
+                encoding="utf-8", errors="replace"
+            )
+        except OSError:
+            content = ""
+    elif wp.document_id:
+        # 非文本（PDF/DOCX）：展示已抽取的分块文本
+        chunk_rows = (
+            await db.scalars(
+                select(Chunk)
+                .where(Chunk.document_id == wp.document_id)
+                .order_by(Chunk.chunk_index)
+            )
+        ).all()
+        content = "\n\n".join(c.content for c in chunk_rows)
 
     tags: list[str] = []
     if wp.document_id:

@@ -58,6 +58,7 @@ export interface WikiSyncStats {
   deleted: number;
   failed: number;
   total: number;
+  skipped?: number;
   imported_files?: number | null;
 }
 
@@ -69,6 +70,7 @@ export interface WikiPage {
   title: string;
   slug: string;
   document_id?: string | null;
+  page_type?: string;
 }
 
 export interface WikiLinkItem {

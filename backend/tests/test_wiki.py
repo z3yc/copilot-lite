@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import json
 import uuid
 import zipfile
 from pathlib import Path
@@ -187,6 +188,61 @@ async def test_wiki_update_and_delete(authed_headers, wiki_env):
         ).json()["data"]
         assert pages["total"] == 1
         assert pages["items"][0]["rel_path"] == "A.md"
+
+
+async def test_wiki_import_files_and_skipped(authed_headers, wiki_env):
+    """多文件（含相对路径）导入；不支持的扩展名计入 skipped。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "files")
+        resp = await client.post(
+            f"/api/v1/wiki/spaces/{sid}/import-files",
+            data={"paths": json.dumps(["A.md", "sub/B.md"])},
+            files=[
+                ("files", ("A.md", "# A\n\n[[B]] 内容", "text/markdown")),
+                ("files", ("B.md", "# B\n\n内容", "text/markdown")),
+            ],
+            headers=authed_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        stats = resp.json()["data"]
+        assert stats["imported_files"] == 2
+        assert stats["added"] == 2
+
+        pages = (
+            await client.get(f"/api/v1/wiki/pages?space={sid}", headers=authed_headers)
+        ).json()["data"]
+        assert pages["total"] == 2
+        assert any(p["rel_path"] == "sub/B.md" for p in pages["items"])
+
+
+async def test_wiki_scan_includes_non_md_and_reports_skipped(authed_headers, wiki_env):
+    """非 md（txt）也索引；不支持的（png）计入 skipped。"""
+    root = Path(settings.WIKI_STORAGE_ROOT)
+    (root / "mixed").mkdir(parents=True, exist_ok=True)
+    (root / "mixed" / "a.md").write_text("# A\n\n正文", encoding="utf-8")
+    (root / "mixed" / "note.txt").write_text("纯文本内容", encoding="utf-8")
+    (root / "mixed" / "pic.png").write_bytes(b"\x89PNG\r\n")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/wiki/spaces",
+            json={"name": "mixed", "source_type": "local", "server_path": "mixed"},
+            headers=authed_headers,
+        )
+        sid = resp.json()["data"]["id"]
+        stats = (
+            await client.post(f"/api/v1/wiki/spaces/{sid}/sync", headers=authed_headers)
+        ).json()["data"]
+        assert stats["added"] == 2  # a.md + note.txt
+        assert stats["skipped"] == 1  # pic.png
+
+        pages = (
+            await client.get(f"/api/v1/wiki/pages?space={sid}", headers=authed_headers)
+        ).json()["data"]
+        txt_page = next(p for p in pages["items"] if p["rel_path"] == "note.txt")
+        assert txt_page["page_type"] == "txt"
 
 
 async def test_wiki_cross_user_isolation(authed_headers, wiki_env):

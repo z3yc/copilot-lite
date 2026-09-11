@@ -39,6 +39,10 @@ class SourceConnector(ABC):
         """导入归档数据（如 zip），返回写入文件数。"""
 
     @abstractmethod
+    async def import_files(self, db, user_id, space, items: list) -> int:
+        """导入单/多文件（可带相对路径），返回写入文件数。"""
+
+    @abstractmethod
     async def sync(self, db, user_id, space) -> dict:
         """扫描连接器数据源并增量同步索引，返回统计。"""
 

@@ -16,7 +16,7 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.connectors.obsidian.importer import extract_zip, safe_join
+from app.connectors.obsidian.importer import extract_zip, safe_join, save_uploaded_files
 from app.connectors.obsidian.links import extract_frontmatter, extract_links, slugify
 from app.connectors.obsidian.parser import WikiParser
 from app.core.config import settings
@@ -27,6 +27,16 @@ logger = logging.getLogger(__name__)
 
 # 扫描时排除的目录（Obsidian 配置/回收站/版本控制等）
 _EXCLUDED_DIRS = {".obsidian", ".git", ".trash", ".stfolder", "__MACOSX"}
+# 扩展名 → 解析器 source_type（.md 走 WikiParser，含双链/标签；其余复用现有解析器）
+_EXT_TYPES = {
+    ".md": "wiki",
+    ".markdown": "wiki",
+    ".txt": "md",
+    ".pdf": "pdf",
+    ".docx": "docx",
+    ".doc": "docx",
+}
+_MD_EXTS = {".md", ".markdown"}
 
 
 class WikiServiceError(Exception):
@@ -37,21 +47,32 @@ def storage_root() -> Path:
     return Path(settings.WIKI_STORAGE_ROOT).resolve()
 
 
-def _scan(root: Path) -> dict[str, tuple[float, int]]:
-    """扫描 vault 下的 Markdown 文件：rel_path(posix) → (mtime, size)。"""
+def _scan(root: Path) -> tuple[dict[str, tuple[float, int]], int]:
+    """扫描 vault：返回 (rel_path→(mtime,size), 被跳过的文件数)。
+
+    支持 Markdown（含双链）以及可选的 PDF/DOCX/TXT（`WIKI_INCLUDE_NON_MD`）；
+    其他扩展名计入 skipped，便于前端如实展示“未索引了多少”。
+    """
     result: dict[str, tuple[float, int]] = {}
-    for path in root.rglob("*.md"):
+    skipped = 0
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
         rel_parts = path.relative_to(root).parts
         if any(part.startswith(".") or part in _EXCLUDED_DIRS for part in rel_parts[:-1]):
             continue
         if path.name.startswith("._"):
+            continue
+        ext = path.suffix.lower()
+        if ext not in _EXT_TYPES or (ext not in _MD_EXTS and not settings.WIKI_INCLUDE_NON_MD):
+            skipped += 1
             continue
         try:
             stat = path.stat()
         except OSError:
             continue
         result[path.relative_to(root).as_posix()] = (stat.st_mtime, stat.st_size)
-    return result
+    return result, skipped
 
 
 async def create_space(
@@ -110,6 +131,19 @@ async def import_zip(db: AsyncSession, user_id, space: WikiSpace, zip_bytes: byt
     return extract_zip(zip_bytes, dest)
 
 
+async def import_files(
+    db: AsyncSession, user_id, space: WikiSpace, items: list[tuple[str, bytes]]
+) -> int:
+    """单/多文件（可带相对路径）导入到空间受管目录，返回写入文件数。
+
+    用于“选择文件/文件夹”入口；与 zip 导入同等的路径沙箱与限额。
+    """
+    _assert_owner(user_id, space)
+    if space.source_type == "local":
+        raise WikiServiceError("local 类型空间不支持文件导入（已在磁盘上）")
+    return save_uploaded_files(Path(space.root_path), items)
+
+
 def _assert_owner(user_id, space: WikiSpace) -> None:
     if space.owner_id is not None and str(space.owner_id) != str(user_id):
         raise WikiServiceError("无权访问该空间")
@@ -127,11 +161,21 @@ async def _delete_document(db: AsyncSession, doc: Document) -> None:
 
 
 async def _ingest_content(
-    db: AsyncSession, user_id, title: str, content: bytes, content_hash: str, extra_meta: dict
+    db: AsyncSession,
+    user_id,
+    title: str,
+    content: bytes,
+    content_hash: str,
+    extra_meta: dict,
+    source_type: str = "wiki",
 ) -> Document:
     """解析→分块→嵌入→入库，返回 Document（失败置 failed 并抛错）。"""
     doc = Document(
-        user_id=user_id, title=title, source_type="wiki", status="parsing", content_hash=content_hash
+        user_id=user_id,
+        title=title,
+        source_type=source_type,
+        status="parsing",
+        content_hash=content_hash,
     )
     db.add(doc)
     await db.commit()
@@ -164,28 +208,40 @@ def _wiki_meta(space: WikiSpace, rel_path: str, title: str, tags: list) -> dict:
     }
 
 
-def _page_identity(rel_path: str, content: bytes):
-    """页面标识：slug 以**文件名 stem** 为准（Obsidian 双链 `[[文件名]]` 按文件名匹配）；
-    展示标题优先 frontmatter.title，其次 H1，再次文件名。
+def _page_info(rel_path: str, content: bytes):
+    """页面标识：(title, slug, source_type, parsed_or_None)。
+
+    - slug 以**文件名 stem** 为准（Obsidian 双链按文件名匹配）；
+    - 展示标题优先 frontmatter.title，其次 H1，再次文件名；
+    - Markdown 走 WikiParser（含双链/标签）；其余类型复用现有解析器（source_type 映射）。
     """
-    text = content.decode("utf-8", errors="replace")
-    front, _ = extract_frontmatter(text)
-    parsed = WikiParser().parse(content, meta={"wiki_path": rel_path})
-    front_title = str(front.get("title") or "").strip()
+    ext = Path(rel_path).suffix.lower()
+    source_type = _EXT_TYPES.get(ext, "wiki")
     stem = Path(rel_path).stem
-    title = front_title or parsed.title or stem
-    slug = slugify(stem)
-    return title, slug, parsed
+    if ext in _MD_EXTS:
+        text = content.decode("utf-8", errors="replace")
+        front, _ = extract_frontmatter(text)
+        parsed = WikiParser().parse(content, meta={"wiki_path": rel_path})
+        front_title = str(front.get("title") or "").strip()
+        title = front_title or parsed.title or stem
+        return title, slugify(stem), source_type, parsed
+    return stem, slugify(stem), source_type, None
 
 
 async def _create_page(
     db: AsyncSession, user_id, space: WikiSpace, rel_path: str, content: bytes, mtime: float, size: int
 ) -> WikiPage:
     content_hash = hashlib.sha256(content).hexdigest()
-    title, slug, parsed = _page_identity(rel_path, content)
-    tags = parsed.meta.get("tags", [])
+    title, slug, source_type, parsed = _page_info(rel_path, content)
+    tags = parsed.meta.get("tags", []) if parsed is not None else []
     doc = await _ingest_content(
-        db, user_id, title, content, content_hash, _wiki_meta(space, rel_path, title, tags)
+        db,
+        user_id,
+        title,
+        content,
+        content_hash,
+        _wiki_meta(space, rel_path, title, tags),
+        source_type,
     )
     page = WikiPage(
         user_id=user_id,
@@ -213,10 +269,16 @@ async def _update_page(
         if old is not None:
             await _delete_document(db, old)
     content_hash = hashlib.sha256(content).hexdigest()
-    title, slug, parsed = _page_identity(page.rel_path, content)
-    tags = parsed.meta.get("tags", [])
+    title, slug, source_type, parsed = _page_info(page.rel_path, content)
+    tags = parsed.meta.get("tags", []) if parsed is not None else []
     doc = await _ingest_content(
-        db, user_id, title, content, content_hash, _wiki_meta(space, page.rel_path, title, tags)
+        db,
+        user_id,
+        title,
+        content,
+        content_hash,
+        _wiki_meta(space, page.rel_path, title, tags),
+        source_type,
     )
     page.title = title
     page.slug = slug
@@ -249,6 +311,8 @@ async def _rebuild_links(
     slug_to_id = {page.slug: page.id for page in pages}
     rows: list[WikiLink] = []
     for page in pages:
+        if Path(page.rel_path).suffix.lower() not in _MD_EXTS:
+            continue  # 双链仅来自 Markdown
         try:
             text = (root / page.rel_path).read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -278,7 +342,7 @@ async def sync_space(db: AsyncSession, user_id, space: WikiSpace) -> dict:
     if not root.is_dir():
         raise WikiServiceError("空间目录不存在，请先导入 vault")
 
-    files = _scan(root)
+    files, skipped = _scan(root)
     existing = (
         await db.scalars(select(WikiPage).where(WikiPage.space_id == space.id))
     ).all()
@@ -291,6 +355,7 @@ async def sync_space(db: AsyncSession, user_id, space: WikiSpace) -> dict:
         "moved": 0,
         "deleted": 0,
         "failed": 0,
+        "skipped": skipped,
         "total": len(files),
     }
     seen: set[str] = set()

@@ -253,6 +253,21 @@ export async function importWikiZip(
   });
 }
 
+/** 导入单/多文件（或文件夹，带相对路径）；paths 与 files 同序。 */
+export async function importWikiFiles(
+  spaceId: string,
+  files: File[],
+  paths: string[]
+): Promise<WikiSyncStats> {
+  const form = new FormData();
+  files.forEach((file) => form.append("files", file));
+  form.append("paths", JSON.stringify(paths));
+  return request<WikiSyncStats>(`/wiki/spaces/${spaceId}/import-files`, {
+    method: "POST",
+    body: form,
+  });
+}
+
 export const fetchWikiPages = (
   space?: string,
   q?: string,

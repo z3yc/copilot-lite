@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -30,6 +30,7 @@ import {
   fetchWikiPage,
   fetchWikiPages,
   fetchWikiSpaces,
+  importWikiFiles,
   importWikiZip,
   syncWikiSpace,
 } from "../api";
@@ -55,6 +56,8 @@ export default function WikiPanel() {
   const [newName, setNewName] = useState("");
   const [sourceType, setSourceType] = useState<"upload" | "local">("upload");
   const [serverPath, setServerPath] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dirInputRef = useRef<HTMLInputElement>(null);
 
   const loadSpaces = useCallback(async () => {
     try {
@@ -146,7 +149,8 @@ export default function WikiPanel() {
     try {
       const stats = await syncWikiSpace(activeSpace);
       message.success(
-        `同步完成：新增 ${stats.added} / 更新 ${stats.updated} / 移动 ${stats.moved} / 删除 ${stats.deleted}`
+        `同步完成：新增 ${stats.added} / 更新 ${stats.updated} / 移动 ${stats.moved} / 删除 ${stats.deleted}` +
+          (stats.skipped ? ` / 跳过 ${stats.skipped}` : "")
       );
       await Promise.all([loadSpaces(), loadPages()]);
     } catch (err) {
@@ -164,9 +168,7 @@ export default function WikiPanel() {
     setBusy(true);
     try {
       const stats = await importWikiZip(activeSpace, file);
-      message.success(
-        `已导入 ${stats.imported_files ?? 0} 个文件，新增 ${stats.added} 页`
-      );
+      showImportResult(stats);
       await Promise.all([loadSpaces(), loadPages()]);
     } catch (err) {
       message.error(`${err}`);
@@ -174,6 +176,38 @@ export default function WikiPanel() {
       setBusy(false);
     }
     return false;
+  };
+
+  const showImportResult = (stats: {
+    imported_files?: number | null;
+    added: number;
+    skipped?: number;
+  }) => {
+    const skipped = stats.skipped ? `，跳过 ${stats.skipped} 个非支持文件` : "";
+    message.success(`已导入 ${stats.imported_files ?? 0} 个文件，新增 ${stats.added} 页${skipped}`);
+  };
+
+  const uploadFiles = async (fileList: FileList | null, useRelative: boolean) => {
+    if (!fileList || fileList.length === 0) return;
+    if (!activeSpace) {
+      message.warning("请先选择或创建空间");
+      return;
+    }
+    const arr = Array.from(fileList);
+    const paths = arr.map((f) => {
+      const rel = (f as unknown as { webkitRelativePath?: string }).webkitRelativePath;
+      return useRelative && rel ? rel : f.name;
+    });
+    setBusy(true);
+    try {
+      const stats = await importWikiFiles(activeSpace, arr, paths);
+      showImportResult(stats);
+      await Promise.all([loadSpaces(), loadPages()]);
+    } catch (err) {
+      message.error(`${err}`);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const openPage = async (id: string) => {
@@ -247,22 +281,63 @@ export default function WikiPanel() {
           />
 
           {active && (
-            <Dragger
-              accept=".zip"
-              showUploadList={false}
-              beforeUpload={(file) => {
-                handleImport(file as unknown as File);
-                return false;
-              }}
-              style={{ padding: 8 }}
-            >
-              <p style={{ margin: 0 }}>
-                <InboxOutlined />
-              </p>
-              <p className="dim" style={{ fontSize: 12, margin: 0 }}>
-                上传 Obsidian vault 的 zip 包
-              </p>
-            </Dragger>
+            <Space direction="vertical" style={{ width: "100%" }} size={8}>
+              <Dragger
+                accept=".zip"
+                showUploadList={false}
+                beforeUpload={(file) => {
+                  handleImport(file as unknown as File);
+                  return false;
+                }}
+                style={{ padding: 8 }}
+              >
+                <p style={{ margin: 0 }}>
+                  <InboxOutlined />
+                </p>
+                <p className="dim" style={{ fontSize: 12, margin: 0 }}>
+                  上传 Obsidian vault 的 zip 包
+                </p>
+              </Dragger>
+              <Space size={8}>
+                <Button
+                  size="small"
+                  disabled={busy}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  选择文件
+                </Button>
+                <Button
+                  size="small"
+                  disabled={busy}
+                  onClick={() => dirInputRef.current?.click()}
+                >
+                  选择文件夹
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  data-testid="wiki-file-input"
+                  type="file"
+                  multiple
+                  accept=".md,.markdown,.txt,.pdf,.docx,.doc"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    uploadFiles(e.target.files, false);
+                    e.target.value = "";
+                  }}
+                />
+                <input
+                  ref={dirInputRef}
+                  type="file"
+                  multiple
+                  style={{ display: "none" }}
+                  {...{ webkitdirectory: "", directory: "" }}
+                  onChange={(e) => {
+                    uploadFiles(e.target.files, true);
+                    e.target.value = "";
+                  }}
+                />
+              </Space>
+            </Space>
           )}
 
           <Card size="small" title="页面">

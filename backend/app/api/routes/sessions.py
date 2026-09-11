@@ -5,7 +5,8 @@ from io import BytesIO
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
-from pydantic import BaseModel
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +40,10 @@ class SessionOut(BaseModel):
 
 class SessionCreate(BaseModel):
     title: str = "新会话"
+
+
+class SessionUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=128)
 
 
 class MessageOut(BaseModel):
@@ -93,10 +98,11 @@ async def create_session(
 
 @router.get("", response_model=list[SessionOut])
 async def list_sessions(
+    q: str | None = None,
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> list[SessionOut]:
-    """当前用户的会话列表（按更新时间倒序）。"""
+    """当前用户的会话列表（按更新时间倒序）；q 按标题模糊搜索。"""
     stmt = (
         select(ChatSession, func.count(Message.id).label("cnt"))
         .outerjoin(Message, Message.session_id == ChatSession.id)
@@ -104,6 +110,8 @@ async def list_sessions(
         .group_by(ChatSession.id)
         .order_by(ChatSession.updated_at.desc())
     )
+    if q and q.strip():
+        stmt = stmt.where(ChatSession.title.ilike(f"%{q.strip()}%"))
     rows = (await db.execute(stmt)).all()
     return [
         SessionOut(
@@ -114,6 +122,59 @@ async def list_sessions(
         )
         for s, cnt in rows
     ]
+
+
+@router.patch("/{session_id}", response_model=SessionOut)
+async def rename_session(
+    session_id: str,
+    req: SessionUpdate,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> SessionOut:
+    """重命名会话（仅限本人）。"""
+    session = await _get_session(db, session_id, user)
+    session.title = req.title.strip()[:128]
+    await db.commit()
+    await db.refresh(session)
+    count = await db.scalar(
+        select(func.count()).select_from(Message).where(Message.session_id == session.id)
+    )
+    return SessionOut(
+        id=str(session.id),
+        title=session.title,
+        message_count=count or 0,
+        updated_at=session.updated_at.isoformat() if session.updated_at else None,
+    )
+
+
+@router.get("/{session_id}/export")
+async def export_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """导出会话为 Markdown（仅限本人）。"""
+    session = await _get_session(db, session_id, user)
+    stmt = (
+        select(Message)
+        .where(Message.session_id == session.id)
+        .order_by(Message.created_at)
+    )
+    msgs = (await db.scalars(stmt)).all()
+    lines = [f"# {session.title}", ""]
+    for m in msgs:
+        who = {"user": "用户", "assistant": "助手", "system": "系统"}.get(
+            m.role, m.role
+        )
+        lines.append(f"## {who}\n\n{m.content}\n")
+    body = "\n".join(lines)
+    # Content-Disposition 文件名仅用 ASCII，避免响应头编码问题
+    filename = f"session-{str(session.id)[:8]}.md"
+    return Response(
+        content=body,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{session_id}/messages", response_model=list[MessageOut])

@@ -23,6 +23,16 @@ export interface PendingAction {
   tool_call_id?: string;
 }
 
+export interface LLMSettings {
+  base_url: string;
+  model: string;
+  temperature: number;
+  max_tokens: number;
+  api_key_set: boolean;
+  api_key_preview: string;
+  source: "user" | "env" | "none";
+}
+
 export interface DocItem {
   id: string;
   title: string;

@@ -132,42 +132,40 @@ export default function App() {
               </div>
             )}
             <div style={{ padding: 12, borderTop: "1px solid var(--border)" }}>
-              <Space direction="vertical" style={{ width: "100%" }} size={8}>
+              <Space style={{ width: "100%", justifyContent: "space-between" }}>
                 <Space
-                  style={{ width: "100%", justifyContent: "space-between" }}
+                  size={8}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setShowProfile(true)}
+                  title="个人主页"
                 >
-                  <Space
-                    size={8}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => setShowProfile(true)}
-                    title="个人主页"
-                  >
-                    <Avatar size={28} style={{ backgroundColor: "var(--color-primary)" }}>
-                      {(getToken() ? "青" : "U")[0]}
-                    </Avatar>
-                    <span style={{ fontSize: 13, color: "var(--text)" }}>
-                      青木的助理
-                    </span>
-                  </Space>
+                  <Avatar size={28} style={{ backgroundColor: "var(--color-primary)" }}>
+                    {(getToken() ? "青" : "U")[0]}
+                  </Avatar>
+                  <span style={{ fontSize: 13, color: "var(--text)" }}>
+                    青木的助理
+                  </span>
+                </Space>
+                <Space size={4}>
+                  <Tooltip title={dark ? "切换到亮色模式" : "切换到暗色模式"}>
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label={dark ? "切换到亮色模式" : "切换到暗色模式"}
+                      icon={dark ? <BulbOutlined /> : <MoonOutlined />}
+                      onClick={() => setDark(!dark)}
+                    />
+                  </Tooltip>
                   <Tooltip title="退出登录">
                     <Button
                       type="text"
                       size="small"
+                      aria-label="退出登录"
                       icon={<LogoutOutlined />}
                       onClick={logout}
                     />
                   </Tooltip>
                 </Space>
-                <Tooltip title={dark ? "切换到亮色模式" : "切换到暗色模式"}>
-                  <Button
-                    block
-                    size="small"
-                    icon={dark ? <BulbOutlined /> : <MoonOutlined />}
-                    onClick={() => setDark(!dark)}
-                  >
-                    {dark ? "亮色模式" : "暗色模式"}
-                  </Button>
-                </Tooltip>
               </Space>
             </div>
           </Sider>

@@ -20,18 +20,14 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, parse_uuid
+from app.connectors.base import get_connector
+from app.connectors.obsidian import connector as _obsidian_connector  # noqa: F401  导入即注册
+from app.connectors.obsidian.importer import WikiImportError
+from app.connectors.obsidian.service import WikiServiceError, _delete_page
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.pagination import DEFAULT_PAGE_SIZE, PageOut, normalize_page, page_offset
 from app.models import Chunk, User, WikiLink, WikiPage, WikiSpace
-from app.wiki.importer import WikiImportError
-from app.wiki.service import (
-    WikiServiceError,
-    _delete_page,
-    create_space,
-    import_zip,
-    sync_space,
-)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/wiki", tags=["wiki"])
@@ -114,6 +110,11 @@ async def _get_space(db: AsyncSession, space_id: str, user: User) -> WikiSpace:
     return space
 
 
+def _connector():
+    """取 Obsidian 连接器（企业落地：换来源只需换连接器）。"""
+    return get_connector("obsidian")
+
+
 def _ensure_enabled() -> None:
     if not settings.WIKI_ENABLED:
         raise HTTPException(status_code=503, detail="Wiki 功能未启用")
@@ -131,12 +132,12 @@ async def create_wiki_space(
     """创建 Wiki 空间（upload：待 zip 导入；local：登记受管根下的服务器目录）。"""
     _ensure_enabled()
     try:
-        space = await create_space(
+        space = await _connector().create_space(
             db,
             user.id,
             req.name,
-            source_type=req.source_type,
             server_path=req.server_path,
+            source_type=req.source_type,
         )
     except WikiServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -206,7 +207,7 @@ async def import_wiki_zip(
     if not content:
         raise HTTPException(status_code=400, detail="文件为空")
     try:
-        imported = await import_zip(db, user.id, space, content)
+        imported = await _connector().import_archive(db, user.id, space, content)
     except (WikiImportError, WikiServiceError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     stats = await _sync(db, user, space)
@@ -228,7 +229,7 @@ async def sync_wiki_space(
 
 async def _sync(db: AsyncSession, user: User, space: WikiSpace) -> dict:
     try:
-        return await sync_space(db, user.id, space)
+        return await _connector().sync(db, user.id, space)
     except WikiServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -16,12 +16,12 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.connectors.obsidian.importer import extract_zip, safe_join
+from app.connectors.obsidian.links import extract_frontmatter, extract_links, slugify
+from app.connectors.obsidian.parser import WikiParser
 from app.core.config import settings
 from app.models import Chunk, Document, WikiLink, WikiPage, WikiSpace
 from app.rag import get_embedding_service, get_vector_store, ingest_document
-from app.wiki.importer import extract_zip, safe_join
-from app.wiki.links import extract_frontmatter, extract_links, slugify
-from app.wiki.parser import WikiParser
 
 logger = logging.getLogger(__name__)
 

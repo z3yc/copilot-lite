@@ -9,16 +9,16 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.core.config import settings
-from app.main import app
-from app.rag.vector_store import VectorStore
-from app.wiki import importer as wiki_importer
-from app.wiki.links import (
+from app.connectors.obsidian import importer as wiki_importer
+from app.connectors.obsidian.links import (
     extract_frontmatter,
     extract_links,
     extract_tags,
     slugify,
 )
+from app.core.config import settings
+from app.main import app
+from app.rag.vector_store import VectorStore
 
 
 class FakeEmbeddings:
@@ -39,7 +39,7 @@ class FakeEmbeddings:
 @pytest.fixture
 def wiki_env(monkeypatch, tmp_path):
     """隔离存储根 + Fake 嵌入 + 8 维向量库。"""
-    from app.wiki import service as wiki_service
+    from app.connectors.obsidian import service as wiki_service
 
     monkeypatch.setattr(settings, "WIKI_STORAGE_ROOT", str(tmp_path / "wiki"))
     monkeypatch.setattr(wiki_service, "get_embedding_service", lambda: FakeEmbeddings())
@@ -301,8 +301,8 @@ async def test_wiki_import_invalid_or_empty_zip(authed_headers, wiki_env):
 
 async def test_sync_space_direct_unit(authed_headers, wiki_env):
     """直接调用 service（用于验证覆盖率/核心逻辑）。"""
+    from app.connectors.obsidian import service as wiki_service
     from app.core.db import async_session_factory
-    from app.wiki import service as wiki_service
 
     uid = uuid.UUID(authed_headers["uid"])
     async with async_session_factory() as db:

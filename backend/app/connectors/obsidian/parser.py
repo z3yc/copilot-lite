@@ -4,9 +4,9 @@ source_type = "wiki"，复用 MarkdownParser 的标题分块逻辑；
 链接与标签存入 ParsedDocument.meta，供同步层写链接图。
 """
 
+from app.connectors.obsidian.links import extract_frontmatter, extract_links, extract_tags
 from app.rag.parsers.base import DocumentParser, ParsedDocument, register_parser
 from app.rag.parsers.markdown_parser import MarkdownParser
-from app.wiki.links import extract_frontmatter, extract_links, extract_tags
 
 
 class WikiParser(DocumentParser):

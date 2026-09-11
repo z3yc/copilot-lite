@@ -78,6 +78,16 @@ body.dark {
   --code-bg: rgba(255, 255, 255, 0.1);
   --border-default: #303030;
   --border-strong: #3d3d3d;
+
+  /* 关键：自定义属性在声明元素上求值。兼容别名必须在暗色作用域内重新声明，
+     否则会沿用 :root 解析出的亮色值（导致 antd 已变暗、自研面板仍为亮色）。 */
+  --bg: var(--surface-base);
+  --panel: var(--surface-panel);
+  --border: var(--border-default);
+  --msg-bg: var(--surface-sunken);
+  --ai-bubble: var(--surface-raised);
+  --text: var(--text-primary);
+  --dim: var(--text-tertiary);
 }
 
 * {

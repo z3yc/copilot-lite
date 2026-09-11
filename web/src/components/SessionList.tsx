@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Empty, Input, List, Popconfirm, Skeleton, Typography } from "antd";
+import {
+  Alert,
+  Button,
+  Empty,
+  Input,
+  List,
+  Popconfirm,
+  Skeleton,
+  Typography,
+  message,
+} from "antd";
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -57,6 +67,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
       load(keyword);
     } catch (err) {
       console.error("删除失败", err);
+      message.error("删除失败，请重试");
     }
   };
 
@@ -76,6 +87,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
       );
     } catch (err) {
       console.error("重命名失败", err);
+      message.error("重命名失败，请重试");
     }
   };
 
@@ -93,6 +105,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("导出失败", err);
+      message.error("导出失败，请重试");
     }
   };
 

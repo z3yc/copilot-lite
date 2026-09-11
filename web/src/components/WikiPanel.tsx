@@ -71,6 +71,7 @@ export default function WikiPanel() {
       setActiveSpace((prev) => prev ?? list[0]?.id);
     } catch (err) {
       console.error("加载 Wiki 空间失败", err);
+      message.error("加载 Wiki 空间失败，请重试");
     }
   }, []);
 

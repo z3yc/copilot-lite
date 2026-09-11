@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Badge, List, Spin, Typography } from "antd";
+import { Badge, List, Spin, Typography, message } from "antd";
 import { fetchDocs } from "../api";
 import type { DocItem } from "../types";
 
@@ -27,7 +27,10 @@ export default function DocCategoryNav({ activeCat, onChange }: Props) {
   useEffect(() => {
     fetchDocs()
       .then(setDocs)
-      .catch(() => {})
+      .catch((err) => {
+        console.error("加载分类失败", err);
+        message.error("加载分类失败，请重试");
+      })
       .finally(() => setLoading(false));
   }, [activeCat]);
 

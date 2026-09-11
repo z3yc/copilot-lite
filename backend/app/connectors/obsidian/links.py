@@ -112,3 +112,30 @@ def slugify(title: str) -> str:
     text = re.sub(r"[\s_]+", "-", text)
     text = re.sub(r"[^0-9a-z\-\u4e00-\u9fff]", "", text)
     return text.strip("-") or "untitled"
+
+
+# 可被 Obsidian 双链显式带上的文档扩展名（归一化时剥离，链接按文件名解析）
+_DOC_EXTS = (".markdown", ".md", ".txt", ".pdf", ".docx", ".doc")
+
+
+def normalize_link_target(target: str) -> str:
+    """按 Obsidian 解析规则归一化双链目标，再 slugify 以匹配页面 slug（文件名）。
+
+    Obsidian 链接可带子目录路径（`folder/Note`）、显式扩展名（`Note.md`）、
+    块引用（`Note^block`）、锚点（`Note#Heading`）。Obsidian 最终按**文件名**
+    （去扩展名）解析，所以这里取 basename 并剥离已知扩展名，避免出现
+    `foldernote` / `notemd` 这类与页面 slug 不匹配的悬空链接。
+    """
+    text = (target or "").strip()
+    if not text:
+        return "untitled"
+    # 锚点 # / 块引用 ^ 均不参与文件名匹配（# 通常已被 extract_links 单独捕获）
+    text = text.split("#", 1)[0].split("^", 1)[0].strip()
+    # basename：兼容 / 与 \\ 两种路径分隔符
+    text = text.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    low = text.lower()
+    for ext in _DOC_EXTS:
+        if low.endswith(ext):
+            text = text[: -len(ext)]
+            break
+    return slugify(text)

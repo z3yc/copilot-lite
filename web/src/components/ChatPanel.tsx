@@ -283,7 +283,7 @@ export default function ChatPanel({
           type="warning"
           showIcon
           style={{ margin: "0 12px 8px" }}
-          message="以下操作需要你确认后才会执行"
+          title="以下操作需要你确认后才会执行"
           description={
             <div>
               <div className="dim" style={{ fontSize: 12 }}>

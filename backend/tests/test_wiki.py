@@ -312,6 +312,9 @@ async def test_sync_space_direct_unit(authed_headers, wiki_env):
         (root / "Q.md").write_text("# Q\n\nQ正文", encoding="utf-8")
         stats = await wiki_service.sync_space(db, uid, space)
     assert stats["added"] == 2
+    # last_synced_at 必须为 naive（与 PostgreSQL naive 列兼容）
+    assert space.last_synced_at is not None
+    assert space.last_synced_at.tzinfo is None
 
 
 async def test_wiki_local_absolute_path(authed_headers, wiki_env, tmp_path, monkeypatch):

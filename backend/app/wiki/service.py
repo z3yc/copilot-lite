@@ -343,7 +343,8 @@ async def sync_space(db: AsyncSession, user_id, space: WikiSpace) -> dict:
             stats["deleted"] += 1
 
     await _rebuild_links(db, user_id, space, root)
-    space.last_synced_at = datetime.now(UTC)
+    # 列为 TIMESTAMP WITHOUT TIME ZONE（naive）：必须去除时区，否则 asyncpg 报错
+    space.last_synced_at = datetime.now(UTC).replace(tzinfo=None)
     await db.commit()
     logger.info("Wiki 同步完成 space=%s stats=%s", space.name, stats)
     return stats

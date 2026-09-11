@@ -13,7 +13,7 @@
 | C | 性能与正确性 | ✅ C1/C2/C5 完成，C3/C4 暂缓 |
 | D | RAG / Agent 能力深度 | ✅ D1/D2/D4 完成，D3/D5 暂缓 |
 | E | 产品体验（前端 UX） | ✅ E1–E4 完成，E5 暂缓 |
-| F | 模型配置页面化（新想法） | 🟡 进行中 |
+| F | 模型配置页面化（新想法） | ✅ 完成 |
 
 ### 已完成（累计，均已入 develop）
 
@@ -147,19 +147,15 @@
 
 > 目标：不用改 `.env`、重启服务，直接在 Web 页面配置模型——API Key、Base URL、模型名、温度、最大 tokens 等，按用户生效，未配置时回退环境变量。
 
-- [ ] **F1 配置存储与加密**
-  - 新增 `llm_settings` 表（user_id 唯一）：base_url / model / temperature / max_tokens / api_key（**加密存储**，不落明文）。
-  - API Key 加密后再入库；接口只返回是否已配置 + 掩码预览（如 `sk-****abcd`），永不回传明文。
-- [ ] **F2 按用户解析模型配置**
-  - `get_llm()` / LangGraph `_get_langchain_llm` 改为“按当前用户解析”：有用户配置用用户配置，否则回退环境变量（保证未配置用户照常可用）。
-  - 手写引擎与 LangGraph 引擎均支持；流式/非流式一致。
-- [ ] **F3 配置 API**
-  - `GET /settings/llm`（掩码返回）、`PUT /settings/llm`（保存，校验 URL/模型名）、`DELETE /settings/llm`（恢复默认）、`POST /settings/llm/test`（真实连通性测试）。
-- [ ] **F4 前端设置页**
-  - 个人中心新增“⚙️ 模型设置”Tab：表单（Base URL / 模型 / API Key / 温度 / max_tokens）+ “测试连接”按钮 + 保存/清除。
-  - Key 输入框密文显示、占位提示“已配置（不显示明文）”。
-- [ ] **F5 安全与测试**
-  - 密钥加密存储 + 日志脱敏（不打印 Key）；未配置回退环境变量；跨用户隔离（只能读写自己的配置）。
-  - 测试：加密/掩码、按用户解析、回退逻辑、接口鉴权与隔离、Web 表单冒烟（Fake LLM，不触网）。
+- [x] **F1 配置存储与加密**
+  - 已落地：`llm_settings` 表（user_id 唯一）+ Alembic `f1a2b3c4d5e6`；`core/crypto.py` Fernet（密钥派生自 SECRET_KEY）加密 API Key。
+- [x] **F2 按用户解析模型配置**
+  - 已落地：`LLMConfig` + contextvar；`get_llm()` 与 LangGraph `_get_langchain_llm()` 用户配置优先、环境变量回退；chat/ai-create 入口写入上下文，后台任务（记忆/摘要）自动继承。
+- [x] **F3 配置 API**
+  - 已落地：`GET/PUT/DELETE /settings/llm` + `POST /settings/llm/test`（真实连通性测试）；Key 掩码回显、URL 校验。
+- [x] **F4 前端设置页**
+  - 已落地：个人中心新增“⚙️ 模型设置”Tab（Base URL/模型/API Key/温度/max_tokens + 测试连接/保存/恢复默认）。
+- [x] **F5 安全与测试**
+  - 已落地：Key 加密存储（不回传明文、日志不打印）、跨用户隔离、未配置回退环境变量；后端 +12 用例（加密/掩码/隔离/回退/连通性）。
 
 > 安全红线说明（§6）：密钥仅加密存于本人记录，接口不回传明文、日志不打印；`.env` 仍为默认，不破坏现有部署。

@@ -213,7 +213,7 @@ async def test_memories_api(authed_headers: dict) -> None:
         # 列表
         r = await client.get("/api/v1/memories", headers=authed_headers)
         assert r.status_code == 200
-        data = r.json()
+        data = r.json()["data"]
         assert any(m["fact"] == "测试记忆条目" for m in data)
         mid = next(m["id"] for m in data if m["fact"] == "测试记忆条目")
 
@@ -221,4 +221,4 @@ async def test_memories_api(authed_headers: dict) -> None:
         r = await client.delete(f"/api/v1/memories/{mid}", headers=authed_headers)
         assert r.status_code == 200
         r = await client.get("/api/v1/memories", headers=authed_headers)
-        assert all(m["id"] != mid for m in r.json())
+        assert all(m["id"] != mid for m in r.json()["data"])

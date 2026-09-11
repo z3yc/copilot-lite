@@ -41,7 +41,7 @@ async def authed_headers() -> dict:
             },
         )
         assert resp.status_code == 200, resp.text
-        data = resp.json()
+        data = resp.json()["data"]
     return {"Authorization": f"Bearer {data['token']}", "uid": data["user"]["id"]}
 
 

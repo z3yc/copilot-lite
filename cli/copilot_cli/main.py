@@ -42,14 +42,20 @@ API_BASE = os.environ.get("COPILOT_API_URL", "http://127.0.0.1:8000")
 
 
 def _request(method: str, path: str, **kwargs):
-    """后端请求封装：统一错误处理 + 自动注入登录令牌。"""
+    """后端请求封装：统一错误处理 + 自动注入登录令牌 + 解包统一响应结构。"""
     headers = {**auth_header(), **(kwargs.pop("headers", None) or {})}
     try:
         resp = httpx.request(
             method, f"{API_BASE}{path}", timeout=120, headers=headers, **kwargs
         )
         resp.raise_for_status()
-        return resp.json()
+        body = resp.json()
+        # 统一响应结构 {code, message, data}：code!=0 视为错误，否则返回 data
+        if isinstance(body, dict) and "code" in body:
+            if body.get("code") != 0:
+                raise typer.Exit(body.get("message") or "请求失败")
+            return body.get("data")
+        return body
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         if status == 401 and not path.startswith("/api/v1/auth"):
@@ -58,6 +64,13 @@ def _request(method: str, path: str, **kwargs):
                 "未登录或登录已过期，请先运行: copilot login"
             ) from exc
         detail = exc.response.text[:300] if exc.response else str(exc)
+        if exc.response is not None:
+            try:
+                payload = exc.response.json()
+                if isinstance(payload, dict) and payload.get("message"):
+                    detail = payload["message"]
+            except ValueError:
+                pass
         raise typer.Exit(f"后端返回错误 {status}: {detail}") from exc
     except httpx.RequestError as exc:
         raise typer.Exit(

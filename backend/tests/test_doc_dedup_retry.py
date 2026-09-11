@@ -52,10 +52,10 @@ async def test_upload_same_content_deduplicated(authed_headers, fake_rag) -> Non
         assert first.status_code == 200, first.text
         second = await _upload(client, authed_headers, "b.md", content)
         assert second.status_code == 200, second.text
-        assert first.json()["id"] == second.json()["id"]
+        assert first.json()["data"]["id"] == second.json()["data"]["id"]
 
         listing = await client.get("/api/v1/documents", headers=authed_headers)
-        assert len(listing.json()) == 1
+        assert len(listing.json()["data"]) == 1
 
 
 async def test_retry_failed_document(authed_headers, fake_rag, monkeypatch) -> None:
@@ -71,7 +71,7 @@ async def test_retry_failed_document(authed_headers, fake_rag, monkeypatch) -> N
         assert resp.status_code == 422
 
         listing = await client.get("/api/v1/documents", headers=authed_headers)
-        doc = listing.json()[0]
+        doc = listing.json()["data"][0]
         assert doc["status"] == "failed"
 
         # 恢复真实摄取后重试
@@ -80,8 +80,8 @@ async def test_retry_failed_document(authed_headers, fake_rag, monkeypatch) -> N
             f"/api/v1/documents/{doc['id']}/retry", headers=authed_headers
         )
         assert retry.status_code == 200, retry.text
-        assert retry.json()["status"] == "ready"
-        assert retry.json()["chunk_count"] >= 1
+        assert retry.json()["data"]["status"] == "ready"
+        assert retry.json()["data"]["chunk_count"] >= 1
 
 
 async def test_retry_other_users_document_returns_404(authed_headers, fake_rag) -> None:
@@ -89,13 +89,13 @@ async def test_retry_other_users_document_returns_404(authed_headers, fake_rag) 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await _upload(client, authed_headers, "s.md", content)
-        doc_id = resp.json()["id"]
+        doc_id = resp.json()["data"]["id"]
 
         other = await client.post(
             "/api/v1/auth/register",
             json={"username": f"u{uuid.uuid4().hex[:8]}", "password": "secret123"},
         )
-        other_headers = {"Authorization": f"Bearer {other.json()['token']}"}
+        other_headers = {"Authorization": f"Bearer {other.json()["data"]['token']}"}
         retry = await client.post(
             f"/api/v1/documents/{doc_id}/retry", headers=other_headers
         )

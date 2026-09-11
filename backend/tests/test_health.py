@@ -12,7 +12,7 @@ async def test_health() -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/v1/health")
     assert resp.status_code == 200
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["status"] == "ok"
     assert data["app"] == "copilot-lite"
 

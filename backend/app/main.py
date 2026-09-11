@@ -3,8 +3,11 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import app.models
 from app.api import api_router
@@ -12,6 +15,8 @@ from app.core.config import settings
 from app.core.constants import DEFAULT_USER_ID, DEFAULT_USERNAME
 from app.core.context import RequestContextMiddleware
 from app.core.db import Base, async_session_factory, engine
+from app.core.envelope import EnvelopeMiddleware
+from app.core.errors import AppError, code_for_status, envelope
 from app.core.logging import setup_logging
 from app.models import Category, User
 from app.models.category import DEFAULT_CATEGORIES
@@ -85,7 +90,48 @@ app.add_middleware(
 # 请求级上下文（request_id 全链路追踪 + 响应头回写）
 app.add_middleware(RequestContextMiddleware)
 
+# 统一响应结构：/api/v1 成功 JSON 包成 {code, message, data}
+app.add_middleware(EnvelopeMiddleware)
+
 app.include_router(api_router, prefix="/api/v1")
+
+
+# ---------------- 统一错误响应（AGENTS.md §14） ----------------
+
+
+@app.exception_handler(AppError)
+async def _handle_app_error(_: Request, exc: AppError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=envelope(code=exc.code, message=exc.message),
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _handle_http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
+    detail = exc.detail if isinstance(exc.detail, str) else "请求失败"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=envelope(code=code_for_status(exc.status_code), message=detail),
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def _handle_validation_error(_: Request, __: RequestValidationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content=envelope(code=1000, message="参数校验失败"),
+    )
+
+
+@app.exception_handler(Exception)
+async def _handle_unexpected(_: Request, exc: Exception) -> JSONResponse:
+    logger.exception("未处理异常: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content=envelope(code=3000, message="服务内部错误"),
+    )
 
 
 @app.get("/")

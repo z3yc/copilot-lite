@@ -11,7 +11,7 @@ async def test_live_probe_ok():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/v1/health/live")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    assert resp.json()["data"] == {"status": "ok"}
 
 
 async def test_ready_probe_ok():
@@ -19,7 +19,7 @@ async def test_ready_probe_ok():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/v1/health/ready")
     assert resp.status_code == 200
-    body = resp.json()
+    body = resp.json()["data"]
     assert body["status"] == "ok"
     assert body["checks"]["database"] is True
     assert body["checks"]["vector_store"] is True
@@ -31,7 +31,7 @@ async def test_ready_degraded_when_vector_store_down(monkeypatch):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/v1/health/ready")
     assert resp.status_code == 503
-    body = resp.json()
+    body = resp.json()["data"]
     assert body["status"] == "degraded"
     assert body["checks"]["vector_store"] is False
 

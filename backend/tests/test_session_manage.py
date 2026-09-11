@@ -10,7 +10,7 @@ from app.main import app
 async def _new_session(client: AsyncClient, headers: dict) -> str:
     resp = await client.post("/api/v1/sessions", json={}, headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()["id"]
+    return resp.json()["data"]["id"]
 
 
 async def test_rename_search_and_export(authed_headers: dict) -> None:
@@ -26,11 +26,11 @@ async def test_rename_search_and_export(authed_headers: dict) -> None:
             headers=authed_headers,
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["title"] == "面试准备"
+        assert resp.json()["data"]["title"] == "面试准备"
 
         # 搜索：仅命中重命名后的会话
         resp = await client.get("/api/v1/sessions?q=面试", headers=authed_headers)
-        ids = [s["id"] for s in resp.json()]
+        ids = [s["id"] for s in resp.json()["data"]]
         assert sid1 in ids
         assert sid2 not in ids
 
@@ -52,7 +52,7 @@ async def test_rename_other_users_session_returns_404(authed_headers: dict) -> N
             "/api/v1/auth/register",
             json={"username": f"u{uuid.uuid4().hex[:8]}", "password": "secret123"},
         )
-        other_headers = {"Authorization": f"Bearer {other.json()['token']}"}
+        other_headers = {"Authorization": f"Bearer {other.json()["data"]['token']}"}
 
         resp = await client.patch(
             f"/api/v1/sessions/{sid}",

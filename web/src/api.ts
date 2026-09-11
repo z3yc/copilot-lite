@@ -18,6 +18,12 @@ export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t);
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
+interface Envelope<T> {
+  code: number;
+  message: string;
+  data: T;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   const token = getToken();
@@ -31,10 +37,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error("登录已过期，请重新登录");
   }
   if (!resp.ok) {
-    const detail = await resp.text();
-    throw new Error(`请求失败 ${resp.status}: ${detail.slice(0, 200)}`);
+    // 后端统一错误体 {code,message,data}；非 JSON 时回退状态码提示
+    let message = `请求失败 ${resp.status}`;
+    try {
+      const body = await resp.json();
+      if (body && typeof body.message === "string" && body.message) {
+        message = body.message;
+      }
+    } catch {
+      // 忽略：保留状态码提示
+    }
+    throw new Error(message);
   }
-  return resp.json() as Promise<T>;
+  const body = (await resp.json()) as Envelope<T> | T;
+  // 统一响应结构：解包 data；兼容非信封响应
+  if (body && typeof body === "object" && "code" in (body as Record<string, unknown>)) {
+    const env = body as Envelope<T>;
+    if (env.code !== 0) throw new Error(env.message || "请求失败");
+    return env.data;
+  }
+  return body as T;
 }
 
 // ---- 认证 ----

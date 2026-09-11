@@ -129,7 +129,7 @@ async def test_chat_injects_session_files(monkeypatch, authed_headers: dict) -> 
     captured: list[dict] = []
 
     class CaptureLLM:
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             captured.append(messages)
             return ChatResult(content="回复")
 

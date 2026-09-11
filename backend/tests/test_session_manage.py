@@ -30,7 +30,7 @@ async def test_rename_search_and_export(authed_headers: dict) -> None:
 
         # 搜索：仅命中重命名后的会话
         resp = await client.get("/api/v1/sessions?q=面试", headers=authed_headers)
-        ids = [s["id"] for s in resp.json()["data"]]
+        ids = [s["id"] for s in resp.json()["data"]["items"]]
         assert sid1 in ids
         assert sid2 not in ids
 

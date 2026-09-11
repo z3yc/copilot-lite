@@ -13,6 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, parse_uuid
 from app.core.db import get_session
+from app.core.pagination import (
+    DEFAULT_PAGE_SIZE,
+    PageOut,
+    normalize_page,
+    page_offset,
+)
 from app.models import Chunk, Document, User
 from app.rag import (
     get_embedding_service,
@@ -199,17 +205,20 @@ async def retry_document(
     return await _to_out(db, doc)
 
 
-@router.get("", response_model=list[DocumentOut])
+@router.get("", response_model=PageOut[DocumentOut])
 async def list_documents(
     q: str | None = None,
     type: str | None = None,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
-) -> list[DocumentOut]:
-    """文档列表（当前用户）。
+) -> PageOut[DocumentOut]:
+    """文档列表（当前用户，分页）。
 
-    q:    内容级搜索关键词（标题或分块内容包含）
-    type: 按来源类型过滤（md / pdf / docx / code / web）
+    q:         内容级搜索关键词（标题或分块内容包含）
+    type:      按来源类型过滤（md / pdf / docx / code / web）
+    page/page_size: 分页参数（默认 20，最大 100）
     """
     stmt = select(Document).where(Document.user_id == user.id)
     if q and q.strip():
@@ -223,10 +232,19 @@ async def list_documents(
     if type:
         stmt = stmt.where(Document.source_type == type)
     stmt = stmt.order_by(Document.created_at.desc())
-    docs = (await db.scalars(stmt)).all()
+
+    page, page_size = normalize_page(page, page_size)
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    offset, limit = page_offset(page, page_size)
+    docs = (await db.scalars(stmt.limit(limit).offset(offset))).all()
     # 批量统计分块数（避免每个文档一次 count 的 N+1 查询）
     counts = await _chunk_counts(db, [d.id for d in docs])
-    return [_doc_out(d, counts.get(d.id, 0)) for d in docs]
+    return PageOut(
+        items=[_doc_out(d, counts.get(d.id, 0)) for d in docs],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/{doc_id}", response_model=DocumentOut)

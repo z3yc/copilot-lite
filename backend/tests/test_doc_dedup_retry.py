@@ -55,7 +55,7 @@ async def test_upload_same_content_deduplicated(authed_headers, fake_rag) -> Non
         assert first.json()["data"]["id"] == second.json()["data"]["id"]
 
         listing = await client.get("/api/v1/documents", headers=authed_headers)
-        assert len(listing.json()["data"]) == 1
+        assert len(listing.json()["data"]["items"]) == 1
 
 
 async def test_retry_failed_document(authed_headers, fake_rag, monkeypatch) -> None:
@@ -71,7 +71,7 @@ async def test_retry_failed_document(authed_headers, fake_rag, monkeypatch) -> N
         assert resp.status_code == 422
 
         listing = await client.get("/api/v1/documents", headers=authed_headers)
-        doc = listing.json()["data"][0]
+        doc = listing.json()["data"]["items"][0]
         assert doc["status"] == "failed"
 
         # 恢复真实摄取后重试

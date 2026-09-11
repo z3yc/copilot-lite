@@ -96,9 +96,21 @@ export const updateMemory = (id: string, fact: string, category: string) =>
 export const deleteMemory = (id: string) =>
   request<{ deleted: string }>(`/memories/${id}`, { method: "DELETE" });
 
+// ---- 分页 ----
+export interface Page<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 // ---- 会话 ----
-export const fetchSessions = (q?: string) =>
-  request<Session[]>(`/sessions${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+export const fetchSessions = async (q?: string): Promise<Session[]> =>
+  (
+    await request<Page<Session>>(
+      `/sessions${q ? `?q=${encodeURIComponent(q)}` : ""}`
+    )
+  ).items;
 export const fetchMessages = (sessionId: string) =>
   request<ChatMessage[]>(`/sessions/${sessionId}/messages`);
 export const deleteSession = (sessionId: string) =>
@@ -130,13 +142,17 @@ export interface TodoPayload {
   tags?: string[];
 }
 
-export const fetchTodos = (params?: { status?: string; category_id?: string; tag?: string }) => {
+export const fetchTodos = async (params?: {
+  status?: string;
+  category_id?: string;
+  tag?: string;
+}): Promise<TodoItem[]> => {
   const qs = new URLSearchParams();
   if (params?.status) qs.set("status", params.status);
   if (params?.category_id) qs.set("category_id", params.category_id);
   if (params?.tag) qs.set("tag", params.tag);
   const s = qs.toString();
-  return request<TodoItem[]>(`/todos${s ? `?${s}` : ""}`);
+  return (await request<Page<TodoItem>>(`/todos${s ? `?${s}` : ""}`)).items;
 };
 export const fetchCategories = () => request<Category[]>(`/todos/categories`);
 export const createTodo = (data: TodoPayload) =>
@@ -161,12 +177,12 @@ export const aiCreateTodo = (text: string) =>
   });
 
 // ---- 文档 ----
-export const fetchDocs = (q?: string, type?: string) => {
+export const fetchDocs = async (q?: string, type?: string): Promise<DocItem[]> => {
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (type) params.set("type", type);
   const qs = params.toString();
-  return request<DocItem[]>(`/documents${qs ? `?${qs}` : ""}`);
+  return (await request<Page<DocItem>>(`/documents${qs ? `?${qs}` : ""}`)).items;
 };
 export const fetchDocDetail = (docId: string) =>
   request<DocDetail>(`/documents/${docId}/chunks`);

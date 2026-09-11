@@ -12,6 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, parse_uuid
 from app.core.db import get_session
+from app.core.pagination import (
+    DEFAULT_PAGE_SIZE,
+    PageOut,
+    normalize_page,
+    page_offset,
+)
 from app.models import ChatSession, Message, SessionFile, User
 
 logger = logging.getLogger(__name__)
@@ -96,13 +102,15 @@ async def create_session(
     return SessionOut(id=str(session.id), title=session.title, message_count=0)
 
 
-@router.get("", response_model=list[SessionOut])
+@router.get("", response_model=PageOut[SessionOut])
 async def list_sessions(
     q: str | None = None,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
-) -> list[SessionOut]:
-    """当前用户的会话列表（按更新时间倒序）；q 按标题模糊搜索。"""
+) -> PageOut[SessionOut]:
+    """当前用户的会话列表（按更新时间倒序，分页）；q 按标题模糊搜索。"""
     stmt = (
         select(ChatSession, func.count(Message.id).label("cnt"))
         .outerjoin(Message, Message.session_id == ChatSession.id)
@@ -112,8 +120,12 @@ async def list_sessions(
     )
     if q and q.strip():
         stmt = stmt.where(ChatSession.title.ilike(f"%{q.strip()}%"))
-    rows = (await db.execute(stmt)).all()
-    return [
+
+    page, page_size = normalize_page(page, page_size)
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    offset, limit = page_offset(page, page_size)
+    rows = (await db.execute(stmt.limit(limit).offset(offset))).all()
+    items = [
         SessionOut(
             id=str(s.id),
             title=s.title,
@@ -122,6 +134,7 @@ async def list_sessions(
         )
         for s, cnt in rows
     ]
+    return PageOut(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.patch("/{session_id}", response_model=SessionOut)

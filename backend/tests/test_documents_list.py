@@ -37,7 +37,7 @@ async def test_document_list_counts_without_n_plus_one(authed_headers: dict) -> 
         event.remove(engine.sync_engine, "before_cursor_execute", _before)
 
     assert resp.status_code == 200, resp.text
-    data = resp.json()["data"]
+    data = resp.json()["data"]["items"]
     assert len(data) == 5
     assert all(d["chunk_count"] == 1 for d in data)
 

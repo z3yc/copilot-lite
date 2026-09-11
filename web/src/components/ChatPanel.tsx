@@ -386,7 +386,7 @@ export default function ChatPanel({
         </Tooltip>
         <TextArea
           value={input}
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行；或点击左侧📎上传文件到本次对话"
+          placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
           autoSize={{ minRows: 1, maxRows: 4 }}
           onChange={(e) => setInput(e.target.value)}
           onPressEnter={(e) => {

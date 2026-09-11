@@ -11,6 +11,7 @@ from app.api.routes import (
     sessions,
     settings,
     todos,
+    wiki,
 )
 
 api_router = APIRouter()
@@ -22,3 +23,4 @@ api_router.include_router(sessions.router)
 api_router.include_router(todos.router)
 api_router.include_router(memories.router)
 api_router.include_router(settings.router)
+api_router.include_router(wiki.router)

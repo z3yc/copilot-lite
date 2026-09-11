@@ -6,6 +6,7 @@ from app.rag.parsers import (  # noqa: F401
     markdown_parser,
     pdf_parser,
     web_parser,
+    wiki_parser,
 )
 from app.rag.parsers.base import (
     DocumentParser,

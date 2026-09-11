@@ -26,9 +26,11 @@ async def ingest_document(
     content: bytes,
     embeddings: EmbeddingService,
     vector_store: VectorStore,
+    extra_meta: dict | None = None,
 ) -> int:
     """执行一次完整摄取，返回生成的分块数量。
 
+    extra_meta 会合并进每个分块的 meta（供 Wiki 等来源注入空间/路径等）。
     任一步骤失败会抛 IngestError，由调用方将文档状态置为 failed。
     """
     parser = get_parser(document.source_type)
@@ -55,7 +57,7 @@ async def ingest_document(
                 document_id=document.id,
                 chunk_index=i,
                 content=c.content,
-                meta={**c.meta, "document_title": document.title},
+                meta={**c.meta, "document_title": document.title, **(extra_meta or {})},
             )
         )
     db.add_all(chunk_rows)

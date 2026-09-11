@@ -29,6 +29,7 @@ const { Search } = Input;
 
 const SOURCE_META: Record<string, { label: string; icon: string }> = {
   md: { label: "笔记", icon: "📄" },
+  wiki: { label: "Wiki", icon: "🕸️" },
   pdf: { label: "PDF", icon: "📕" },
   docx: { label: "Word", icon: "📘" },
   code: { label: "代码", icon: "💻" },

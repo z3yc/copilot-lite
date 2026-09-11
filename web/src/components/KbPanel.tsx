@@ -6,6 +6,7 @@ import {
   Empty,
   Input,
   Popconfirm,
+  Skeleton,
   Space,
   Spin,
   Tag,
@@ -54,16 +55,22 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DocDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [loadingDocs, setLoadingDocs] = useState(true);
   const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 加载（分类 + 内容级搜索，300ms 防抖）
-  const loadDocs = useCallback(() => {
-    const kw = search.trim();
-    const type = activeCat !== "all" ? activeCat : undefined;
-    return fetchDocs(kw || undefined, type)
-      .then(setDocs)
-      .catch((err) => console.error("加载知识库失败", err));
+  const loadDocs = useCallback(async () => {
+    setLoadingDocs(true);
+    try {
+      const kw = search.trim();
+      const type = activeCat !== "all" ? activeCat : undefined;
+      setDocs(await fetchDocs(kw || undefined, type));
+    } catch (err) {
+      console.error("加载知识库失败", err);
+    } finally {
+      setLoadingDocs(false);
+    }
   }, [search, activeCat]);
 
   useEffect(() => {
@@ -188,7 +195,9 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
           </div>
         )}
 
-        {docs.length === 0 ? (
+        {loadingDocs && docs.length === 0 ? (
+          <Skeleton active paragraph={{ rows: 5 }} />
+        ) : docs.length === 0 ? (
           search ? (
             <Empty description="没有匹配的文档，换个关键词试试" />
           ) : (

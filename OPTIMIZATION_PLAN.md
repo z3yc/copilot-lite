@@ -159,3 +159,23 @@
   - 已落地：Key 加密存储（不回传明文、日志不打印）、跨用户隔离、未配置回退环境变量；后端 +12 用例（加密/掩码/隔离/回退/连通性）。
 
 > 安全红线说明（§6）：密钥仅加密存于本人记录，接口不回传明文、日志不打印；`.env` 仍为默认，不破坏现有部署。
+
+---
+
+## 批次 G · 本地 Wiki 知识库（Obsidian 接入）
+
+> 方案：`docs/知识库Wiki技术方案.md`（v2）；选型复盘：`面试准备/知识库Wiki技术选型与路线复盘.md`。
+
+- [x] **M1 导入与索引**（`feat/wiki-import`，提交 `3f835b5`）
+  - 受管副本 `WIKI_STORAGE_ROOT`；导入通道：**本地路径（受管根下）+ zip 上传**（zip 炸弹/路径穿越防护）。
+  - `WikiParser`：frontmatter / `[[双链]]` / `![[嵌入]]` / `#标签`，注册进现有解析器表。
+  - 增量同步：`rel_path` 幂等 + 内容 hash 识别“移动” + 变更页重嵌 + 删除级联；重建双链图。
+  - API：空间 CRUD / zip 导入 / 同步 / 页面列表（分页）/ 页面详情（正文+出链+反向链接）。
+  - 配置三件套：`WIKI_ENABLED / WIKI_STORAGE_ROOT / WIKI_SCAN_INTERVAL_MINUTES / WIKI_LINK_EXPANSION_ENABLED / WIKI_EXPAND_HOPS / WIKI_MAX_*`。
+  - 测试：+13（语法 / zip 安全 / 导入同步 / 链接图 / 移动检测 / 隔离）。
+- [ ] **M1.5 Wiki 管理 UI**：空间创建、zip 导入、手动同步、页面树与浏览、反向链接面板
+- [ ] **M2 双链检索增强**：邻居扩展召回 + 引用带 Wiki 路径
+- [ ] **M3 图谱可视化**：`/wiki/graph` + `react-force-graph-2d`
+- [ ] **M4 轻量本体（可选）**：类型化链接（`wiki_link.relation`）+ 按关系加权/着色
+
+**M1 后基线**：后端 **197 用例 / 覆盖率 80.55%**、ruff 全过；前端 **37 用例**、build 零错误；CLI **15 用例**。

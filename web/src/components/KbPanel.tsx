@@ -19,7 +19,7 @@ import {
   ReloadOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
-import { deleteDoc, fetchDocDetail, fetchDocs, uploadDocs } from "../api";
+import { deleteDoc, fetchDocDetail, fetchDocs, retryDoc, uploadDocs } from "../api";
 import type { DocDetail, DocItem } from "../types";
 
 const { Text, Paragraph } = Typography;
@@ -115,6 +115,16 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
       fetchDocs(search.trim() || undefined).then(setDocs).catch(() => {});
     } catch (err) {
       message.error(`删除失败: ${err}`);
+    }
+  };
+
+  const retry = async (id: string) => {
+    try {
+      await retryDoc(id);
+      message.success("已重新摄取");
+      loadDocs();
+    } catch (err) {
+      message.error(`重试失败: ${err}`);
     }
   };
 
@@ -243,6 +253,18 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                           <Text type="secondary" style={{ fontSize: 12 }}>
                             {d.chunk_count} 分块
                           </Text>
+                          {d.status === "failed" && (
+                            <Button
+                              type="text"
+                              size="small"
+                              title="重试摄取"
+                              icon={<ReloadOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                retry(d.id);
+                              }}
+                            />
+                          )}
                           <Popconfirm
                             title="删除该文档？其分块与向量将一并清理。"
                             onConfirm={() => remove(d.id)}

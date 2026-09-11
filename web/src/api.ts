@@ -133,6 +133,8 @@ export const fetchDocDetail = (docId: string) =>
   request<DocDetail>(`/documents/${docId}/chunks`);
 export const deleteDoc = (docId: string) =>
   request<{ deleted: string }>(`/documents/${docId}`, { method: "DELETE" });
+export const retryDoc = (docId: string) =>
+  request<DocItem>(`/documents/${docId}/retry`, { method: "POST" });
 
 export async function uploadDocs(files: File[]): Promise<DocItem[]> {
   const results: DocItem[] = [];

@@ -75,11 +75,28 @@ export const deleteMemory = (id: string) =>
   request<{ deleted: string }>(`/memories/${id}`, { method: "DELETE" });
 
 // ---- 会话 ----
-export const fetchSessions = () => request<Session[]>("/sessions");
+export const fetchSessions = (q?: string) =>
+  request<Session[]>(`/sessions${q ? `?q=${encodeURIComponent(q)}` : ""}`);
 export const fetchMessages = (sessionId: string) =>
   request<ChatMessage[]>(`/sessions/${sessionId}/messages`);
 export const deleteSession = (sessionId: string) =>
   request<{ deleted: string }>(`/sessions/${sessionId}`, { method: "DELETE" });
+export const renameSession = (sessionId: string, title: string) =>
+  request<Session>(`/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+
+/** 导出会话 Markdown（带认证的裸 fetch，不走 JSON 解析）。 */
+export async function exportSessionMarkdown(sessionId: string): Promise<string> {
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const resp = await fetch(`${BASE}/sessions/${sessionId}/export`, { headers });
+  if (!resp.ok) throw new Error(`导出失败 ${resp.status}`);
+  return resp.text();
+}
 
 // ---- 待办 ----
 export interface TodoPayload {

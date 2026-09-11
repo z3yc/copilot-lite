@@ -22,6 +22,7 @@ from app.connectors.obsidian.parser import WikiParser
 from app.core.config import settings
 from app.models import Chunk, Document, WikiLink, WikiPage, WikiSpace
 from app.rag import get_embedding_service, get_vector_store, ingest_document
+from app.rag.parsers.base import decode_text
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +240,7 @@ def _page_info(rel_path: str, content: bytes):
     source_type = _EXT_TYPES.get(ext, "wiki")
     stem = Path(rel_path).stem
     if ext in _MD_EXTS:
-        text = content.decode("utf-8", errors="replace")
+        text = decode_text(content)
         front, _ = extract_frontmatter(text)
         parsed = WikiParser().parse(content, meta={"wiki_path": rel_path})
         front_title = str(front.get("title") or "").strip()

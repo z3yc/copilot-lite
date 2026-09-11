@@ -39,6 +39,32 @@ class DocumentParser(ABC):
         """解析原始字节内容为结构化文档。"""
 
 
+def decode_text(content: bytes) -> str:
+    """稳健文本解码：处理 UTF-16/BOM/GBK 等，并**去除 NUL 字节**。
+
+    背景：部分 .txt 为 UTF-16（字节间夹 `\x00`），按 UTF-8 解码会残留 NUL；
+    PostgreSQL 的 UTF-8 不接受 NUL（`CharacterNotInRepertoireError`），
+    会直接导致分块入库 500。这里做编码探测 + NUL 清洗。
+    """
+    if not content:
+        return ""
+    maybe_utf16 = content.startswith((b"\xff\xfe", b"\xfe\xff")) or content.count(0) > max(
+        1, len(content) // 10
+    )
+    if maybe_utf16:
+        for enc in ("utf-16", "utf-16-le", "utf-16-be"):
+            try:
+                return content.decode(enc).replace("\x00", "")
+            except (UnicodeDecodeError, LookupError):
+                continue
+    for enc in ("utf-8-sig", "gb18030"):
+        try:
+            return content.decode(enc).replace("\x00", "")
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return content.decode("utf-8", errors="replace").replace("\x00", "")
+
+
 # 解析器注册表：source_type -> parser 实例
 _PARSERS: dict[str, DocumentParser] = {}
 

@@ -5,7 +5,7 @@ source_type = "wiki"，复用 MarkdownParser 的标题分块逻辑；
 """
 
 from app.connectors.obsidian.links import extract_frontmatter, extract_links, extract_tags
-from app.rag.parsers.base import DocumentParser, ParsedDocument, register_parser
+from app.rag.parsers.base import DocumentParser, ParsedDocument, decode_text, register_parser
 from app.rag.parsers.markdown_parser import MarkdownParser
 
 
@@ -14,7 +14,7 @@ class WikiParser(DocumentParser):
 
     def parse(self, content: bytes, meta: dict | None = None) -> ParsedDocument:
         meta = meta or {}
-        text = content.decode("utf-8", errors="replace")
+        text = decode_text(content)
         front, body = extract_frontmatter(text)
 
         markdown = MarkdownParser().parse(body.encode("utf-8"), meta=meta)

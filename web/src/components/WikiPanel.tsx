@@ -257,7 +257,7 @@ export default function WikiPanel() {
   return (
     <div className="wiki-panel">
       <div className="wiki-side">
-        <Space direction="vertical" style={{ width: "100%" }} size={10}>
+        <Space orientation="vertical" style={{ width: "100%" }} size={10}>
           <Space style={{ width: "100%", justifyContent: "space-between" }}>
             <Text strong>
               <BookOutlined /> Wiki 空间
@@ -311,7 +311,7 @@ export default function WikiPanel() {
           />
 
           {active && (
-            <Space direction="vertical" style={{ width: "100%" }} size={8}>
+            <Space orientation="vertical" style={{ width: "100%" }} size={8}>
               <Dragger
                 accept=".zip"
                 showUploadList={false}
@@ -476,7 +476,7 @@ export default function WikiPanel() {
               {detail.backlinks.length === 0 ? (
                 <Text type="secondary">暂无其他页面引用本页</Text>
               ) : (
-                <Space direction="vertical">
+                <Space orientation="vertical">
                   {detail.backlinks.map((b) => (
                     <a
                       key={b.source_page_id}
@@ -496,7 +496,7 @@ export default function WikiPanel() {
               {detail.links.length === 0 ? (
                 <Text type="secondary">本页未引用其他页面</Text>
               ) : (
-                <Space direction="vertical">
+                <Space orientation="vertical">
                   {detail.links.map((l, i) => (
                     <span key={`${l.target_slug}-${i}`}>
                       {l.kind === "embed" ? "!" : ""}
@@ -530,7 +530,7 @@ export default function WikiPanel() {
         confirmLoading={busy}
         onCancel={() => setCreateOpen(false)}
       >
-        <Space direction="vertical" style={{ width: "100%" }} size={10}>
+        <Space orientation="vertical" style={{ width: "100%" }} size={10}>
           <Input
             placeholder="空间名称（如 my-vault）"
             value={newName}

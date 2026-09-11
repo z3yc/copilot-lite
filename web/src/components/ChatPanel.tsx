@@ -34,6 +34,10 @@ import { renderMarkdown } from "../utils/markdown";
 const { TextArea } = Input;
 const { Text } = Typography;
 
+// 本地消息 id 生成器：为流式新增消息提供稳定 key（历史消息可能自带后端 id）
+let messageSeq = 0;
+const nextMessageId = () => `m-${Date.now().toString(36)}-${messageSeq++}`;
+
 interface Props {
   sessionId: string | null;
   initialMessages: ChatMessage[];
@@ -128,8 +132,8 @@ export default function ChatPanel({
     setBusy(true);
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: text },
-      { role: "assistant", content: "" },
+      { id: nextMessageId(), role: "user", content: text },
+      { id: nextMessageId(), role: "assistant", content: "" },
     ]);
 
     const controller = new AbortController();
@@ -248,7 +252,7 @@ export default function ChatPanel({
           </div>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
+          <div key={m.id ?? i} className={`msg ${m.role}`}>
             <Avatar
               size={32}
               icon={m.role === "user" ? <UserOutlined /> : <RobotOutlined />}

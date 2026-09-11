@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     AGENT_MAX_TURNS: int = 5  # ReAct 循环最大轮数
     # 上下文窗口：注入 LLM 的最近对话消息条数（system 上下文不占窗口）
     HISTORY_WINDOW: int = 20
+    # 滚动历史 token 预算（0=不限）：在条数窗口之上再按估算 token 裁剪，
+    # 防止长消息（工具结果/长文）在条数内仍撑爆上下文与成本
+    HISTORY_MAX_TOKENS: int = 4000
     # Agent 引擎：langgraph（多 Agent 路由，默认）/ handwritten（手写 ReAct，可对比）
     AGENT_ENGINE: str = "langgraph"
 

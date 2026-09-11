@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   App as AntApp,
   Avatar,
@@ -27,6 +33,12 @@ import type { ChatMessage, Profile } from "./types";
 
 const { Sider, Content } = Layout;
 
+// 侧栏可拖拽调宽范围与默认值（宽度记忆到 localStorage）
+const SIDER_MIN = 240;
+const SIDER_MAX = 560;
+const SIDER_DEFAULT = 300;
+const SIDER_WIDTH_KEY = "kb-sider-width";
+
 export default function App() {
   const [authed, setAuthed] = useState<boolean>(() => !!getToken());
   const [tab, setTab] = useState<"chat" | "kb" | "wiki" | "todo">("chat");
@@ -36,6 +48,11 @@ export default function App() {
   const [activeCat, setActiveCat] = useState<string>("all");
   const [showProfile, setShowProfile] = useState(false);
   const [me, setMe] = useState<Profile | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const [siderWidth, setSiderWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(SIDER_WIDTH_KEY));
+    return saved >= SIDER_MIN && saved <= SIDER_MAX ? saved : SIDER_DEFAULT;
+  });
   const [dark, setDark] = useState<boolean>(
     () => localStorage.getItem("kb-theme") === "dark"
   );
@@ -63,6 +80,61 @@ export default function App() {
       cancelled = true;
     };
   }, [authed]);
+
+  const persistSiderWidth = useCallback((w: number) => {
+    const next = Math.min(SIDER_MAX, Math.max(SIDER_MIN, w));
+    setSiderWidth(next);
+    localStorage.setItem(SIDER_WIDTH_KEY, String(next));
+  }, []);
+
+  // 拖拽分隔条调整侧栏宽度（指针事件 + 指针捕获，拖动更稳）
+  const startSiderResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const el = e.currentTarget;
+    const startX = e.clientX;
+    const startW = siderWidth;
+    el.setPointerCapture?.(e.pointerId);
+    const onMove = (ev: PointerEvent) => {
+      setSiderWidth(
+        Math.min(SIDER_MAX, Math.max(SIDER_MIN, startW + (ev.clientX - startX)))
+      );
+    };
+    const onUp = (ev: PointerEvent) => {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
+      try {
+        el.releasePointerCapture?.(ev.pointerId);
+      } catch {
+        // 指针已释放：忽略
+      }
+      setSiderWidth((w) => {
+        localStorage.setItem(SIDER_WIDTH_KEY, String(w));
+        return w;
+      });
+    };
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+  };
+
+  // 键盘微调：←/→ 调整，Shift 加速，Home/End 到边界
+  const onSiderKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 48 : 16;
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      persistSiderWidth(siderWidth - step);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      persistSiderWidth(siderWidth + step);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      persistSiderWidth(SIDER_MIN);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      persistSiderWidth(SIDER_MAX);
+    }
+  };
 
   const logout = () => {
     clearToken();
@@ -110,12 +182,12 @@ export default function App() {
         ) : (
         <Layout style={{ height: "100vh" }}>
           <Sider
-            width={280}
+            width={siderWidth}
             theme="light"
             breakpoint="lg"
             collapsedWidth={0}
+            onCollapse={setCollapsed}
             style={{
-              borderRight: "1px solid var(--border)",
               display: "flex",
               flexDirection: "column",
               overflow: "hidden",
@@ -194,6 +266,21 @@ export default function App() {
               </Space>
             </div>
           </Sider>
+          {!collapsed && (
+            <div
+              className="sider-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整侧栏宽度"
+              aria-valuemin={SIDER_MIN}
+              aria-valuemax={SIDER_MAX}
+              aria-valuenow={siderWidth}
+              tabIndex={0}
+              title="拖动调整宽度（方向键微调）"
+              onPointerDown={startSiderResize}
+              onKeyDown={onSiderKeyDown}
+            />
+          )}
           <Content style={{ display: "flex", overflow: "hidden" }}>
             {showProfile ? (
               <ProfilePage

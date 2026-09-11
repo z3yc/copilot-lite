@@ -666,3 +666,23 @@ body.dark .login-wrap {
 .session-item .ant-list-item-action {
   flex-shrink: 0;
 }
+
+/* ===== 侧栏拖拽调宽 ===== */
+.sider-resizer {
+  flex: 0 0 auto;
+  width: 5px;
+  cursor: col-resize;
+  background: var(--border);
+  transition: background-color 0.15s;
+  touch-action: none;
+}
+.sider-resizer:hover,
+.sider-resizer:focus-visible {
+  background: var(--color-primary);
+  outline: none;
+}
+@media (max-width: 992px) {
+  .sider-resizer {
+    display: none;
+  }
+}

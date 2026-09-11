@@ -648,7 +648,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
         open={!!editMemory}
         onOk={submitMemoryEdit}
         onCancel={() => setEditMemory(null)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={memForm} layout="vertical">
           <Form.Item

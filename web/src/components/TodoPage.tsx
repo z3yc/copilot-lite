@@ -338,7 +338,7 @@ export default function TodoPage() {
         open={modalOpen}
         onOk={submitForm}
         onCancel={() => setModalOpen(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入标题" }]}>

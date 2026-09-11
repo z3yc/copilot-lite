@@ -62,3 +62,33 @@ def test_load_uses_configured_cache_dir(monkeypatch) -> None:
     svc = EmbeddingService()
     svc._load()
     assert captured["cache_dir"] == settings.EMBEDDING_CACHE_DIR
+
+
+def test_single_embed_handles_generator_model() -> None:
+    """fastembed 的 embed() 返回生成器：单条路径不得下标访问（回归）。"""
+    svc = EmbeddingService()
+
+    class _GeneratorModel:
+        def embed(self, texts, batch_size=None):
+            for _ in texts:
+                yield np.ones(8)
+
+    svc._model = _GeneratorModel()
+    text = f"生成器{uuid.uuid4().hex}"
+    vec = svc._embed_one(text)
+    assert len(vec) == 8
+    assert all(v == 1.0 for v in vec)
+
+
+@pytest.mark.asyncio
+async def test_batch_embed_handles_generator_model() -> None:
+    svc = EmbeddingService()
+
+    class _GeneratorModel:
+        def embed(self, texts, batch_size=None):
+            for _ in texts:
+                yield np.ones(8)
+
+    svc._model = _GeneratorModel()
+    out = await svc.embed([f"a{uuid.uuid4().hex}", f"b{uuid.uuid4().hex}"])
+    assert len(out) == 2 and len(out[0]) == 8

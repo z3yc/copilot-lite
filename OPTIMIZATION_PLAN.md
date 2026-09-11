@@ -89,12 +89,12 @@
 > 驱动：删除空间误删用户本地目录事故（见 `docs/优化落地记录.md`）。
 > 规范：AGENTS §6/§13/§14/§15 已更新——**所有删除一律软删除且可溯源，禁止物理删除业务/用户数据**。
 
-- [ ] **L1 模型与迁移**：业务表（documents / chat_sessions / messages / todos / session_files / memory_facts / wiki_spaces / wiki_pages）加 `deleted_at` + `deleted_by`（可选 `delete_reason`）；唯一约束改**部分唯一索引**（`WHERE deleted_at IS NULL`）。
-- [ ] **L2 查询/检索统一过滤**：列表、详情、统计、**向量 payload 与 BM25 召回**统一排除已删除；补"已删除不被召回"回归测试。
-- [ ] **L3 软删除服务**：`soft_delete()/restore()`；父子级联软删；删除写审计（request_id/user_id/资源/时间/结果）。
-- [ ] **L4 回收站**：`GET /trash`、`POST /trash/{type}/{id}/restore`、彻底删除（仅管理员/合规，需二次确认）；前端「回收站」入口。
-- [ ] **L5 文件与副本**：受管副本删除改为**移入回收目录**（可恢复）；**继续禁止触碰 local 外部真实目录**。
-- [ ] **L6 删除二次确认**：前端删除危险操作统一二次确认 + 文案说明影响范围。
+- [x] **L1 模型与迁移**：业务表（documents / chat_sessions / messages / todos / session_files / memory_facts / wiki_spaces / wiki_pages）加 `deleted_at` + `deleted_by`（可选 `delete_reason`）；唯一约束改**部分唯一索引**（`WHERE deleted_at IS NULL`）。
+- [x] **L2 查询/检索统一过滤**：列表、详情、统计、**向量 payload 与 BM25 召回**统一排除已删除；补"已删除不被召回"回归测试。
+- [x] **L3 软删除服务**：`soft_delete()/restore()`；父子级联软删；删除写审计（request_id/user_id/资源/时间/结果）。
+- [x] **L4 回收站**：`GET /trash`、`POST /trash/{type}/{id}/restore`、彻底删除（仅管理员/合规，需二次确认）；前端「回收站」入口。
+- [x] **L5 文件与副本**：受管副本删除改为**移入回收目录**（可恢复）；**继续禁止触碰 local 外部真实目录**。
+- [ ] **L6 删除二次确认 + 前端回收站入口**：前端删除危险操作统一二次确认 + 文案说明影响范围。
 
 ---
 

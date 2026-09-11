@@ -15,6 +15,7 @@ from app.connectors.obsidian.links import (
     extract_frontmatter,
     extract_links,
     extract_tags,
+    normalize_link_target,
     slugify,
 )
 from app.core.config import settings
@@ -83,6 +84,20 @@ def test_extract_frontmatter():
 def test_slugify():
     assert slugify("Note B") == "note-b"
     assert slugify("我的 笔记") == "我的-笔记"
+
+
+def test_normalize_link_target_follows_obsidian_resolution():
+    """Obsidian 链接可带路径/扩展名/块引用，归一化后须匹配页面 slug（文件名）。"""
+    assert normalize_link_target("Note B") == "note-b"
+    assert normalize_link_target("folder/Note B") == "note-b"
+    assert normalize_link_target("Folder\\Sub\\Note B") == "note-b"
+    assert normalize_link_target("./Note B") == "note-b"
+    assert normalize_link_target("../Note B") == "note-b"
+    assert normalize_link_target("Note B.md") == "note-b"
+    assert normalize_link_target("Note B.MARKDOWN") == "note-b"
+    assert normalize_link_target("Note B^block-id") == "note-b"
+    # 非文档名中的点不应被当作扩展名剥离
+    assert normalize_link_target("Note v1.2") == "note-v12"
 
 
 # ---------------- zip 安全 ----------------
@@ -165,6 +180,44 @@ async def test_wiki_import_sync_pages_and_links(authed_headers, wiki_env):
         assert "tag1" in detail["tags"]
         # 反向链接：Note C 嵌入/链接了 A
         assert len(detail["backlinks"]) >= 1
+
+
+async def test_wiki_links_resolve_for_obsidian_formats(authed_headers, wiki_env):
+    """Obsidian 常见链接形态（子目录路径/带扩展名/块引用）应解析到页面，而非悬空。"""
+    files = {
+        "Index.md": (
+            "# 索引\n\n[[sub/Note B]] · [[Note C.md]] · [[Note D^block1]] · [[Note E]]"
+        ),
+        "sub/Note B.md": "# B\n\n内容B",
+        "Note C.md": "# C\n\n内容C",
+        "Note D.md": "# D\n\n内容D",
+        "Note E.md": "# E\n\n内容E",
+    }
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "obsidian-links")
+        resp = await _import(client, authed_headers, sid, files)
+        assert resp.status_code == 200, resp.text
+
+        pages = (
+            await client.get(f"/api/v1/wiki/pages?space={sid}", headers=authed_headers)
+        ).json()["data"]["items"]
+        index = next(p for p in pages if p["rel_path"] == "Index.md")
+        detail = (
+            await client.get(f"/api/v1/wiki/pages/{index['id']}", headers=authed_headers)
+        ).json()["data"]
+        assert detail["links"], "应解析出出链"
+        for link in detail["links"]:
+            assert link["target_page_id"] is not None, (
+                f"链接 {link['target_slug']} 悬空"
+            )
+
+        # 带子目录路径的双链，resolve 也应命中文件名 slug
+        resolved = await client.get(
+            f"/api/v1/wiki/spaces/{sid}/resolve?slug=note-b", headers=authed_headers
+        )
+        assert resolved.status_code == 200, resolved.text
+        assert resolved.json()["data"]["title"] == "B"
 
 
 async def test_wiki_update_and_delete(authed_headers, wiki_env):

@@ -18,7 +18,12 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.obsidian.importer import extract_zip, safe_join, save_uploaded_files
-from app.connectors.obsidian.links import extract_frontmatter, extract_links, slugify
+from app.connectors.obsidian.links import (
+    extract_frontmatter,
+    extract_links,
+    normalize_link_target,
+    slugify,
+)
 from app.connectors.obsidian.parser import WikiParser
 from app.core.config import settings
 from app.core.soft_delete import mark_deleted
@@ -365,7 +370,7 @@ async def _rebuild_links(
         except OSError:
             continue
         for ref in extract_links(text):
-            target_slug = slugify(ref.target)
+            target_slug = normalize_link_target(ref.target)
             rows.append(
                 WikiLink(
                     user_id=user_id,

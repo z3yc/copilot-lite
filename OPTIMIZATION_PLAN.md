@@ -173,9 +173,9 @@
   - API：空间 CRUD / zip 导入 / 同步 / 页面列表（分页）/ 页面详情（正文+出链+反向链接）。
   - 配置三件套：`WIKI_ENABLED / WIKI_STORAGE_ROOT / WIKI_SCAN_INTERVAL_MINUTES / WIKI_LINK_EXPANSION_ENABLED / WIKI_EXPAND_HOPS / WIKI_MAX_*`。
   - 测试：+13（语法 / zip 安全 / 导入同步 / 链接图 / 移动检测 / 隔离）。
-- [ ] **M1.5 Wiki 管理 UI**：空间创建、zip 导入、手动同步、页面树与浏览、反向链接面板
+- [x] **M1.5 Wiki 管理 UI**（`feat/wiki-ui`，提交 `c788b27`，**未合并**）：空间创建/删除、zip 导入、手动同步、页面树+搜索、页面浏览、反向链接/出链面板；前端 +4 用例。
 - [ ] **M2 双链检索增强**：邻居扩展召回 + 引用带 Wiki 路径
 - [ ] **M3 图谱可视化**：`/wiki/graph` + `react-force-graph-2d`
 - [ ] **M4 轻量本体（可选）**：类型化链接（`wiki_link.relation`）+ 按关系加权/着色
 
-**M1 后基线**：后端 **197 用例 / 覆盖率 80.55%**、ruff 全过；前端 **37 用例**、build 零错误；CLI **15 用例**。
+**M1 后基线**：后端 **197 用例 / 覆盖率 80.55%**、ruff 全过；前端 **41 用例**、build 零错误；CLI **15 用例**。

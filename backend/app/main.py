@@ -10,6 +10,7 @@ import app.models
 from app.api import api_router
 from app.core.config import settings
 from app.core.constants import DEFAULT_USER_ID, DEFAULT_USERNAME
+from app.core.context import RequestContextMiddleware
 from app.core.db import Base, async_session_factory, engine
 from app.core.logging import setup_logging
 from app.models import Category, User
@@ -80,6 +81,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 请求级上下文（request_id 全链路追踪 + 响应头回写）
+app.add_middleware(RequestContextMiddleware)
 
 app.include_router(api_router, prefix="/api/v1")
 

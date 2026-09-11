@@ -8,6 +8,7 @@ import {
   Modal,
   Pagination,
   Popconfirm,
+  Radio,
   Select,
   Space,
   Spin,
@@ -52,6 +53,8 @@ export default function WikiPanel() {
   const [busy, setBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const [sourceType, setSourceType] = useState<"upload" | "local">("upload");
+  const [serverPath, setServerPath] = useState("");
 
   const loadSpaces = useCallback(async () => {
     try {
@@ -94,14 +97,30 @@ export default function WikiPanel() {
   const handleCreate = async () => {
     const name = newName.trim();
     if (!name) return;
+    if (sourceType === "local" && !serverPath.trim()) {
+      message.warning("请填写服务器上的文件夹绝对路径");
+      return;
+    }
     setBusy(true);
     try {
-      const space = await createWikiSpace(name);
+      const space = await createWikiSpace(
+        name,
+        sourceType,
+        sourceType === "local" ? serverPath.trim() : undefined
+      );
       setSpaces((prev) => [...prev, space]);
       setActiveSpace(space.id);
       setNewName("");
+      setServerPath("");
       setCreateOpen(false);
-      message.success("空间已创建，请导入 vault 的 zip 包");
+      if (sourceType === "local") {
+        // 本地文件夹无需上传，直接扫描
+        const stats = await syncWikiSpace(space.id);
+        message.success(`已扫描本地文件夹，新纳入 ${stats.added} 个页面`);
+        await Promise.all([loadSpaces(), loadPages()]);
+      } else {
+        message.success("空间已创建，请导入 vault 的 zip 包");
+      }
     } catch (err) {
       message.error(`${err}`);
     } finally {
@@ -355,12 +374,30 @@ export default function WikiPanel() {
         confirmLoading={busy}
         onCancel={() => setCreateOpen(false)}
       >
-        <Input
-          placeholder="空间名称（如 my-vault）"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onPressEnter={handleCreate}
-        />
+        <Space direction="vertical" style={{ width: "100%" }} size={10}>
+          <Input
+            placeholder="空间名称（如 my-vault）"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onPressEnter={handleCreate}
+          />
+          <Radio.Group
+            value={sourceType}
+            onChange={(e) => setSourceType(e.target.value)}
+            options={[
+              { label: "上传 zip（云端通用）", value: "upload" },
+              { label: "本地文件夹（自托管）", value: "local" },
+            ]}
+          />
+          {sourceType === "local" && (
+            <Input
+              placeholder="服务器上的文件夹绝对路径，如 C:\\Users\\you\\MyVault"
+              value={serverPath}
+              onChange={(e) => setServerPath(e.target.value)}
+              onPressEnter={handleCreate}
+            />
+          )}
+        </Space>
       </Modal>
     </div>
   );

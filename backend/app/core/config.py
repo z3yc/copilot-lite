@@ -119,6 +119,9 @@ class Settings(BaseSettings):
     WIKI_MAX_ARCHIVE_BYTES: int = 200 * 1024 * 1024  # 压缩包大小上限 200MB
     WIKI_MAX_EXTRACT_BYTES: int = 500 * 1024 * 1024  # 解压后总大小上限 500MB
     WIKI_MAX_FILES: int = 5000  # 单次导入文件数上限
+    # 是否允许 local 空间使用**绝对文件夹路径**直接扫描：
+    # 本地/自托管建议 true；云端多用户部署建议 false（仅允许受管目录/zip）
+    WIKI_ALLOW_LOCAL_PATH: bool = True
 
     @model_validator(mode="after")
     def _reject_default_secret(self) -> "Settings":

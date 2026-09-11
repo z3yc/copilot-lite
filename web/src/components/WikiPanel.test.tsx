@@ -93,6 +93,45 @@ describe("WikiPanel", () => {
       target: { value: "new-vault" },
     });
     fireEvent.click(screen.getByRole("button", { name: /OK|确\s*定/ }));
-    await waitFor(() => expect(mocked.createWikiSpace).toHaveBeenCalledWith("new-vault"));
+    await waitFor(() =>
+      expect(mocked.createWikiSpace).toHaveBeenCalledWith("new-vault", "upload", undefined)
+    );
+  });
+
+  it("选择本地文件夹时传本地路径并自动同步", async () => {
+    mocked.createWikiSpace.mockResolvedValue({
+      id: "s3",
+      name: "local-vault",
+      source_type: "local",
+      page_count: 0,
+      last_synced_at: null,
+    });
+    mocked.syncWikiSpace.mockResolvedValue({
+      added: 2,
+      updated: 0,
+      moved: 0,
+      deleted: 0,
+      failed: 0,
+      total: 2,
+    });
+    render(<WikiPanel />);
+    await screen.findByText("my-vault（2 页）");
+    fireEvent.click(screen.getByRole("button", { name: /新建/ }));
+    fireEvent.change(screen.getByPlaceholderText(/空间名称/), {
+      target: { value: "local-vault" },
+    });
+    fireEvent.click(screen.getByText("本地文件夹（自托管）"));
+    fireEvent.change(screen.getByPlaceholderText(/绝对路径/), {
+      target: { value: "C:/Users/you/MyVault" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /OK|确\s*定/ }));
+    await waitFor(() =>
+      expect(mocked.createWikiSpace).toHaveBeenCalledWith(
+        "local-vault",
+        "local",
+        "C:/Users/you/MyVault"
+      )
+    );
+    await waitFor(() => expect(mocked.syncWikiSpace).toHaveBeenCalledWith("s3"));
   });
 });

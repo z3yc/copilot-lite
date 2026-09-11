@@ -75,10 +75,20 @@ async def create_space(
 
     if source_type == "local":
         if not server_path:
-            raise WikiServiceError("local 类型需要提供服务器路径")
-        path = safe_join(storage_root(), server_path)
+            raise WikiServiceError("local 类型需要提供文件夹路径")
+        candidate = Path(server_path)
+        if candidate.is_absolute():
+            # 绝对路径：仅本地/自托管允许（云端多用户禁止，防读任意目录）
+            if not settings.WIKI_ALLOW_LOCAL_PATH:
+                raise WikiServiceError(
+                    "当前部署不允许使用绝对路径：请用 zip 导入，或放到受管目录下用相对路径"
+                )
+            path = candidate.resolve()
+        else:
+            # 相对路径：必须在受管根目录（WIKI_STORAGE_ROOT）内（沙箱）
+            path = safe_join(storage_root(), server_path)
         if not path.is_dir():
-            raise WikiServiceError("服务器路径不存在或不是目录")
+            raise WikiServiceError("文件夹不存在或不是目录")
     else:
         path = storage_root() / str(space.id)
         path.mkdir(parents=True, exist_ok=True)

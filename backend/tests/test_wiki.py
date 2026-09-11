@@ -312,3 +312,43 @@ async def test_sync_space_direct_unit(authed_headers, wiki_env):
         (root / "Q.md").write_text("# Q\n\nQ正文", encoding="utf-8")
         stats = await wiki_service.sync_space(db, uid, space)
     assert stats["added"] == 2
+
+
+async def test_wiki_local_absolute_path(authed_headers, wiki_env, tmp_path, monkeypatch):
+    """本地/自托管：允许绝对文件夹路径直接扫描（免上传）。"""
+    monkeypatch.setattr(settings, "WIKI_ALLOW_LOCAL_PATH", True)
+    vault = tmp_path / "my_obsidian_vault"
+    vault.mkdir()
+    (vault / "Home.md").write_text("# 首页\n\n[[Other]]", encoding="utf-8")
+    (vault / "Other.md").write_text("# 其他\n\n内容", encoding="utf-8")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/wiki/spaces",
+            json={"name": "abs", "source_type": "local", "server_path": str(vault)},
+            headers=authed_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        sid = resp.json()["data"]["id"]
+        sync = await client.post(
+            f"/api/v1/wiki/spaces/{sid}/sync", headers=authed_headers
+        )
+        assert sync.json()["data"]["added"] == 2
+
+
+async def test_wiki_absolute_path_disallowed(authed_headers, wiki_env, tmp_path, monkeypatch):
+    """云端多用户：禁止绝对路径（WIKI_ALLOW_LOCAL_PATH=false）。"""
+    monkeypatch.setattr(settings, "WIKI_ALLOW_LOCAL_PATH", False)
+    vault = tmp_path / "v2"
+    vault.mkdir()
+    (vault / "a.md").write_text("# a\n\n正文", encoding="utf-8")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/wiki/spaces",
+            json={"name": "x", "source_type": "local", "server_path": str(vault)},
+            headers=authed_headers,
+        )
+        assert resp.status_code == 400

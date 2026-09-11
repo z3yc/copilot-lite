@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.json_parse import parse_json_array
 from app.core.llm import get_llm
+from app.core.prompts.memory import MEMORY_EXTRACT_PROMPT
 from app.models import MemoryFact
 from app.rag.embeddings import EmbeddingService, get_embedding_service
 from app.rag.vector_store import VectorStore
@@ -28,15 +29,6 @@ MEMORY_DIMENSION = 512
 MEMORY_TOP_K = 5
 DEDUP_THRESHOLD = 0.92
 EXTRACT_WINDOW = 20
-
-_EXTRACT_PROMPT = """你是记忆提取助手。从用户对话中提取关于用户的【稳定事实与偏好】，输出 JSON 数组，不要输出其他内容：
-[{"fact": "事实描述（第一人称，如：我在准备后端开发面试）", "category": "preference|fact|background", "confidence": 0.0到1.0}]
-
-规则：
-- 只提取稳定、跨会话有用的信息（身份、职业目标、偏好、习惯、重要背景）；
-- 忽略一次性请求（如"帮我创建待办""查一下资料"）；
-- 没有值得记忆的内容时输出 []。
-"""
 
 
 class MemoryService:
@@ -70,7 +62,7 @@ class MemoryService:
             llm = get_llm()
             result = await llm.chat(
                 [
-                    {"role": "system", "content": _EXTRACT_PROMPT},
+                    {"role": "system", "content": MEMORY_EXTRACT_PROMPT},
                     {"role": "user", "content": f"对话内容：\n{transcript}"},
                 ],
                 response_format={"type": "json_object"},

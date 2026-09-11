@@ -29,6 +29,12 @@ from app.agent.base import BaseAgent, split_system_context
 from app.core.config import settings
 from app.core.json_parse import parse_json_object
 from app.core.llm import LLMError
+from app.core.prompts.agent import (
+    CHAT_SYSTEM_PROMPT,
+    KB_SYSTEM_PROMPT,
+    SUPERVISOR_SYSTEM_PROMPT,
+    TOOLS_SYSTEM_PROMPT,
+)
 from app.tools.base import ToolContext, ToolRegistry
 from app.tools.base import registry as global_registry
 
@@ -36,29 +42,6 @@ logger = logging.getLogger(__name__)
 
 # 可选路由（与条件边 path_map 一一对应）
 ROUTES = ("kb", "tools", "chat")
-
-SUPERVISOR_SYSTEM_PROMPT = """你是 Copilot-Lite 的意图路由中枢。判断用户请求应交给哪个子 Agent，只输出一行 JSON：
-{"route": "kb" | "tools" | "chat", "reason": "一句话理由"}
-
-路由规则：
-- kb（知识库）：问题涉及个人知识库 / 文档 / 笔记 / 资料（例如"我的笔记里…"、"根据文档…"）；
-- tools（工具）：需要实际操作或管理，如待办（创建 / 查询 / 完成 / 删除）等；
-- chat（日常对话）：寒暄、闲聊、通用问答、解释概念等。
-只输出 JSON，不要输出任何其他内容。"""
-
-KB_SYSTEM_PROMPT = """你是 Copilot-Lite 的知识库助手（青木）。回答用户问题时：
-- 问题涉及知识库内容时，必须先调用 kb_search 检索，再基于检索结果回答；
-- 回答注明来源（文档标题 / 章节 / 页码），引用时用 [n] 标注（n 为检索结果中的编号）；
-- 检索不到相关内容时如实说明，不要编造。"""
-
-TOOLS_SYSTEM_PROMPT = """你是 Copilot-Lite 的工具助手（青木）。当用户请求需要实际操作（如待办管理）时：
-- 先想清楚参数，调用对应工具一次完成；
-- 工具返回结果后用自然语言向用户汇报；
-- 工具执行失败时如实告知，不要编造结果。"""
-
-CHAT_SYSTEM_PROMPT = (
-    """你是 Copilot-Lite（青木），一个个人专属助理。回答简洁、准确、友好，使用用户的语言。"""
-)
 
 # 各子 Agent 可用的工具（None = 全部工具）
 AGENT_TOOLS: dict[str, list[str] | None] = {

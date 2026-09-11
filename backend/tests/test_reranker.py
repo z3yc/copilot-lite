@@ -236,3 +236,26 @@ async def test_rerank_candidates_preserves_metadata_and_reorders() -> None:
     assert out[0].meta == {"m": 2}
     assert out[0].score == 0.9
     assert out[1].score == 0.1
+
+
+def test_reranker_load_uses_offline_cache(monkeypatch) -> None:
+    """重排模型加载应离线优先 + 使用持久缓存目录（防每次联网校验）。"""
+    from app.core.config import settings
+    from app.rag.reranker import Reranker
+
+    captured: dict = {}
+
+    class _FakeCrossEncoder:
+        def __init__(self, model_name=None, cache_dir=None, local_files_only=False, **kwargs):
+            captured.update(
+                model_name=model_name,
+                cache_dir=cache_dir,
+                local_files_only=local_files_only,
+            )
+
+    import fastembed.rerank.cross_encoder as ce
+
+    monkeypatch.setattr(ce, "TextCrossEncoder", _FakeCrossEncoder)
+    Reranker()._load()
+    assert captured["cache_dir"] == settings.EMBEDDING_CACHE_DIR
+    assert captured["local_files_only"] is True

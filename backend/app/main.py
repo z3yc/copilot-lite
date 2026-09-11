@@ -67,6 +67,14 @@ async def _prewarm_embeddings() -> None:
         logger.info("嵌入模型预热完成")
     except Exception:
         logger.warning("嵌入模型预热失败（首次使用时重试）", exc_info=True)
+    if settings.RAG_RERANK_ENABLED:
+        try:
+            from app.rag.reranker import get_reranker
+
+            await loop.run_in_executor(None, get_reranker().prewarm)
+            logger.info("重排模型预热完成")
+        except Exception:
+            logger.warning("重排模型预热失败（首次使用时重试）", exc_info=True)
 
 
 @asynccontextmanager

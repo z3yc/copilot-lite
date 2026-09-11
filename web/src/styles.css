@@ -265,40 +265,41 @@ body.dark .login-wrap {
 .session-list {
   flex: 1;
 }
-.session-item {
-  border-radius: var(--radius-md) !important;
-  border: 1px solid transparent !important;
+/* 用 .session-pane 提升选择器优先级覆盖 antd，避免 !important 对抗主题 */
+.session-pane .session-item {
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
   transition:
     background-color 0.15s,
     border-color 0.15s,
     box-shadow 0.15s;
 }
-.session-item:hover {
+.session-pane .session-item:hover {
   background: var(--bg);
 }
-.session-item.active {
-  background: var(--color-primary-soft) !important;
-  border-color: var(--color-primary) !important;
+.session-pane .session-item.active {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
 }
-.session-item .ant-list-item-action {
+.session-pane .session-item .ant-list-item-action {
   margin-inline-start: var(--space-1);
 }
 
 /* 侧边栏分类导航 */
-.cat-item {
-  border-radius: var(--radius-md) !important;
-  border: 1px solid transparent !important;
+.session-pane .cat-item {
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
   transition:
     background-color 0.15s,
     border-color 0.15s,
     box-shadow 0.15s;
 }
-.cat-item:hover {
+.session-pane .cat-item:hover {
   background: var(--bg);
 }
-.cat-item.active {
-  background: var(--color-primary-soft) !important;
-  border-color: var(--color-primary) !important;
+.session-pane .cat-item.active {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
 }
 
 /* ===== 知识库 ===== */

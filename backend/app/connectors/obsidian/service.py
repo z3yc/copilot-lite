@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 
 # 扫描时排除的目录（Obsidian 配置/回收站/版本控制等）
 _EXCLUDED_DIRS = {".obsidian", ".git", ".trash", ".stfolder", "__MACOSX"}
+
+
+def _excluded_dirs() -> set[str]:
+    """基础排除目录 + 配置的额外排除目录（模板等）。"""
+    extra = {d.strip() for d in settings.WIKI_EXCLUDE_DIRS.split(",") if d.strip()}
+    return _EXCLUDED_DIRS | extra
 # 扩展名 → 解析器 source_type（.md 走 WikiParser，含双链/标签；其余复用现有解析器）
 _EXT_TYPES = {
     ".md": "wiki",
@@ -55,11 +61,12 @@ def _scan(root: Path) -> tuple[dict[str, tuple[float, int]], int]:
     """
     result: dict[str, tuple[float, int]] = {}
     skipped = 0
+    excluded = _excluded_dirs()
     for path in root.rglob("*"):
         if not path.is_file():
             continue
         rel_parts = path.relative_to(root).parts
-        if any(part.startswith(".") or part in _EXCLUDED_DIRS for part in rel_parts[:-1]):
+        if any(part.startswith(".") or part in excluded for part in rel_parts[:-1]):
             continue
         if path.name.startswith("._"):
             continue

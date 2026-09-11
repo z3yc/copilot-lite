@@ -32,10 +32,11 @@ import {
   fetchWikiSpaces,
   importWikiFiles,
   importWikiZip,
+  resolveWikiPage,
   syncWikiSpace,
 } from "../api";
 import type { WikiPage, WikiPageDetail, WikiSpace } from "../types";
-import { renderMarkdown } from "../utils/markdown";
+import { renderObsidian } from "../utils/obsidian";
 
 const { Text, Title } = Typography;
 const { Dragger } = Upload;
@@ -218,6 +219,17 @@ export default function WikiPanel() {
     }
   };
 
+  const resolveAndOpen = async (href: string) => {
+    if (!activeSpace) return;
+    const slug = decodeURIComponent(href.replace(/^#wiki-/, ""));
+    try {
+      const found = await resolveWikiPage(activeSpace, slug);
+      await openPage(found.page_id);
+    } catch {
+      message.info(`未找到 Wiki 页面：${slug}`);
+    }
+  };
+
   return (
     <div className="wiki-panel" style={{ flex: 1, display: "flex", overflow: "hidden" }}>
       <div
@@ -396,8 +408,15 @@ export default function WikiPanel() {
             </Space>
             <div
               className="wiki-content"
-              // 消毒后渲染（唯一入口 utils/markdown）
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(detail.content) }}
+              onClick={(e) => {
+                const anchor = (e.target as HTMLElement).closest("a[href^='#wiki-']");
+                if (anchor) {
+                  e.preventDefault();
+                  resolveAndOpen(anchor.getAttribute("href") || "");
+                }
+              }}
+              // 消毒后渲染（唯一入口 utils/markdown）；双链为内部锚点
+              dangerouslySetInnerHTML={{ __html: renderObsidian(detail.content) }}
             />
 
             <Card

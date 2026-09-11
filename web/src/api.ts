@@ -285,6 +285,11 @@ export const fetchWikiPages = (
 export const fetchWikiPage = (id: string) =>
   request<WikiPageDetail>(`/wiki/pages/${id}`);
 
+export const resolveWikiPage = (spaceId: string, slug: string) =>
+  request<{ page_id: string; title: string }>(
+    `/wiki/spaces/${spaceId}/resolve?slug=${encodeURIComponent(slug)}`
+  );
+
 // ---- 模型设置 ----
 export const fetchLlmSettings = () => request<LLMSettings>("/settings/llm");
 

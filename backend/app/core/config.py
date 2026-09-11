@@ -129,6 +129,8 @@ class Settings(BaseSettings):
     WIKI_MAX_FILES: int = 5000  # 单次导入文件数上限
     # 是否把 vault 内非 Markdown（PDF/DOCX/TXT）也索引进 Wiki 空间
     WIKI_INCLUDE_NON_MD: bool = True
+    # 扫描时额外排除的目录名（逗号分隔；默认排除模板目录，减噪声）
+    WIKI_EXCLUDE_DIRS: str = "templates,模板,.templates,_templates"
     # 是否允许 local 空间使用**绝对文件夹路径**直接扫描：
     # 本地/自托管建议 true；云端多用户部署建议 false（仅允许受管目录/zip）
     WIKI_ALLOW_LOCAL_PATH: bool = True

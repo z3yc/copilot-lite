@@ -411,3 +411,46 @@ async def test_wiki_absolute_path_disallowed(authed_headers, wiki_env, tmp_path,
             headers=authed_headers,
         )
         assert resp.status_code == 400
+
+
+async def test_wiki_scan_excludes_template_dirs(authed_headers, wiki_env):
+    """模板目录（templates/模板）默认排除，不计入页面与 skipped。"""
+    root = Path(settings.WIKI_STORAGE_ROOT)
+    (root / "tvault" / "templates").mkdir(parents=True, exist_ok=True)
+    (root / "tvault" / "note.md").write_text("# N\n\n正文", encoding="utf-8")
+    (root / "tvault" / "templates" / "tpl.md").write_text("# T\n\n模板", encoding="utf-8")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/wiki/spaces",
+            json={"name": "tpl", "source_type": "local", "server_path": "tvault"},
+            headers=authed_headers,
+        )
+        sid = resp.json()["data"]["id"]
+        stats = (
+            await client.post(f"/api/v1/wiki/spaces/{sid}/sync", headers=authed_headers)
+        ).json()["data"]
+        assert stats["added"] == 1  # 仅 note.md，模板被排除
+        assert stats["skipped"] == 0
+
+
+async def test_wiki_resolve_page(authed_headers, wiki_env):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "resolve")
+        await client.post(
+            f"/api/v1/wiki/spaces/{sid}/import-files",
+            data={"paths": json.dumps(["Note A.md"])},
+            files=[("files", ("Note A.md", "# A\n\n正文", "text/markdown"))],
+            headers=authed_headers,
+        )
+        ok = await client.get(
+            f"/api/v1/wiki/spaces/{sid}/resolve?slug=note-a", headers=authed_headers
+        )
+        assert ok.status_code == 200
+        assert ok.json()["data"]["title"] == "A"
+        missing = await client.get(
+            f"/api/v1/wiki/spaces/{sid}/resolve?slug=nope", headers=authed_headers
+        )
+        assert missing.status_code == 404

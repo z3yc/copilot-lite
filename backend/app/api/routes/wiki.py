@@ -279,6 +279,25 @@ async def _sync(db: AsyncSession, user: User, space: WikiSpace) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/spaces/{space_id}/resolve")
+async def resolve_wiki_page(
+    space_id: str,
+    slug: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """按 slug 解析 Wiki 页面（供前端点击 `[[双链]]` 跳转）。"""
+    space = await _get_space(db, space_id, user)
+    page = await db.scalar(
+        select(WikiPage)
+        .where(WikiPage.space_id == space.id, WikiPage.slug == slug)
+        .limit(1)
+    )
+    if page is None:
+        raise HTTPException(status_code=404, detail="页面不存在")
+    return {"page_id": str(page.id), "title": page.title}
+
+
 # ---------------- 页面 ----------------
 
 

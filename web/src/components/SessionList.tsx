@@ -24,6 +24,7 @@ import {
   renameSession,
 } from "../api";
 import type { Session } from "../types";
+import { keyboardActivate } from "../utils/a11y";
 
 const { Text } = Typography;
 
@@ -154,7 +155,11 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
           renderItem={(s) => (
             <List.Item
               className={`session-item ${s.id === activeId ? "active" : ""}`}
+              role="button"
+              tabIndex={0}
+              aria-label={`打开会话：${s.title || "未命名会话"}`}
               onClick={() => onSelect(s.id)}
+              onKeyDown={keyboardActivate(() => onSelect(s.id))}
               style={{ cursor: "pointer", padding: "10px 12px" }}
               actions={[
                 <Button
@@ -162,6 +167,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
                   type="text"
                   size="small"
                   title="导出 Markdown"
+                  aria-label="导出 Markdown"
                   icon={<DownloadOutlined />}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -173,6 +179,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
                   type="text"
                   size="small"
                   title="重命名"
+                  aria-label="重命名会话"
                   icon={<EditOutlined />}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -193,6 +200,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
                     size="small"
                     danger
                     title="删除会话"
+                    aria-label="删除会话"
                     icon={<DeleteOutlined />}
                     onClick={(e) => e.stopPropagation()}
                   />

@@ -30,6 +30,7 @@ import {
   updateTodo,
 } from "../api";
 import type { Category, TodoItem } from "../types";
+import { keyboardActivate } from "../utils/a11y";
 
 const { Text } = Typography;
 
@@ -213,10 +214,17 @@ export default function TodoPage() {
           <div
             key={n.key}
             className={`todo-nav-item ${view === n.key && !catFilter ? "active" : ""}`}
+            role="button"
+            tabIndex={0}
+            aria-label={`筛选：${n.label}`}
             onClick={() => {
               setView(n.key);
               setCatFilter(null);
             }}
+            onKeyDown={keyboardActivate(() => {
+              setView(n.key);
+              setCatFilter(null);
+            })}
           >
             <span>{n.label}</span>
             <span className="todo-nav-count">{counts[n.key] ?? 0}</span>
@@ -227,10 +235,17 @@ export default function TodoPage() {
           <div
             key={c.id}
             className={`todo-nav-item ${catFilter === c.id ? "active" : ""}`}
+            role="button"
+            tabIndex={0}
+            aria-label={`按分类筛选：${c.name}`}
             onClick={() => {
               setCatFilter(c.id);
               setView("all");
             }}
+            onKeyDown={keyboardActivate(() => {
+              setCatFilter(c.id);
+              setView("all");
+            })}
           >
             <span>
               <span className="cat-dot" style={{ background: c.color }} />
@@ -322,11 +337,18 @@ export default function TodoPage() {
                       <Button
                         type="text"
                         size="small"
+                        aria-label="编辑待办"
                         icon={<EditOutlined />}
                         onClick={() => openEdit(t)}
                       />
                       <Popconfirm title="删除该待办？" onConfirm={() => deleteTodo(t.id).then(load)}>
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          aria-label="删除待办"
+                          icon={<DeleteOutlined />}
+                        />
                       </Popconfirm>
                     </div>
                   );

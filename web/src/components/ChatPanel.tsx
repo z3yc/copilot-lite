@@ -277,10 +277,19 @@ export default function ChatPanel({
                     <a
                       key={c.index}
                       className="cite"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`查看来源 ${c.index}`}
                       title={c.snippet || c.source}
                       onClick={(e) => {
                         e.stopPropagation();
                         message.info(`[${c.index}] ${c.source}`);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          message.info(`[${c.index}] ${c.source}`);
+                        }
                       }}
                     >
                       [{c.index}]
@@ -368,7 +377,11 @@ export default function ChatPanel({
               return false;
             }}
           >
-            <Button icon={<PaperClipOutlined />} disabled={busy} />
+            <Button
+              icon={<PaperClipOutlined />}
+              aria-label="上传附件到本次对话"
+              disabled={busy}
+            />
           </Upload>
         </Tooltip>
         <TextArea

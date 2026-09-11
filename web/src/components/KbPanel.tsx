@@ -23,6 +23,7 @@ import {
 } from "@ant-design/icons";
 import { deleteDoc, fetchDocDetail, fetchDocs, retryDoc, uploadDocs } from "../api";
 import type { DocDetail, DocItem } from "../types";
+import { keyboardActivate } from "../utils/a11y";
 
 const { Text, Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -264,7 +265,11 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                       key={d.id}
                       size="small"
                       className="doc-card"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`查看文档：${d.title}`}
                       onClick={() => toggleDetail(d.id)}
+                      onKeyDown={keyboardActivate(() => toggleDetail(d.id))}
                       hoverable
                       title={
                         <Space>
@@ -285,6 +290,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                               type="text"
                               size="small"
                               title="重试摄取"
+                              aria-label="重试摄取"
                               icon={<ReloadOutlined />}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -300,6 +306,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                               type="text"
                               size="small"
                               danger
+                              aria-label="删除文档"
                               icon={<DeleteOutlined />}
                               onClick={(e) => e.stopPropagation()}
                             />

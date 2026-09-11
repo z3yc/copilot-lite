@@ -14,6 +14,7 @@ import zhCN from "antd/locale/zh_CN";
 import { BulbOutlined, LogoutOutlined, MoonOutlined } from "@ant-design/icons";
 import { clearToken, fetchMessages, getToken } from "./api";
 import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
+import { keyboardActivate } from "./utils/a11y";
 import ChatPanel from "./components/ChatPanel";
 import DocCategoryNav from "./components/DocCategoryNav";
 import KbPanel from "./components/KbPanel";
@@ -135,8 +136,12 @@ export default function App() {
               <Space style={{ width: "100%", justifyContent: "space-between" }}>
                 <Space
                   size={8}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="打开个人主页"
                   style={{ cursor: "pointer" }}
                   onClick={() => setShowProfile(true)}
+                  onKeyDown={keyboardActivate(() => setShowProfile(true))}
                   title="个人主页"
                 >
                   <Avatar size={28} style={{ backgroundColor: "var(--color-primary)" }}>

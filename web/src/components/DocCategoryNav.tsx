@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge, List, Spin, Typography, message } from "antd";
 import { fetchDocs } from "../api";
 import type { DocItem } from "../types";
+import { keyboardActivate } from "../utils/a11y";
 
 const { Text } = Typography;
 
@@ -64,7 +65,11 @@ export default function DocCategoryNav({ activeCat, onChange }: Props) {
           renderItem={(c) => (
             <List.Item
               className={`cat-item ${activeCat === c.key ? "active" : ""}`}
+              role="button"
+              tabIndex={0}
+              aria-label={`按分类筛选：${c.label}`}
               onClick={() => onChange(c.key)}
+              onKeyDown={keyboardActivate(() => onChange(c.key))}
               style={{ cursor: "pointer", borderRadius: 8, padding: "8px 12px" }}
             >
               <Text>

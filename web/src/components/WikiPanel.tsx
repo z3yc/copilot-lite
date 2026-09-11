@@ -40,6 +40,7 @@ import {
 } from "../api";
 import type { WikiPage, WikiPageDetail, WikiSpace } from "../types";
 import { renderObsidian } from "../utils/obsidian";
+import { keyboardActivate } from "../utils/a11y";
 
 const { Text, Title } = Typography;
 const { Dragger } = Upload;
@@ -397,8 +398,12 @@ export default function WikiPanel() {
                   dataSource={pages}
                   renderItem={(p) => (
                     <List.Item
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`打开 Wiki 页面：${p.title}`}
                       style={{ cursor: "pointer", padding: "6px 4px" }}
                       onClick={() => openPage(p.id)}
+                      onKeyDown={keyboardActivate(() => openPage(p.id))}
                     >
                       <Text ellipsis style={{ fontSize: 13 }}>
                         {p.title}
@@ -475,7 +480,13 @@ export default function WikiPanel() {
               ) : (
                 <Space direction="vertical">
                   {detail.backlinks.map((b) => (
-                    <a key={b.source_page_id} onClick={() => openPage(b.source_page_id)}>
+                    <a
+                      key={b.source_page_id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openPage(b.source_page_id)}
+                      onKeyDown={keyboardActivate(() => openPage(b.source_page_id))}
+                    >
                       <LinkOutlined /> {b.source_title ?? b.source_page_id}
                     </a>
                   ))}
@@ -492,7 +503,14 @@ export default function WikiPanel() {
                     <span key={`${l.target_slug}-${i}`}>
                       {l.kind === "embed" ? "!" : ""}
                       {l.target_page_id ? (
-                        <a onClick={() => openPage(l.target_page_id as string)}>
+                        <a
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => openPage(l.target_page_id as string)}
+                          onKeyDown={keyboardActivate(() =>
+                            openPage(l.target_page_id as string)
+                          )}
+                        >
                           {l.alias || l.target_slug}
                         </a>
                       ) : (

@@ -95,6 +95,14 @@ describe("SessionList", () => {
     expect(onSelect).toHaveBeenCalledWith("s1");
   });
 
+  it("会话项支持键盘 Enter 激活（可访问性回归）", async () => {
+    const onSelect = vi.fn();
+    renderList({ onSelect });
+    const item = await screen.findByRole("button", { name: "打开会话：面试准备" });
+    fireEvent.keyDown(item, { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith("s1");
+  });
+
   it("加载失败时展示错误态与重试入口（而非误导性空态）", async () => {
     mocked.fetchSessions.mockRejectedValueOnce(new Error("网络错误"));
     renderList();

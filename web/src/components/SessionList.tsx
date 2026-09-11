@@ -222,6 +222,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
                   <Text
                     strong={s.id === activeId}
                     ellipsis
+                    title={s.title || "未命名会话"}
                     style={{ display: "block", fontSize: 13 }}
                     onDoubleClick={(e) => {
                       e.stopPropagation();

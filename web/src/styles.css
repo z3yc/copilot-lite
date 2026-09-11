@@ -266,7 +266,7 @@ body.dark .login-wrap {
   border-color: var(--color-primary) !important;
 }
 .session-item .ant-list-item-action {
-  margin-inline-start: 8px;
+  margin-inline-start: var(--space-1);
 }
 
 /* 侧边栏分类导航 */
@@ -647,11 +647,22 @@ body.dark .login-wrap {
   }
 }
 
-/* ===== 可访问性：图标按钮命中区 ≥44×44（WCAG 2.5.5）===== */
-.session-item .ant-list-item-action .ant-btn,
+/* ===== 可访问性：图标按钮命中区 ===== */
 .todo-item .ant-btn-icon-only,
 .doc-card .ant-btn-icon-only,
 .input-bar .ant-btn-icon-only {
   min-width: 44px;
   min-height: 44px;
+}
+/* 会话项有 3 个操作按钮：44px×3 会把标题挤到不可读，改为 32×32（仍 ≥ WCAG 2.5.8 的 24px），
+   并确保标题容器可收缩，避免溢出被侧栏 overflow:hidden 裁掉。 */
+.session-item .ant-list-item-action .ant-btn {
+  min-width: 32px;
+  min-height: 32px;
+}
+.session-item .ant-list-item-main {
+  min-width: 0;
+}
+.session-item .ant-list-item-action {
+  flex-shrink: 0;
 }

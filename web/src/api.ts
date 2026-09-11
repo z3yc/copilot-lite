@@ -10,6 +10,10 @@ import type {
   Session,
   SessionFile,
   TodoItem,
+  WikiPage,
+  WikiPageDetail,
+  WikiSpace,
+  WikiSyncStats,
 } from "./types";
 
 const BASE = "/api/v1";
@@ -217,6 +221,55 @@ export async function uploadSessionFile(sessionId: string, file: File): Promise<
   form.append("file", file);
   return request<SessionFile>(`/sessions/${sessionId}/files`, { method: "POST", body: form });
 }
+// ---- Wiki ----
+export const fetchWikiSpaces = () => request<WikiSpace[]>("/wiki/spaces");
+
+export const createWikiSpace = (
+  name: string,
+  source_type: "upload" | "local" = "upload",
+  server_path?: string
+) =>
+  request<WikiSpace>("/wiki/spaces", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, source_type, server_path }),
+  });
+
+export const deleteWikiSpace = (id: string) =>
+  request<{ deleted: string }>(`/wiki/spaces/${id}`, { method: "DELETE" });
+
+export const syncWikiSpace = (id: string) =>
+  request<WikiSyncStats>(`/wiki/spaces/${id}/sync`, { method: "POST" });
+
+export async function importWikiZip(
+  spaceId: string,
+  file: File
+): Promise<WikiSyncStats> {
+  const form = new FormData();
+  form.append("file", file);
+  return request<WikiSyncStats>(`/wiki/spaces/${spaceId}/import`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export const fetchWikiPages = (
+  space?: string,
+  q?: string,
+  page = 1,
+  page_size = 20
+) => {
+  const params = new URLSearchParams();
+  if (space) params.set("space", space);
+  if (q) params.set("q", q);
+  params.set("page", String(page));
+  params.set("page_size", String(page_size));
+  return request<Page<WikiPage>>(`/wiki/pages?${params.toString()}`);
+};
+
+export const fetchWikiPage = (id: string) =>
+  request<WikiPageDetail>(`/wiki/pages/${id}`);
+
 // ---- 模型设置 ----
 export const fetchLlmSettings = () => request<LLMSettings>("/settings/llm");
 

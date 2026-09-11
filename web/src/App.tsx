@@ -20,13 +20,14 @@ import LoginPage from "./components/LoginPage";
 import ProfilePage from "./components/ProfilePage";
 import SessionList from "./components/SessionList";
 import TodoPage from "./components/TodoPage";
+import WikiPanel from "./components/WikiPanel";
 import type { ChatMessage } from "./types";
 
 const { Sider, Content } = Layout;
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean>(() => !!getToken());
-  const [tab, setTab] = useState<"chat" | "kb" | "todo">("chat");
+  const [tab, setTab] = useState<"chat" | "kb" | "wiki" | "todo">("chat");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
@@ -102,11 +103,12 @@ export default function App() {
             <div style={{ padding: "12px 12px 0" }}>
               <Tabs
                 activeKey={tab}
-                onChange={(k) => setTab(k as "chat" | "kb" | "todo")}
+                onChange={(k) => setTab(k as "chat" | "kb" | "wiki" | "todo")}
                 centered
                 items={[
                   { key: "chat", label: "💬 对话" },
                   { key: "kb", label: "📚 知识库" },
+                  { key: "wiki", label: "🕸️ Wiki" },
                   { key: "todo", label: "📋 待办" },
                 ]}
               />
@@ -119,6 +121,10 @@ export default function App() {
               />
             ) : tab === "kb" ? (
               <DocCategoryNav activeCat={activeCat} onChange={setActiveCat} />
+            ) : tab === "wiki" ? (
+              <div className="dim" style={{ textAlign: "center", padding: 24 }}>
+                Wiki 空间与页面（右侧操作）
+              </div>
             ) : (
               <div className="dim" style={{ textAlign: "center", padding: 24 }}>
                 待办工作区（右侧操作）
@@ -184,6 +190,8 @@ export default function App() {
               />
             ) : tab === "kb" ? (
               <KbPanel activeCat={activeCat} onCatChange={setActiveCat} />
+            ) : tab === "wiki" ? (
+              <WikiPanel />
             ) : (
               <TodoPage />
             )}

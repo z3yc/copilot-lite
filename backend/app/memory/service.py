@@ -8,13 +8,13 @@
 4. 召回：按当前问题向量检索 TopK 记忆，注入对话上下文。
 """
 
-import json
 import logging
 import uuid
 from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.json_parse import parse_json_array
 from app.core.llm import get_llm
 from app.models import MemoryFact
 from app.rag.embeddings import EmbeddingService, get_embedding_service
@@ -72,9 +72,10 @@ class MemoryService:
                 [
                     {"role": "system", "content": _EXTRACT_PROMPT},
                     {"role": "user", "content": f"对话内容：\n{transcript}"},
-                ]
+                ],
+                response_format={"type": "json_object"},
             )
-            facts = json.loads((result.content or "[]").strip())
+            facts = parse_json_array(result.content)
             if not isinstance(facts, list):
                 facts = []
         except Exception as exc:  # noqa: BLE001  记忆提取失败不应影响对话

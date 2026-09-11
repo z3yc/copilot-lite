@@ -1,6 +1,5 @@
 """待办 REST 接口：完整增删改查 + 分类 + 标签 + AI 快速创建。"""
 
-import json
 import logging
 import uuid
 from datetime import date
@@ -14,6 +13,7 @@ from app.api.deps import get_current_user, parse_uuid
 from app.core.budget import add_token_usage, check_token_budget
 from app.core.config import settings
 from app.core.db import get_session
+from app.core.json_parse import parse_json_object
 from app.core.llm import get_llm, get_usage_stats
 from app.core.rate_limit import SlidingWindowLimiter
 from app.models import Category, Todo, User
@@ -225,17 +225,17 @@ async def ai_create_todo(
             [
                 {"role": "system", "content": _AI_PARSE_PROMPT},
                 {"role": "user", "content": req.text},
-            ]
+            ],
+            response_format={"type": "json_object"},
         )
-        parsed = json.loads((result.content or "{}").strip())
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except (json.JSONDecodeError, TypeError, KeyError) as exc:
-        logger.warning("AI 解析待办失败，降级处理: %s", exc)
-        parsed = {}
     finally:
         # 本轮 LLM 用量计入每日预算（LLM 客户端为单例，不在此关闭）
         add_token_usage(user.id, get_usage_stats().get("total_tokens", 0) - tokens_before)
+
+    # 容错解析：围栏/前后噪声/非法 JSON 均降级为空对象（整句作为标题）
+    parsed = parse_json_object(result.content)
 
     # 分类名 → id
     category_id = None

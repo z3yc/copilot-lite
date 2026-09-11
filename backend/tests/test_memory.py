@@ -33,7 +33,7 @@ class FakeExtractLLM:
     def __init__(self, content: str) -> None:
         self.content = content
 
-    async def chat(self, messages, tools=None, temperature=0.7):
+    async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
         from app.core.llm import ChatResult
 
         return ChatResult(content=self.content)

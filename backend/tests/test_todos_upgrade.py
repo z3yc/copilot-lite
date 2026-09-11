@@ -81,7 +81,7 @@ async def test_ai_create_todo(monkeypatch, authed_headers: dict) -> None:
     from app.core.llm import ChatResult
 
     class FakeAILLM:
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             return ChatResult(
                 content='{"title": "买菜", "priority": 3, "due_date": "2026-08-26", "category": "生活", "tags": ["采购"]}'
             )
@@ -113,7 +113,7 @@ async def test_ai_create_fallback(monkeypatch, authed_headers: dict) -> None:
     from app.core.llm import ChatResult
 
     class BadAILLM:
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             return ChatResult(content="这不是JSON")
 
         async def close(self):
@@ -137,7 +137,7 @@ async def test_ai_create_clamps_invalid_fields(monkeypatch, authed_headers: dict
     from app.core.llm import ChatResult
 
     class WeirdAILLM:
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             return ChatResult(
                 content='{"title": "怪数据", "priority": 99, "due_date": "明天下午"}'
             )

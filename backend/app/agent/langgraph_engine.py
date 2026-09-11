@@ -27,6 +27,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agent.base import BaseAgent, split_system_context
 from app.core.config import settings
+from app.core.json_parse import parse_json_object
 from app.core.llm import LLMError
 from app.tools.base import ToolContext, ToolRegistry
 from app.tools.base import registry as global_registry
@@ -101,11 +102,15 @@ class AgentState(TypedDict):
 
 
 def _parse_route(text: str) -> str | None:
-    """从 Supervisor 输出中提取路由。"""
+    """从 Supervisor 输出中提取路由（JSON 解析优先，正则兜底）。"""
     if not text:
         return None
-    m = _ROUTE_RE.search(text)
-    return m.group(1) if m else None
+    data = parse_json_object(text)
+    route = data.get("route")
+    if isinstance(route, str) and route in ROUTES:
+        return route
+    match = _ROUTE_RE.search(text)
+    return match.group(1) if match else None
 
 
 

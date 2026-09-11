@@ -15,7 +15,7 @@ class FakeLLM:
         self.responses = list(responses)
         self.requests: list[dict] = []
 
-    async def chat(self, messages, tools=None, temperature=0.7) -> ChatResult:
+    async def chat(self, messages, tools=None, temperature=0.7, response_format=None) -> ChatResult:
         self.requests.append({"messages": messages, "tools": tools})
         return self.responses.pop(0)
 
@@ -157,7 +157,7 @@ class StreamFakeLLM:
             chunks.append(_SC(_SD(tool_calls=[tc_delta])))
         return _Stream(chunks)
 
-    async def chat(self, messages, tools=None, temperature=0.7):
+    async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
         raise AssertionError("流式测试不应调用非流式 chat")
 
     async def close(self) -> None:

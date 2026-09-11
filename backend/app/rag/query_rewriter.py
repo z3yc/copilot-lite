@@ -6,11 +6,11 @@
 失败时静默回退原始问题（可用性优先，改写是锦上添花不是链路必需）。
 """
 
-import json
 import logging
 from functools import lru_cache
 
 from app.core.config import settings
+from app.core.json_parse import parse_json_array
 from app.core.llm import LLMClient, get_llm
 
 logger = logging.getLogger(__name__)
@@ -43,9 +43,10 @@ class QueryRewriter:
                 [
                     {"role": "system", "content": _REWRITE_PROMPT.format(n=n)},
                     {"role": "user", "content": query},
-                ]
+                ],
+                response_format={"type": "json_object"},
             )
-            parsed = json.loads((result.content or "[]").strip())
+            parsed = parse_json_array(result.content)
             if isinstance(parsed, list):
                 seen = {query}
                 for item in parsed:

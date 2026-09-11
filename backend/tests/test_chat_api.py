@@ -56,7 +56,7 @@ class FakeLLM:
     def __init__(self, replies: list[ChatResult]) -> None:
         self.replies = list(replies)
 
-    async def chat(self, messages, tools=None, temperature=0.7) -> ChatResult:
+    async def chat(self, messages, tools=None, temperature=0.7, response_format=None) -> ChatResult:
         return self.replies.pop(0)
 
     async def stream_raw(self, messages, tools=None, temperature=0.7):
@@ -162,7 +162,7 @@ async def test_chat_stream_error_event_and_user_persisted(monkeypatch, authed_he
     """流式生成中途异常：发 error 事件（不裸断），且用户消息已先落库。"""
 
     class BoomLLM:
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             raise RuntimeError("模型挂了")
 
         async def stream_raw(self, messages, tools=None, temperature=0.7):
@@ -284,7 +284,7 @@ async def test_chat_persists_tool_audit(monkeypatch, authed_headers: dict) -> No
                 ChatResult(content="已创建"),
             ]
 
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             return self.responses.pop(0)
 
         async def close(self) -> None:
@@ -333,7 +333,7 @@ async def test_summary_compression(monkeypatch, db_session, authed_headers: dict
     calls: list[str] = []
 
     class FakeSummaryLLM:
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             calls.append("summary")
             return ChatResult(content="这是压缩后的摘要")
 
@@ -375,7 +375,7 @@ async def test_summary_compression_below_threshold(monkeypatch, db_session, auth
     await db_session.commit()
 
     class NoLLM:
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             raise AssertionError("不应调用 LLM")
 
         async def close(self) -> None:
@@ -435,7 +435,7 @@ async def test_chat_llm_error_returns_502(monkeypatch, authed_headers: dict) -> 
     """LLM 调用失败（运行时错误）→ 502 友好提示，而非 500 堆栈。"""
 
     class ErrorLLM:
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             raise RuntimeError("模型服务挂了")
 
         async def close(self) -> None:
@@ -472,7 +472,7 @@ async def test_chat_stream_heartbeat_on_slow_model(monkeypatch, authed_headers: 
         async def stream_raw(self, messages, tools=None, temperature=0.7):
             return SlowStream()
 
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             raise AssertionError("不应调用非流式 chat")
 
         async def close(self) -> None:

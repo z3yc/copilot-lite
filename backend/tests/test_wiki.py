@@ -476,3 +476,41 @@ async def test_wiki_page_resync(authed_headers, wiki_env):
         detail = resp.json()["data"]
         assert detail["page_type"] == "md"
         assert detail["document_status"] == "ready"
+
+
+async def test_delete_local_space_keeps_user_files(
+    authed_headers, wiki_env, tmp_path, monkeypatch
+):
+    """安全护栏：删除 local 空间只解除登记，绝不删除用户真实目录/文件。"""
+    monkeypatch.setattr(settings, "WIKI_ALLOW_LOCAL_PATH", True)
+    vault = tmp_path / "real_vault"
+    vault.mkdir()
+    (vault / "note.md").write_text("# Note\n\n正文", encoding="utf-8")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/wiki/spaces",
+            json={"name": "real", "source_type": "local", "server_path": str(vault)},
+            headers=authed_headers,
+        )
+        sid = resp.json()["data"]["id"]
+        await client.post(f"/api/v1/wiki/spaces/{sid}/sync", headers=authed_headers)
+        deleted = await client.delete(f"/api/v1/wiki/spaces/{sid}", headers=authed_headers)
+        assert deleted.status_code == 200
+
+    assert vault.is_dir()
+    assert (vault / "note.md").exists()
+
+
+async def test_delete_upload_space_removes_managed_copy(authed_headers, wiki_env):
+    """upload 空间：删除时清理受管副本目录。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "managed")
+        await _import(client, authed_headers, sid, {"A.md": "# A\n\n正文"})
+        imported_dir = Path(settings.WIKI_STORAGE_ROOT) / sid
+        assert imported_dir.is_dir()
+        resp = await client.delete(f"/api/v1/wiki/spaces/{sid}", headers=authed_headers)
+        assert resp.status_code == 200
+    assert not imported_dir.exists()

@@ -24,7 +24,12 @@ from app.api.deps import get_current_user, parse_uuid
 from app.connectors.base import get_connector
 from app.connectors.obsidian import connector as _obsidian_connector  # noqa: F401  导入即注册
 from app.connectors.obsidian.importer import WikiImportError
-from app.connectors.obsidian.service import WikiServiceError, _delete_page, refresh_page
+from app.connectors.obsidian.service import (
+    WikiServiceError,
+    _delete_page,
+    is_managed_path,
+    refresh_page,
+)
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.pagination import DEFAULT_PAGE_SIZE, PageOut, normalize_page, page_offset
@@ -185,10 +190,15 @@ async def delete_wiki_space(
         await _delete_page(db, page)
     await db.delete(space)
     await db.commit()
-    try:
-        shutil.rmtree(Path(space.root_path), ignore_errors=True)
-    except OSError:
-        logger.warning("Wiki 目录清理失败: %s", space.root_path, exc_info=True)
+    # 安全护栏：仅在受管副本目录下才物理删除；local 空间只解除登记（绝不删用户文件）
+    root_path = Path(space.root_path)
+    if is_managed_path(root_path):
+        try:
+            shutil.rmtree(root_path, ignore_errors=True)
+        except OSError:
+            logger.warning("Wiki 目录清理失败: %s", root_path, exc_info=True)
+    else:
+        logger.info("local 空间仅解除登记，不删除磁盘文件: %s", root_path)
     return {"deleted": space_id}
 
 

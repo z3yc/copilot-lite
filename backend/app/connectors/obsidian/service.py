@@ -54,6 +54,18 @@ def storage_root() -> Path:
     return Path(settings.WIKI_STORAGE_ROOT).resolve()
 
 
+def is_managed_path(path) -> bool:
+    """路径是否位于受管根（WIKI_STORAGE_ROOT）之下。
+
+    安全护栏：仅受管副本（zip/文件导入）才允许被物理删除；
+    local 空间指向的是用户真实目录，**绝不 rm**。
+    """
+    try:
+        return Path(path).resolve().is_relative_to(storage_root())
+    except OSError:
+        return False
+
+
 def _scan(root: Path) -> tuple[dict[str, tuple[float, int]], int]:
     """扫描 vault：返回 (rel_path→(mtime,size), 被跳过的文件数)。
 

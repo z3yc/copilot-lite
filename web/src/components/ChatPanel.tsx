@@ -395,7 +395,6 @@ export default function ChatPanel({
               send();
             }
           }}
-          disabled={busy}
         />
         {busy ? (
           <Button danger icon={<StopOutlined />} onClick={stop}>

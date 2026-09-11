@@ -254,7 +254,9 @@ export default function ChatPanel({
               icon={m.role === "user" ? <UserOutlined /> : <RobotOutlined />}
               style={{
                 backgroundColor:
-                  m.role === "user" ? "var(--color-primary)" : "#e8ecff",
+                  m.role === "user"
+                    ? "var(--color-primary)"
+                    : "var(--color-primary-soft)",
                 color: m.role === "user" ? "#fff" : "var(--color-primary)",
               }}
             />

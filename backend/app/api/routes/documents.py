@@ -162,7 +162,9 @@ async def list_documents(
         stmt = stmt.where(Document.source_type == type)
     stmt = stmt.order_by(Document.created_at.desc())
     docs = (await db.scalars(stmt)).all()
-    return [await _to_out(db, d) for d in docs]
+    # 批量统计分块数（避免每个文档一次 count 的 N+1 查询）
+    counts = await _chunk_counts(db, [d.id for d in docs])
+    return [_doc_out(d, counts.get(d.id, 0)) for d in docs]
 
 
 @router.get("/{doc_id}", response_model=DocumentOut)
@@ -248,6 +250,25 @@ async def _to_out(db: AsyncSession, doc: Document) -> DocumentOut:
     count = await db.scalar(
         select(func.count()).select_from(Chunk).where(Chunk.document_id == doc.id)
     )
+    return _doc_out(doc, count or 0)
+
+
+def _doc_out(doc: Document, chunk_count: int) -> DocumentOut:
     out = DocumentOut.model_validate(doc)
-    out.chunk_count = count or 0
+    out.chunk_count = chunk_count
     return out
+
+
+async def _chunk_counts(
+    db: AsyncSession, doc_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+    """一次性统计多个文档的分块数（GROUP BY，避免列表接口 N+1）。"""
+    if not doc_ids:
+        return {}
+    stmt = (
+        select(Chunk.document_id, func.count())
+        .where(Chunk.document_id.in_(doc_ids))
+        .group_by(Chunk.document_id)
+    )
+    rows = (await db.execute(stmt)).all()
+    return {doc_id: cnt for doc_id, cnt in rows}

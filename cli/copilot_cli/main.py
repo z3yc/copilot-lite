@@ -2,6 +2,8 @@
 
 通过 HTTP 调用后端 API（Agent 的工具调用在后端完成）。
 用法：
+    copilot login               # 登录（保存令牌）
+    copilot whoami              # 查看当前登录状态
     copilot chat                # 交互式对话
     copilot ask "问题"           # 单次提问
     copilot todo list           # 直接管理待办
@@ -19,6 +21,14 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.table import Table
 
+from copilot_cli.auth import (
+    auth_header,
+    clear_credentials,
+    get_token,
+    get_username,
+    save_credentials,
+)
+
 # Windows 控制台默认 GBK，无法编码 emoji/扩展字符（如 ✅ \u2705）；
 # 强制标准输出为 UTF-8，避免 rich 渲染时 UnicodeEncodeError
 if hasattr(sys.stdout, "reconfigure"):
@@ -32,14 +42,23 @@ API_BASE = os.environ.get("COPILOT_API_URL", "http://127.0.0.1:8000")
 
 
 def _request(method: str, path: str, **kwargs):
-    """后端请求封装：统一错误处理。"""
+    """后端请求封装：统一错误处理 + 自动注入登录令牌。"""
+    headers = {**auth_header(), **(kwargs.pop("headers", None) or {})}
     try:
-        resp = httpx.request(method, f"{API_BASE}{path}", timeout=120, **kwargs)
+        resp = httpx.request(
+            method, f"{API_BASE}{path}", timeout=120, headers=headers, **kwargs
+        )
         resp.raise_for_status()
         return resp.json()
     except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status == 401 and not path.startswith("/api/v1/auth"):
+            # 认证失败给出可执行指引，而非裸 401
+            raise typer.Exit(
+                "未登录或登录已过期，请先运行: copilot login"
+            ) from exc
         detail = exc.response.text[:300] if exc.response else str(exc)
-        raise typer.Exit(f"后端返回错误 {exc.response.status_code}: {detail}") from exc
+        raise typer.Exit(f"后端返回错误 {status}: {detail}") from exc
     except httpx.RequestError as exc:
         raise typer.Exit(
             f"无法连接后端（{API_BASE}），请先启动服务: uv run uvicorn app.main:app --reload"
@@ -53,6 +72,47 @@ def _ask(message: str, session_id: str | None) -> tuple[str, str]:
         payload["session_id"] = session_id
     data = _request("POST", "/api/v1/chat", json=payload)
     return data["reply"], data["session_id"]
+
+
+@app.command()
+def login(
+    username: str | None = typer.Option(None, "--username", "-u", help="用户名（缺省交互输入）"),
+    register: bool = typer.Option(False, "--register", help="用户名不存在时顺便注册新账号"),
+) -> None:
+    """登录并保存令牌；--register 可同时注册新账号。"""
+    if get_token() and not register:
+        console.print(
+            f"[yellow]当前已登录（{get_username() or '未知用户'}）[/yellow]，"
+            "如需切换请先 copilot logout"
+        )
+        return
+    username = username or typer.prompt("用户名")
+    password = typer.prompt("密码", hide_input=True)
+    path = "/api/v1/auth/register" if register else "/api/v1/auth/login"
+    data = _request("POST", path, json={"username": username, "password": password})
+    save_credentials(data["token"], username)
+    console.print(f"[green]✅ 已登录[/green] {username}（令牌已保存到本地）")
+
+
+@app.command()
+def logout() -> None:
+    """退出登录（删除本地令牌）。"""
+    if clear_credentials():
+        console.print("[green]已退出登录[/green]")
+    else:
+        console.print("[dim]当前未登录[/dim]")
+
+
+@app.command()
+def whoami() -> None:
+    """查看当前登录状态与账号信息。"""
+    if get_token() is None:
+        console.print("[yellow]未登录[/yellow]，运行 `copilot login` 登录")
+        return
+    data = _request("GET", "/api/v1/auth/me")
+    console.print(
+        f"[green]已登录[/green] {data['username']}（id: {str(data['id'])[:8]}）"
+    )
 
 
 @app.command()

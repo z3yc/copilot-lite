@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Badge, List, Spin, Typography } from "antd";
+import { Badge, List, Spin, Typography, message } from "antd";
 import { fetchDocs } from "../api";
 import type { DocItem } from "../types";
+import { keyboardActivate } from "../utils/a11y";
 
 const { Text } = Typography;
 
@@ -27,7 +28,10 @@ export default function DocCategoryNav({ activeCat, onChange }: Props) {
   useEffect(() => {
     fetchDocs()
       .then(setDocs)
-      .catch(() => {})
+      .catch((err) => {
+        console.error("加载分类失败", err);
+        message.error("加载分类失败，请重试");
+      })
       .finally(() => setLoading(false));
   }, [activeCat]);
 
@@ -61,13 +65,21 @@ export default function DocCategoryNav({ activeCat, onChange }: Props) {
           renderItem={(c) => (
             <List.Item
               className={`cat-item ${activeCat === c.key ? "active" : ""}`}
+              role="button"
+              tabIndex={0}
+              aria-label={`按分类筛选：${c.label}`}
               onClick={() => onChange(c.key)}
+              onKeyDown={keyboardActivate(() => onChange(c.key))}
               style={{ cursor: "pointer", borderRadius: 8, padding: "8px 12px" }}
             >
               <Text>
                 {c.icon} {c.label}
               </Text>
-              <Badge count={c.count} showZero color={activeCat === c.key ? "#4f6ef7" : "#d9d9d9"} />
+              <Badge
+                count={c.count}
+                showZero
+                color={activeCat === c.key ? "var(--color-primary)" : "var(--color-neutral)"}
+              />
             </List.Item>
           )}
         />

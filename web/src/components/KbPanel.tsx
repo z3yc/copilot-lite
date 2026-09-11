@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   Collapse,
@@ -22,6 +23,7 @@ import {
 } from "@ant-design/icons";
 import { deleteDoc, fetchDocDetail, fetchDocs, retryDoc, uploadDocs } from "../api";
 import type { DocDetail, DocItem } from "../types";
+import { keyboardActivate } from "../utils/a11y";
 
 const { Text, Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -57,18 +59,21 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
   const [detail, setDetail] = useState<DocDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [loadingDocs, setLoadingDocs] = useState(true);
+  const [errorDocs, setErrorDocs] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 加载（分类 + 内容级搜索，300ms 防抖）
   const loadDocs = useCallback(async () => {
     setLoadingDocs(true);
+    setErrorDocs(null);
     try {
       const kw = search.trim();
       const type = activeCat !== "all" ? activeCat : undefined;
       setDocs(await fetchDocs(kw || undefined, type));
     } catch (err) {
       console.error("加载知识库失败", err);
+      setErrorDocs(err instanceof Error ? err.message : String(err));
     } finally {
       setLoadingDocs(false);
     }
@@ -120,7 +125,8 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
         setDetail(null);
       }
       message.success("已删除");
-      fetchDocs(search.trim() || undefined).then(setDocs).catch(() => {});
+      // 走统一的 loadDocs，保留当前分类 + 关键词筛选（此前漏传 activeCat 导致筛选丢失）
+      loadDocs();
     } catch (err) {
       message.error(`删除失败: ${err}`);
     }
@@ -208,6 +214,18 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
 
         {loadingDocs && docs.length === 0 ? (
           <Skeleton active paragraph={{ rows: 5 }} />
+        ) : errorDocs ? (
+          <Alert
+            type="error"
+            showIcon
+            title="加载知识库失败"
+            description={errorDocs}
+            action={
+              <Button size="small" onClick={loadDocs}>
+                重试
+              </Button>
+            }
+          />
         ) : docs.length === 0 ? (
           search ? (
             <Empty description="没有匹配的文档，换个关键词试试" />
@@ -247,7 +265,11 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                       key={d.id}
                       size="small"
                       className="doc-card"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`查看文档：${d.title}`}
                       onClick={() => toggleDetail(d.id)}
+                      onKeyDown={keyboardActivate(() => toggleDetail(d.id))}
                       hoverable
                       title={
                         <Space>
@@ -268,6 +290,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                               type="text"
                               size="small"
                               title="重试摄取"
+                              aria-label="重试摄取"
                               icon={<ReloadOutlined />}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -283,6 +306,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                               type="text"
                               size="small"
                               danger
+                              aria-label="删除文档"
                               icon={<DeleteOutlined />}
                               onClick={(e) => e.stopPropagation()}
                             />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Avatar,
@@ -12,6 +12,7 @@ import {
   message,
 } from "antd";
 import {
+  ArrowDownOutlined,
   PaperClipOutlined,
   RobotOutlined,
   SendOutlined,
@@ -56,6 +57,7 @@ export default function ChatPanel({
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<SessionFile[]>([]);
   const [confirming, setConfirming] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -75,9 +77,21 @@ export default function ChatPanel({
     }
   }, [sessionId]);
 
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // 仅在用户停留底部时自动跟随，避免上翻阅读历史时被新 chunk 强行拽回
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, busy]);
+    if (atBottom) scrollToBottom();
+  }, [messages, busy, atBottom, scrollToBottom]);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+  };
 
   // 确保存在会话（上传附件需要 session_id）
   const ensureSession = async (): Promise<string> => {
@@ -213,7 +227,7 @@ export default function ChatPanel({
     <div className="chat-panel">
       <div className="chat-header">
         <Space>
-          <RobotOutlined style={{ color: "#4f6ef7", fontSize: 18 }} />
+          <RobotOutlined style={{ color: "var(--color-primary)", fontSize: 18 }} />
           <Text strong>Copilot-Lite · 青木</Text>
         </Space>
         <Button size="small" onClick={onNewSession} disabled={busy}>
@@ -221,7 +235,7 @@ export default function ChatPanel({
         </Button>
       </div>
 
-      <div className="messages" ref={scrollRef}>
+      <div className="messages" ref={scrollRef} onScroll={handleScroll}>
         {messages.length === 0 && (
           <div className="empty-tip">
             <div style={{ fontSize: 40, marginBottom: 8 }}>🤖</div>
@@ -239,8 +253,11 @@ export default function ChatPanel({
               size={32}
               icon={m.role === "user" ? <UserOutlined /> : <RobotOutlined />}
               style={{
-                backgroundColor: m.role === "user" ? "#4f6ef7" : "#e8ecff",
-                color: m.role === "user" ? "#fff" : "#4f6ef7",
+                backgroundColor:
+                  m.role === "user"
+                    ? "var(--color-primary)"
+                    : "var(--color-primary-soft)",
+                color: m.role === "user" ? "#fff" : "var(--color-primary)",
               }}
             />
             <div
@@ -260,10 +277,19 @@ export default function ChatPanel({
                     <a
                       key={c.index}
                       className="cite"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`查看来源 ${c.index}`}
                       title={c.snippet || c.source}
                       onClick={(e) => {
                         e.stopPropagation();
                         message.info(`[${c.index}] ${c.source}`);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          message.info(`[${c.index}] ${c.source}`);
+                        }
                       }}
                     >
                       [{c.index}]
@@ -276,13 +302,25 @@ export default function ChatPanel({
         ))}
       </div>
 
+      {!atBottom && (
+        <Tooltip title="回到底部">
+          <Button
+            className="scroll-bottom-btn"
+            shape="circle"
+            aria-label="回到底部"
+            icon={<ArrowDownOutlined />}
+            onClick={scrollToBottom}
+          />
+        </Tooltip>
+      )}
+
       {/* 高风险操作确认（human-in-the-loop） */}
       {pending.length > 0 && (
         <Alert
           type="warning"
           showIcon
           style={{ margin: "0 12px 8px" }}
-          message="以下操作需要你确认后才会执行"
+          title="以下操作需要你确认后才会执行"
           description={
             <div>
               <div className="dim" style={{ fontSize: 12 }}>
@@ -339,7 +377,11 @@ export default function ChatPanel({
               return false;
             }}
           >
-            <Button icon={<PaperClipOutlined />} disabled={busy} />
+            <Button
+              icon={<PaperClipOutlined />}
+              aria-label="上传附件到本次对话"
+              disabled={busy}
+            />
           </Upload>
         </Tooltip>
         <TextArea

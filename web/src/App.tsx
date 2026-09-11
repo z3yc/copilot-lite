@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   App as AntApp,
   Avatar,
@@ -12,7 +18,9 @@ import {
 } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { BulbOutlined, LogoutOutlined, MoonOutlined } from "@ant-design/icons";
-import { clearToken, fetchMessages, getToken } from "./api";
+import { clearToken, fetchMessages, fetchProfile, getToken } from "./api";
+import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
+import { keyboardActivate } from "./utils/a11y";
 import ChatPanel from "./components/ChatPanel";
 import DocCategoryNav from "./components/DocCategoryNav";
 import KbPanel from "./components/KbPanel";
@@ -21,9 +29,15 @@ import ProfilePage from "./components/ProfilePage";
 import SessionList from "./components/SessionList";
 import TodoPage from "./components/TodoPage";
 import WikiPanel from "./components/WikiPanel";
-import type { ChatMessage } from "./types";
+import type { ChatMessage, Profile } from "./types";
 
 const { Sider, Content } = Layout;
+
+// 侧栏可拖拽调宽范围与默认值（宽度记忆到 localStorage）
+const SIDER_MIN = 240;
+const SIDER_MAX = 560;
+const SIDER_DEFAULT = 300;
+const SIDER_WIDTH_KEY = "kb-sider-width";
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean>(() => !!getToken());
@@ -33,6 +47,12 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [activeCat, setActiveCat] = useState<string>("all");
   const [showProfile, setShowProfile] = useState(false);
+  const [me, setMe] = useState<Profile | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const [siderWidth, setSiderWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(SIDER_WIDTH_KEY));
+    return saved >= SIDER_MIN && saved <= SIDER_MAX ? saved : SIDER_DEFAULT;
+  });
   const [dark, setDark] = useState<boolean>(
     () => localStorage.getItem("kb-theme") === "dark"
   );
@@ -43,6 +63,78 @@ export default function App() {
     window.addEventListener("auth-expired", onExpired);
     return () => window.removeEventListener("auth-expired", onExpired);
   }, []);
+
+  // 登录后拉取当前用户，侧栏展示真实昵称/头像，而非写死
+  useEffect(() => {
+    if (!authed) {
+      setMe(null);
+      return;
+    }
+    let cancelled = false;
+    fetchProfile()
+      .then((p) => {
+        if (!cancelled) setMe(p);
+      })
+      .catch((err) => console.error("加载当前用户失败", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [authed]);
+
+  const persistSiderWidth = useCallback((w: number) => {
+    const next = Math.min(SIDER_MAX, Math.max(SIDER_MIN, w));
+    setSiderWidth(next);
+    localStorage.setItem(SIDER_WIDTH_KEY, String(next));
+  }, []);
+
+  // 拖拽分隔条调整侧栏宽度（指针事件 + 指针捕获，拖动更稳）
+  const startSiderResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const el = e.currentTarget;
+    const startX = e.clientX;
+    const startW = siderWidth;
+    el.setPointerCapture?.(e.pointerId);
+    const onMove = (ev: PointerEvent) => {
+      setSiderWidth(
+        Math.min(SIDER_MAX, Math.max(SIDER_MIN, startW + (ev.clientX - startX)))
+      );
+    };
+    const onUp = (ev: PointerEvent) => {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
+      try {
+        el.releasePointerCapture?.(ev.pointerId);
+      } catch {
+        // 指针已释放：忽略
+      }
+      setSiderWidth((w) => {
+        localStorage.setItem(SIDER_WIDTH_KEY, String(w));
+        return w;
+      });
+    };
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+  };
+
+  // 键盘微调：←/→ 调整，Shift 加速，Home/End 到边界
+  const onSiderKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 48 : 16;
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      persistSiderWidth(siderWidth - step);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      persistSiderWidth(siderWidth + step);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      persistSiderWidth(SIDER_MIN);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      persistSiderWidth(SIDER_MAX);
+    }
+  };
 
   const logout = () => {
     clearToken();
@@ -79,8 +171,8 @@ export default function App() {
       theme={{
         algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: {
-          colorPrimary: "#4f6ef7",
-          borderRadius: 10,
+          colorPrimary: BRAND_PRIMARY,
+          borderRadius: BRAND_RADIUS,
         },
       }}
     >
@@ -90,10 +182,12 @@ export default function App() {
         ) : (
         <Layout style={{ height: "100vh" }}>
           <Sider
-            width={280}
+            width={siderWidth}
             theme="light"
+            breakpoint="lg"
+            collapsedWidth={0}
+            onCollapse={setCollapsed}
             style={{
-              borderRight: "1px solid var(--border)",
               display: "flex",
               flexDirection: "column",
               overflow: "hidden",
@@ -130,46 +224,69 @@ export default function App() {
                 待办工作区（右侧操作）
               </div>
             )}
-            <div style={{ padding: 12, borderTop: "1px solid var(--border)" }}>
-              <Space direction="vertical" style={{ width: "100%" }} size={8}>
+            <div
+              style={{
+                marginTop: "auto", // 始终钉在侧栏底部（左下角）
+                padding: 12,
+                borderTop: "1px solid var(--border)",
+              }}
+            >
+              <Space style={{ width: "100%", justifyContent: "space-between" }}>
                 <Space
-                  style={{ width: "100%", justifyContent: "space-between" }}
+                  size={8}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="打开个人主页"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setShowProfile(true)}
+                  onKeyDown={keyboardActivate(() => setShowProfile(true))}
+                  title="个人主页"
                 >
-                  <Space
-                    size={8}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => setShowProfile(true)}
-                    title="个人主页"
-                  >
-                    <Avatar size={28} style={{ backgroundColor: "#4f6ef7" }}>
-                      {(getToken() ? "青" : "U")[0]}
-                    </Avatar>
-                    <span style={{ fontSize: 13, color: "var(--text)" }}>
-                      青木的助理
-                    </span>
-                  </Space>
+                  <Avatar size={28} style={{ backgroundColor: "var(--color-primary)" }}>
+                    {(me?.username?.[0] ?? "U").toUpperCase()}
+                  </Avatar>
+                  <span style={{ fontSize: 13, color: "var(--text)" }}>
+                    {me?.username ?? "未登录"}
+                  </span>
+                </Space>
+                <Space size={4}>
+                  <Tooltip title={dark ? "切换到亮色模式" : "切换到暗色模式"}>
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label={dark ? "切换到亮色模式" : "切换到暗色模式"}
+                      icon={dark ? <BulbOutlined /> : <MoonOutlined />}
+                      onClick={() => setDark(!dark)}
+                    />
+                  </Tooltip>
                   <Tooltip title="退出登录">
                     <Button
                       type="text"
                       size="small"
+                      aria-label="退出登录"
                       icon={<LogoutOutlined />}
                       onClick={logout}
                     />
                   </Tooltip>
                 </Space>
-                <Tooltip title={dark ? "切换到亮色模式" : "切换到暗色模式"}>
-                  <Button
-                    block
-                    size="small"
-                    icon={dark ? <BulbOutlined /> : <MoonOutlined />}
-                    onClick={() => setDark(!dark)}
-                  >
-                    {dark ? "亮色模式" : "暗色模式"}
-                  </Button>
-                </Tooltip>
               </Space>
             </div>
           </Sider>
+          {!collapsed && (
+            <div
+              className="sider-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整侧栏宽度"
+              aria-valuemin={SIDER_MIN}
+              aria-valuemax={SIDER_MAX}
+              aria-valuenow={siderWidth}
+              tabIndex={0}
+              title="拖动调整宽度（方向键微调）"
+              onPointerDown={startSiderResize}
+              onKeyDown={onSiderKeyDown}
+            />
+          )}
           <Content style={{ display: "flex", overflow: "hidden" }}>
             {showProfile ? (
               <ProfilePage

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   Empty,
@@ -10,8 +11,8 @@ import {
   Popconfirm,
   Radio,
   Select,
+  Skeleton,
   Space,
-  Spin,
   Tag,
   Typography,
   Upload,
@@ -39,6 +40,7 @@ import {
 } from "../api";
 import type { WikiPage, WikiPageDetail, WikiSpace } from "../types";
 import { renderObsidian } from "../utils/obsidian";
+import { keyboardActivate } from "../utils/a11y";
 
 const { Text, Title } = Typography;
 const { Dragger } = Upload;
@@ -54,6 +56,7 @@ export default function WikiPanel() {
   const [keyword, setKeyword] = useState("");
   const [detail, setDetail] = useState<WikiPageDetail | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pagesError, setPagesError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -69,6 +72,7 @@ export default function WikiPanel() {
       setActiveSpace((prev) => prev ?? list[0]?.id);
     } catch (err) {
       console.error("加载 Wiki 空间失败", err);
+      message.error("加载 Wiki 空间失败，请重试");
     }
   }, []);
 
@@ -78,6 +82,7 @@ export default function WikiPanel() {
 
   const loadPages = useCallback(async () => {
     setLoading(true);
+    setPagesError(null);
     try {
       const res = await fetchWikiPages(
         activeSpace,
@@ -89,6 +94,7 @@ export default function WikiPanel() {
       setTotal(res.total);
     } catch (err) {
       console.error("加载页面失败", err);
+      setPagesError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -247,16 +253,8 @@ export default function WikiPanel() {
   };
 
   return (
-    <div className="wiki-panel" style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-      <div
-        style={{
-          width: 340,
-          minWidth: 300,
-          borderRight: "1px solid var(--border)",
-          padding: 12,
-          overflow: "auto",
-        }}
-      >
+    <div className="wiki-panel">
+      <div className="wiki-side">
         <Space direction="vertical" style={{ width: "100%" }} size={10}>
           <Space style={{ width: "100%", justifyContent: "space-between" }}>
             <Text strong>🕸️ Wiki 空间</Text>
@@ -370,7 +368,19 @@ export default function WikiPanel() {
 
           <Card size="small" title="页面">
             {loading ? (
-              <Spin size="small" />
+              <Skeleton active paragraph={{ rows: 4 }} />
+            ) : pagesError ? (
+              <Alert
+                type="error"
+                showIcon
+                title="加载页面失败"
+                description={pagesError}
+                action={
+                  <Button size="small" onClick={loadPages}>
+                    重试
+                  </Button>
+                }
+              />
             ) : pages.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无页面，请先导入" />
             ) : (
@@ -380,8 +390,12 @@ export default function WikiPanel() {
                   dataSource={pages}
                   renderItem={(p) => (
                     <List.Item
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`打开 Wiki 页面：${p.title}`}
                       style={{ cursor: "pointer", padding: "6px 4px" }}
                       onClick={() => openPage(p.id)}
+                      onKeyDown={keyboardActivate(() => openPage(p.id))}
                     >
                       <Text ellipsis style={{ fontSize: 13 }}>
                         {p.title}
@@ -404,7 +418,7 @@ export default function WikiPanel() {
         </Space>
       </div>
 
-      <div style={{ flex: 1, padding: 16, overflow: "auto" }}>
+      <div className="wiki-main">
         {!detail ? (
           <Empty description="从左侧选择一个 Wiki 页面查看内容与双链" />
         ) : (
@@ -458,7 +472,13 @@ export default function WikiPanel() {
               ) : (
                 <Space direction="vertical">
                   {detail.backlinks.map((b) => (
-                    <a key={b.source_page_id} onClick={() => openPage(b.source_page_id)}>
+                    <a
+                      key={b.source_page_id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openPage(b.source_page_id)}
+                      onKeyDown={keyboardActivate(() => openPage(b.source_page_id))}
+                    >
                       <LinkOutlined /> {b.source_title ?? b.source_page_id}
                     </a>
                   ))}
@@ -475,7 +495,14 @@ export default function WikiPanel() {
                     <span key={`${l.target_slug}-${i}`}>
                       {l.kind === "embed" ? "!" : ""}
                       {l.target_page_id ? (
-                        <a onClick={() => openPage(l.target_page_id as string)}>
+                        <a
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => openPage(l.target_page_id as string)}
+                          onKeyDown={keyboardActivate(() =>
+                            openPage(l.target_page_id as string)
+                          )}
+                        >
                           {l.alias || l.target_slug}
                         </a>
                       ) : (

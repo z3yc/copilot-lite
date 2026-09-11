@@ -24,6 +24,7 @@ export default function TrashPanel() {
       setItems(await fetchTrash());
     } catch (err) {
       console.error("加载回收站失败", err);
+      message.error("加载回收站失败，请重试");
     } finally {
       setLoading(false);
     }

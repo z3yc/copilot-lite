@@ -30,6 +30,7 @@ import {
   updateTodo,
 } from "../api";
 import type { Category, TodoItem } from "../types";
+import { keyboardActivate } from "../utils/a11y";
 
 const { Text } = Typography;
 
@@ -213,10 +214,17 @@ export default function TodoPage() {
           <div
             key={n.key}
             className={`todo-nav-item ${view === n.key && !catFilter ? "active" : ""}`}
+            role="button"
+            tabIndex={0}
+            aria-label={`筛选：${n.label}`}
             onClick={() => {
               setView(n.key);
               setCatFilter(null);
             }}
+            onKeyDown={keyboardActivate(() => {
+              setView(n.key);
+              setCatFilter(null);
+            })}
           >
             <span>{n.label}</span>
             <span className="todo-nav-count">{counts[n.key] ?? 0}</span>
@@ -227,10 +235,17 @@ export default function TodoPage() {
           <div
             key={c.id}
             className={`todo-nav-item ${catFilter === c.id ? "active" : ""}`}
+            role="button"
+            tabIndex={0}
+            aria-label={`按分类筛选：${c.name}`}
             onClick={() => {
               setCatFilter(c.id);
               setView("all");
             }}
+            onKeyDown={keyboardActivate(() => {
+              setCatFilter(c.id);
+              setView("all");
+            })}
           >
             <span>
               <span className="cat-dot" style={{ background: c.color }} />
@@ -246,7 +261,7 @@ export default function TodoPage() {
         <div className="todo-toolbar">
           <Space.Compact style={{ width: "60%", maxWidth: 560 }}>
             <Input
-              prefix={<RobotOutlined style={{ color: "#4f6ef7" }} />}
+              prefix={<RobotOutlined style={{ color: "var(--color-primary)" }} />}
               placeholder='🤖 AI 快速添加："明天下午3点买菜 生活 #采购"'
               value={aiText}
               onChange={(e) => setAiText(e.target.value)}
@@ -311,17 +326,29 @@ export default function TodoPage() {
                           </Text>
                         </div>
                       </div>
-                      <span className="todo-priority" title={`优先级 ${PRIORITY_LABEL[t.priority]}`}>
+                      <span
+                        className="todo-priority"
+                        role="img"
+                        aria-label={`优先级：${PRIORITY_LABEL[t.priority]}`}
+                        title={`优先级 ${PRIORITY_LABEL[t.priority]}`}
+                      >
                         {"🔥".repeat(Math.max(0, 4 - t.priority))}
                       </span>
                       <Button
                         type="text"
                         size="small"
+                        aria-label="编辑待办"
                         icon={<EditOutlined />}
                         onClick={() => openEdit(t)}
                       />
                       <Popconfirm title="删除该待办？" onConfirm={() => deleteTodo(t.id).then(load)}>
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          aria-label="删除待办"
+                          icon={<DeleteOutlined />}
+                        />
                       </Popconfirm>
                     </div>
                   );
@@ -338,7 +365,7 @@ export default function TodoPage() {
         open={modalOpen}
         onOk={submitForm}
         onCancel={() => setModalOpen(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入标题" }]}>

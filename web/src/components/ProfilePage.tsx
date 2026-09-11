@@ -79,13 +79,14 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
   // 我的记忆
   const [memories, setMemories] = useState<MemoryItem[]>([]);
 
-  const loadData = useCallback(() => {
-    fetchProfile().then(setProfile).catch(() => {});
-    fetchSessions().then(setSessions).catch(() => {});
-    fetchTodos().then(setTodos).catch(() => {});
-    fetchMemories().then(setMemories).catch(() => {});
-    fetchLlmSettings()
-      .then((s) => {
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    const results = await Promise.allSettled([
+      fetchProfile().then(setProfile),
+      fetchSessions().then(setSessions),
+      fetchTodos().then(setTodos),
+      fetchMemories().then(setMemories),
+      fetchLlmSettings().then((s) => {
         setLlm(s);
         llmForm.setFieldsValue({
           base_url: s.base_url,
@@ -93,13 +94,21 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           temperature: s.temperature,
           max_tokens: s.max_tokens,
         });
-      })
-      .catch(() => {});
+      }),
+    ]);
+    const failures = results.filter((r) => r.status === "rejected");
+    if (failures.length > 0) {
+      console.error(
+        "个人主页部分数据加载失败",
+        failures.map((f) => (f as PromiseRejectedResult).reason)
+      );
+      message.error("部分数据加载失败，请稍后重试");
+    }
+    setLoading(false);
   }, [llmForm]);
 
   useEffect(() => {
     loadData();
-    setLoading(false);
   }, [loadData]);
 
   const changePw = async (values: { old_password: string; new_password: string }) => {
@@ -182,7 +191,9 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
     try {
       await deleteSession(id);
       message.success("会话已删除");
-      fetchSessions().then(setSessions).catch(() => {});
+      fetchSessions()
+        .then(setSessions)
+        .catch((err) => console.error("刷新会话列表失败", err));
     } catch (err) {
       message.error(`删除失败: ${err}`);
     }
@@ -191,7 +202,9 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
   const completeTodo = async (id: string) => {
     try {
       await updateTodo(id, { status: "done" });
-      fetchTodos().then(setTodos).catch(() => {});
+      fetchTodos()
+        .then(setTodos)
+        .catch((err) => console.error("刷新待办列表失败", err));
       message.success("已完成");
     } catch (err) {
       message.error(`操作失败: ${err}`);
@@ -201,7 +214,9 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
   const removeTodo = async (id: string) => {
     try {
       await deleteTodo(id);
-      fetchTodos().then(setTodos).catch(() => {});
+      fetchTodos()
+        .then(setTodos)
+        .catch((err) => console.error("刷新待办列表失败", err));
       message.success("已删除");
     } catch (err) {
       message.error(`删除失败: ${err}`);
@@ -274,7 +289,10 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
               <>
                 <Card className="profile-card">
                   <Space align="center" size={20}>
-                    <Avatar size={72} style={{ backgroundColor: "#4f6ef7", fontSize: 30 }}>
+                    <Avatar
+                      size={72}
+                      style={{ backgroundColor: "var(--color-primary)", fontSize: 30 }}
+                    >
                       {profile?.username?.[0]?.toUpperCase() ?? "U"}
                     </Avatar>
                     <div>
@@ -299,7 +317,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                 </Card>
                 <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
                   {stats.map((s) => (
-                    <Col span={8} key={s.title}>
+                    <Col xs={12} sm={8} key={s.title}>
                       <Card size="small">
                         <Statistic title={s.title} value={s.value} prefix={s.icon} />
                       </Card>
@@ -436,7 +454,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                         ]}
                       >
                         <List.Item.Meta
-                          avatar={<BulbOutlined style={{ fontSize: 20, color: "#4f6ef7" }} />}
+                          avatar={
+                            <BulbOutlined
+                              style={{ fontSize: 20, color: "var(--color-primary)" }}
+                            />
+                          }
                           title={m.fact}
                           description={
                             <Space size={8}>
@@ -641,7 +663,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
         open={!!editMemory}
         onOk={submitMemoryEdit}
         onCancel={() => setEditMemory(null)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={memForm} layout="vertical">
           <Form.Item

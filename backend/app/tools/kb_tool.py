@@ -49,6 +49,12 @@ async def kb_search(ctx: ToolContext, query: str, top_k: int = 3) -> str:
             top_k=top_k,
             user_id=user_filter,
         )
+
+    # 双链邻居扩展召回：命中页的 1-hop 链接页补充候选后与原始命中一起精排（可开关）
+    if settings.WIKI_LINK_EXPANSION_ENABLED and user_filter and results:
+        from app.connectors.obsidian.retrieval import expand_neighbors
+
+        results = await expand_neighbors(ctx.session, user_filter, results, query, top_k)
     payload = []
     for i, r in enumerate(results, start=1):
         meta = r.meta or {}

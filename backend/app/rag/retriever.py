@@ -47,6 +47,8 @@ class RetrievedChunk:
     content: str
     meta: dict
     score: float
+    # 来源文档 id（供 Wiki 双链邻居扩展等按文档关联）
+    document_id: str = ""
 
 
 def _tokenize(query: str) -> list[str]:
@@ -116,7 +118,7 @@ def _rrf_fuse(
     top_k: int,
 ) -> list[RetrievedChunk]:
     """RRF 融合：score = Σ 1/(k + rank)。"""
-    scores: dict[str, tuple[float, str, dict]] = {}
+    scores: dict[str, list] = {}
 
     def add(hits: list[SearchHit]) -> None:
         for rank, h in enumerate(hits, start=1):
@@ -124,13 +126,15 @@ def _rrf_fuse(
             if key in scores:
                 scores[key][0] += 1.0 / (RRF_K + rank)
             else:
-                scores[key] = [1.0 / (RRF_K + rank), h.content, h.meta]
+                scores[key] = [1.0 / (RRF_K + rank), h.content, h.meta, h.document_id]
 
     add(vector_hits)
     add(keyword_hits)
 
     merged = [
-        RetrievedChunk(chunk_id=k, content=v[1], meta=v[2], score=v[0])
+        RetrievedChunk(
+            chunk_id=k, content=v[1], meta=v[2], score=v[0], document_id=v[3]
+        )
         for k, v in scores.items()
     ]
     merged.sort(key=lambda c: c.score, reverse=True)
@@ -157,6 +161,7 @@ async def _rerank_candidates(
                 content=c.content,
                 meta=c.meta,
                 score=score,
+                document_id=c.document_id,
             )
         )
     return merged
@@ -247,7 +252,13 @@ async def multi_query_search(
             else:
                 scores[h.chunk_id] = (1.0 / (RRF_K + rank), h)
     merged = [
-        RetrievedChunk(chunk_id=h.chunk_id, content=h.content, meta=h.meta, score=s)
+        RetrievedChunk(
+            chunk_id=h.chunk_id,
+            content=h.content,
+            meta=h.meta,
+            score=s,
+            document_id=h.document_id,
+        )
         for s, h in sorted(scores.values(), key=lambda item: item[0], reverse=True)
     ]
     return merged[:rerank_top_n]

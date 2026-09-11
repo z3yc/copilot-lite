@@ -5,6 +5,7 @@
   --color-primary-hover: #3b5bdb;
   --color-primary-soft: #eef1ff; /* 激活/选中态浅底（P0-3 将接入暗色） */
   --color-primary-soft-text: #3b5bdb;
+  --color-primary-strong: #3b5bdb; /* 小字/正文级主色，保证白字对比度 ≥4.5:1 */
   --color-danger: #e5484d;
   --color-warning: #f08c00;
   --color-success: #16a34a;
@@ -14,7 +15,7 @@
   /* ---- 文字层级（四级）---- */
   --text-primary: #1f2330;
   --text-secondary: #4b5163;
-  --text-tertiary: #8a90a3; /* 原 --dim；对比度提升见 P0-5 */
+  --text-tertiary: #6b7280; /* 原 #8a90a3，提升至 AA：白底 ≈4.8:1 */
   --text-muted: #b0b5c3;
 
   /* ---- 表面 / 边框 ---- */
@@ -57,6 +58,7 @@ body.dark {
   --color-primary-hover: #8399ff;
   --color-primary-soft: #232a44;
   --color-primary-soft-text: #a9b8ff;
+  --color-primary-strong: #4d63e8;
   --color-neutral: #3d3d3d;
   --color-warning-soft: #a8842e;
 
@@ -162,7 +164,7 @@ body.dark .login-wrap {
   min-width: 40px;
 }
 .msg.user .bubble {
-  background: var(--color-primary);
+  background: var(--color-primary-strong);
   color: #fff;
   border-top-right-radius: var(--radius-xs);
 }
@@ -389,7 +391,7 @@ body.dark .login-wrap {
 }
 .todo-nav-item.active {
   background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-soft-text);
   font-weight: 600;
 }
 .todo-nav-count {
@@ -528,7 +530,8 @@ body.dark .login-wrap {
 }
 .citations .cite {
   margin-right: 8px;
-  color: var(--color-primary);
+  color: var(--color-primary-strong);
+  text-decoration: underline;
 }
 
 /* ===== 可访问性：图标按钮命中区 ≥44×44（WCAG 2.5.5）===== */

@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   DocDetail,
   DocItem,
+  LLMSettings,
   MemoryItem,
   PendingAction,
   Profile,
@@ -216,6 +217,39 @@ export async function uploadSessionFile(sessionId: string, file: File): Promise<
   form.append("file", file);
   return request<SessionFile>(`/sessions/${sessionId}/files`, { method: "POST", body: form });
 }
+// ---- 模型设置 ----
+export const fetchLlmSettings = () => request<LLMSettings>("/settings/llm");
+
+export interface LLMSettingsPayload {
+  base_url: string;
+  model: string;
+  /** 留空不修改已存 Key；提供新值则覆盖 */
+  api_key?: string;
+  temperature: number;
+  max_tokens: number;
+}
+
+export const saveLlmSettings = (data: LLMSettingsPayload) =>
+  request<LLMSettings>("/settings/llm", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+export const deleteLlmSettings = () =>
+  request<{ ok: boolean; message: string }>("/settings/llm", { method: "DELETE" });
+
+export const testLlmSettings = (data: {
+  base_url: string;
+  model: string;
+  api_key?: string;
+}) =>
+  request<{ ok: boolean; message: string; reply?: string }>("/settings/llm/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
 // ---- Human-in-the-loop：确认/取消挂起的副作用操作 ----
 export const confirmChat = (sessionId: string, approve: boolean) =>
   request<{ reply: string }>("/chat/confirm", {

@@ -26,7 +26,8 @@ from app.api.deps import get_current_user, parse_uuid
 from app.core.budget import add_token_usage, check_token_budget
 from app.core.config import settings
 from app.core.db import get_session
-from app.core.llm import LLMError, get_llm, get_usage_stats
+from app.core.llm import LLMError, get_llm, get_llm_config, get_usage_stats
+from app.core.llm_settings import apply_user_llm_config
 from app.core.prompts.chat import SUMMARY_PROMPT
 from app.core.rate_limit import SlidingWindowLimiter
 from app.memory import get_memory_service
@@ -243,9 +244,10 @@ async def _build_context(
 
 def _validate_llm_config() -> None:
     """启动流式响应前校验模型配置（错误可返回 HTTP 状态码，而非 SSE 中途报错）。"""
-    if not settings.DEEPSEEK_API_KEY:
+    if get_llm_config() is None and not settings.DEEPSEEK_API_KEY:
         raise RuntimeError(
-            "未配置 DEEPSEEK_API_KEY：请在 backend/.env 中设置（参考 .env.example）"
+            "未配置模型：请在「个人中心 → 模型设置」中配置，"
+            "或在 backend/.env 设置 DEEPSEEK_API_KEY"
         )
 
 
@@ -390,6 +392,7 @@ async def chat(
     """非流式对话。"""
     check_token_budget(user.id)
     session = await _resolve_session(db, req.session_id, req.message, user)
+    await apply_user_llm_config(db, user.id)
     history = await _build_context(
         db, session.id, await _load_history(db, session.id), req.message, user.id,
         summary=session.summary,
@@ -418,6 +421,7 @@ async def chat_stream(
     """
     session = await _resolve_session(db, req.session_id, req.message, user)
     check_token_budget(user.id)
+    await apply_user_llm_config(db, user.id)
     history = await _build_context(
         db, session.id, await _load_history(db, session.id), req.message, user.id,
         summary=session.summary,

@@ -13,6 +13,7 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterator
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from functools import lru_cache
 
@@ -21,6 +22,31 @@ from openai import AsyncOpenAI
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LLMConfig:
+    """一次请求所使用的模型配置（用户配置 > 环境变量）。"""
+
+    api_key: str
+    base_url: str
+    model: str
+    temperature: float = 0.7
+    max_tokens: int | None = None
+
+
+# 请求级模型配置（由鉴权/配置解析写入，供 get_llm 与辅助调用读取）
+_llm_config_var: ContextVar[LLMConfig | None] = ContextVar("llm_config", default=None)
+
+
+def set_llm_config(config: LLMConfig | None) -> None:
+    """设置当前请求的模型配置（None = 回退环境变量）。"""
+    _llm_config_var.set(config)
+
+
+def get_llm_config() -> LLMConfig | None:
+    """获取当前请求的模型配置。"""
+    return _llm_config_var.get()
 
 # 并发信号量（懒创建：便于测试替换/按最新配置初始化）
 _llm_semaphore: asyncio.Semaphore | None = None
@@ -127,8 +153,18 @@ class _GuardedStream:
 class LLMClient:
     """DeepSeek 聊天补全客户端。"""
 
-    def __init__(self, api_key: str, base_url: str, model: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        *,
+        temperature: float = 0.7,
+        max_tokens: int | None = None,
+    ) -> None:
         self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -136,11 +172,17 @@ class LLMClient:
             max_retries=settings.LLM_MAX_RETRIES,
         )
 
+    def _max_tokens(self) -> int | None:
+        return self.max_tokens if self.max_tokens is not None else settings.LLM_MAX_TOKENS
+
+    def _temperature(self, temperature: float | None) -> float:
+        return self.temperature if temperature is None else temperature
+
     async def chat(
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = None,
         response_format: dict | None = None,
     ) -> ChatResult:
         """发起一次对话补全请求。
@@ -153,14 +195,15 @@ class LLMClient:
         kwargs: dict = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
+            "temperature": self._temperature(temperature),
         }
         if tools:
             kwargs["tools"] = tools
         if response_format:
             kwargs["response_format"] = response_format
-        if settings.LLM_MAX_TOKENS:
-            kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
+        max_tokens = self._max_tokens()
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
 
         async with _get_semaphore():
             resp = await self._client.chat.completions.create(**kwargs)
@@ -188,19 +231,20 @@ class LLMClient:
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = None,
     ):
         """流式对话补全：逐 token 产出内容增量（纯文本轮）。"""
         kwargs: dict = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
+            "temperature": self._temperature(temperature),
             "stream": True,
         }
         if tools:
             kwargs["tools"] = tools
-        if settings.LLM_MAX_TOKENS:
-            kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
+        max_tokens = self._max_tokens()
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
         if settings.LLM_TRACK_STREAM_USAGE:
             kwargs["stream_options"] = {"include_usage": True}
 
@@ -222,7 +266,7 @@ class LLMClient:
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = None,
     ):
         """原始流式响应：返回 chunk 迭代器，供编排器解析 content 与 tool_calls。
 
@@ -232,13 +276,14 @@ class LLMClient:
         kwargs: dict = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
+            "temperature": self._temperature(temperature),
             "stream": True,
         }
         if tools:
             kwargs["tools"] = tools
-        if settings.LLM_MAX_TOKENS:
-            kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
+        max_tokens = self._max_tokens()
+        if max_tokens:
+            kwargs["max_tokens"] = max_tokens
         if settings.LLM_TRACK_STREAM_USAGE:
             kwargs["stream_options"] = {"include_usage": True}
 
@@ -256,12 +301,69 @@ class LLMClient:
         await self._client.close()
 
 
-@lru_cache
+@lru_cache(maxsize=32)
+def _build_client(
+    api_key: str,
+    base_url: str,
+    model: str,
+    temperature: float,
+    max_tokens: int | None,
+) -> LLMClient:
+    """按配置构建客户端（按参数缓存，相同配置复用连接池）。"""
+    return LLMClient(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+
+def build_llm(config: LLMConfig) -> LLMClient:
+    """按给定配置构建客户端（供连接测试等显式场景）。"""
+    return _build_client(
+        config.api_key, config.base_url, config.model, config.temperature, config.max_tokens
+    )
+
+
+def env_llm_config() -> LLMConfig | None:
+    """环境变量默认配置（未配置 Key 时返回 None）。"""
+    if not settings.DEEPSEEK_API_KEY:
+        return None
+    return LLMConfig(
+        api_key=settings.DEEPSEEK_API_KEY,
+        base_url=settings.DEEPSEEK_BASE_URL,
+        model=settings.DEEPSEEK_MODEL,
+        temperature=0.7,
+        max_tokens=settings.LLM_MAX_TOKENS or None,
+    )
+
+
 def get_llm() -> LLMClient:
-    """从配置创建 LLM 客户端（进程级单例，连接池复用）。"""
+    """获取当前请求的 LLM 客户端。
+
+    优先使用上下文中的用户配置（set_llm_config）；未配置则回退环境变量。
+    客户端按配置参数缓存，连接池复用；未配置 Key 时报错。
+    """
+    config = get_llm_config()
+    if config is not None:
+        return _build_client(
+            config.api_key,
+            config.base_url,
+            config.model,
+            config.temperature,
+            config.max_tokens,
+        )
+    return _env_client()
+
+
+@lru_cache
+def _env_client() -> LLMClient:
+    """环境变量默认客户端（进程级单例）。"""
     if not settings.DEEPSEEK_API_KEY:
         raise RuntimeError(
-            "未配置 DEEPSEEK_API_KEY：请在 backend/.env 中设置（参考 .env.example）"
+            "未配置模型：请在「个人中心 → 模型设置」中配置，"
+            "或在 backend/.env 设置 DEEPSEEK_API_KEY（参考 .env.example）"
         )
     return LLMClient(
         api_key=settings.DEEPSEEK_API_KEY,

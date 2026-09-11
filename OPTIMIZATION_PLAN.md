@@ -9,10 +9,11 @@
 | 批次 | 主题 | 状态 |
 |---|---|---|
 | A | CLI 完整可用（双入口闭环） | ✅ 完成 |
-| B | 契约与可观测性（对齐 AGENTS.md） | 🟡 B1/B2/B4 完成 |
-| C | 性能与正确性 | 🟡 C1/C2/C5 完成 |
-| D | RAG / Agent 能力深度 | 🟡 D1/D2/D4 完成 |
-| E | 产品体验（前端 UX） | 🟡 E1/E2/E3/E4 完成 |
+| B | 契约与可观测性（对齐 AGENTS.md） | ✅ B1/B2/B4 完成，B3/B5 暂缓 |
+| C | 性能与正确性 | ✅ C1/C2/C5 完成，C3/C4 暂缓 |
+| D | RAG / Agent 能力深度 | ✅ D1/D2/D4 完成，D3/D5 暂缓 |
+| E | 产品体验（前端 UX） | ✅ E1–E4 完成，E5 暂缓 |
+| F | 模型配置页面化（新想法） | 🟡 进行中 |
 
 ### 已完成（累计，均已入 develop）
 
@@ -125,4 +126,40 @@
 - [x] 后端 `ruff check .` 全过
 - [x] 前端 `npm test` 全绿（**37**）、`npm run build` 零错误
 - [x] CLI `pytest` 全绿（**15**）、`ruff` 全过
-- [ ] 剩余批次：B3、B5、C3、C4、D3、D5、E5
+
+---
+
+## 未来计划（暂缓批次，待后续完成）
+
+> 以下已分析、有明确落地路径，但暂缓执行（非当前优先级）。需要时按原方案逐个开分支落地。
+
+- [ ] **B3 分层收口**：service 层抽离、`core` 去 FastAPI 依赖（`core/budget.py` 直接 import HTTPException）
+- [ ] **B5 OpenAPI → TS 类型自动生成**：脚本导出 openapi.json + `openapi-typescript`，替手写 `types.ts`
+- [ ] **C3 Redis 落地**：限流/每日预算从进程内存迁到 Redis（带内存回退），支持多实例
+- [ ] **C4 语义缓存（答案级）**：query 向量近邻命中即复用答案（带 TTL）
+- [ ] **D3 结构化引用可点击**：前端 [n] 渲染为可跳转到对应 chunk 原文的链接
+- [ ] **D5 BM25 升级**：PostgreSQL FTS（tsvector + GIN + ts_rank，jieba 分词）替代 ILIKE 伪实现
+- [ ] **E5 用户反馈闭环**：回答 👍/👎 落库，驱动检索/生成评测
+
+---
+
+## 批次 F · 模型配置页面化（✨ 新想法，进行中）
+
+> 目标：不用改 `.env`、重启服务，直接在 Web 页面配置模型——API Key、Base URL、模型名、温度、最大 tokens 等，按用户生效，未配置时回退环境变量。
+
+- [ ] **F1 配置存储与加密**
+  - 新增 `llm_settings` 表（user_id 唯一）：base_url / model / temperature / max_tokens / api_key（**加密存储**，不落明文）。
+  - API Key 加密后再入库；接口只返回是否已配置 + 掩码预览（如 `sk-****abcd`），永不回传明文。
+- [ ] **F2 按用户解析模型配置**
+  - `get_llm()` / LangGraph `_get_langchain_llm` 改为“按当前用户解析”：有用户配置用用户配置，否则回退环境变量（保证未配置用户照常可用）。
+  - 手写引擎与 LangGraph 引擎均支持；流式/非流式一致。
+- [ ] **F3 配置 API**
+  - `GET /settings/llm`（掩码返回）、`PUT /settings/llm`（保存，校验 URL/模型名）、`DELETE /settings/llm`（恢复默认）、`POST /settings/llm/test`（真实连通性测试）。
+- [ ] **F4 前端设置页**
+  - 个人中心新增“⚙️ 模型设置”Tab：表单（Base URL / 模型 / API Key / 温度 / max_tokens）+ “测试连接”按钮 + 保存/清除。
+  - Key 输入框密文显示、占位提示“已配置（不显示明文）”。
+- [ ] **F5 安全与测试**
+  - 密钥加密存储 + 日志脱敏（不打印 Key）；未配置回退环境变量；跨用户隔离（只能读写自己的配置）。
+  - 测试：加密/掩码、按用户解析、回退逻辑、接口鉴权与隔离、Web 表单冒烟（Fake LLM，不触网）。
+
+> 安全红线说明（§6）：密钥仅加密存于本人记录，接口不回传明文、日志不打印；`.env` 仍为默认，不破坏现有部署。

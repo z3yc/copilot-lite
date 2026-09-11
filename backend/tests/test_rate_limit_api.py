@@ -16,7 +16,7 @@ class _FakeLLM:
     def __init__(self, content: str = "好的") -> None:
         self.content = content
 
-    async def chat(self, messages, tools=None, temperature=0.7):
+    async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
         return ChatResult(content=self.content)
 
     async def close(self) -> None:

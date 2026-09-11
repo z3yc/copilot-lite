@@ -25,9 +25,16 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.base import BaseAgent, split_system_context
+from app.agent.base import BaseAgent, confirmation_reply, split_system_context
 from app.core.config import settings
+from app.core.json_parse import parse_json_object
 from app.core.llm import LLMError
+from app.core.prompts.agent import (
+    CHAT_SYSTEM_PROMPT,
+    KB_SYSTEM_PROMPT,
+    SUPERVISOR_SYSTEM_PROMPT,
+    TOOLS_SYSTEM_PROMPT,
+)
 from app.tools.base import ToolContext, ToolRegistry
 from app.tools.base import registry as global_registry
 
@@ -35,29 +42,6 @@ logger = logging.getLogger(__name__)
 
 # 可选路由（与条件边 path_map 一一对应）
 ROUTES = ("kb", "tools", "chat")
-
-SUPERVISOR_SYSTEM_PROMPT = """你是 Copilot-Lite 的意图路由中枢。判断用户请求应交给哪个子 Agent，只输出一行 JSON：
-{"route": "kb" | "tools" | "chat", "reason": "一句话理由"}
-
-路由规则：
-- kb（知识库）：问题涉及个人知识库 / 文档 / 笔记 / 资料（例如"我的笔记里…"、"根据文档…"）；
-- tools（工具）：需要实际操作或管理，如待办（创建 / 查询 / 完成 / 删除）等；
-- chat（日常对话）：寒暄、闲聊、通用问答、解释概念等。
-只输出 JSON，不要输出任何其他内容。"""
-
-KB_SYSTEM_PROMPT = """你是 Copilot-Lite 的知识库助手（青木）。回答用户问题时：
-- 问题涉及知识库内容时，必须先调用 kb_search 检索，再基于检索结果回答；
-- 回答注明来源（文档标题 / 章节 / 页码），引用时用 [n] 标注（n 为检索结果中的编号）；
-- 检索不到相关内容时如实说明，不要编造。"""
-
-TOOLS_SYSTEM_PROMPT = """你是 Copilot-Lite 的工具助手（青木）。当用户请求需要实际操作（如待办管理）时：
-- 先想清楚参数，调用对应工具一次完成；
-- 工具返回结果后用自然语言向用户汇报；
-- 工具执行失败时如实告知，不要编造结果。"""
-
-CHAT_SYSTEM_PROMPT = (
-    """你是 Copilot-Lite（青木），一个个人专属助理。回答简洁、准确、友好，使用用户的语言。"""
-)
 
 # 各子 Agent 可用的工具（None = 全部工具）
 AGENT_TOOLS: dict[str, list[str] | None] = {
@@ -101,11 +85,15 @@ class AgentState(TypedDict):
 
 
 def _parse_route(text: str) -> str | None:
-    """从 Supervisor 输出中提取路由。"""
+    """从 Supervisor 输出中提取路由（JSON 解析优先，正则兜底）。"""
     if not text:
         return None
-    m = _ROUTE_RE.search(text)
-    return m.group(1) if m else None
+    data = parse_json_object(text)
+    route = data.get("route")
+    if isinstance(route, str) and route in ROUTES:
+        return route
+    match = _ROUTE_RE.search(text)
+    return match.group(1) if match else None
 
 
 
@@ -148,6 +136,8 @@ class LangGraphEngine(BaseAgent):
         self.max_turns = max_turns
         # 本轮工具调用审计（run 后由上层写入 Message.extra 落库）
         self.last_tool_calls: list[dict] = []
+        # 需用户确认的挂起操作（human-in-the-loop）
+        self.pending_confirmation: list[dict] = []
         self._ctx: ToolContext | None = None  # 每次 run 注入（引擎按请求新建，无并发问题）
         self.graph = self._build_graph().compile()
 
@@ -213,17 +203,29 @@ class LangGraphEngine(BaseAgent):
                     name = tc.get("name", "")
                     args = tc.get("args") or {}
                     logger.info("调用工具: %s(%s)", name, args)
-                    result = await self.registry.execute(
-                        name, json.dumps(args, ensure_ascii=False), self._ctx
-                    )
-                    self.last_tool_calls.append(
-                        {
-                            "name": name,
-                            "arguments": json.dumps(args, ensure_ascii=False),
-                            "result": str(result)[:500],
-                        }
-                    )
+                    if self.registry.is_confirmation_required(name):
+                        self.pending_confirmation.append(
+                            {
+                                "name": name,
+                                "arguments": json.dumps(args, ensure_ascii=False),
+                                "tool_call_id": tc.get("id", ""),
+                            }
+                        )
+                        result = "（该操作需用户确认，已挂起，尚未执行）"
+                    else:
+                        result = await self.registry.execute(
+                            name, json.dumps(args, ensure_ascii=False), self._ctx
+                        )
+                        self.last_tool_calls.append(
+                            {
+                                "name": name,
+                                "arguments": json.dumps(args, ensure_ascii=False),
+                                "result": str(result)[:500],
+                            }
+                        )
                     messages.append(ToolMessage(content=result, tool_call_id=tc.get("id", "")))
+                if self.pending_confirmation:
+                    return {"reply": confirmation_reply(self.pending_confirmation)}
             return {"reply": "（已达到最大工具调用轮数，请简化请求后重试）"}
 
         return node
@@ -270,6 +272,7 @@ class LangGraphEngine(BaseAgent):
         """执行一次对话（图完整运行），返回最终回复。"""
         self._ctx = ToolContext(session=session, user_id=user_id)
         self.last_tool_calls = []
+        self.pending_confirmation = []
         state: AgentState = {
             "history": history,
             "user_message": user_message,
@@ -283,6 +286,7 @@ class LangGraphEngine(BaseAgent):
         """流式执行：token 级产出最终回复（仅叶子 Agent 的模型输出）。"""
         self._ctx = ToolContext(session=session, user_id=user_id)
         self.last_tool_calls = []
+        self.pending_confirmation = []
         state: AgentState = {
             "history": history,
             "user_message": user_message,
@@ -290,6 +294,7 @@ class LangGraphEngine(BaseAgent):
             "reply": "",
         }
         leaf_nodes = ("kb_agent", "tools_agent", "chat_agent")
+        yielded = False
         async for event in self.graph.astream_events(state, version="v2"):
             if event["event"] != "on_chat_model_stream":
                 continue
@@ -299,7 +304,11 @@ class LangGraphEngine(BaseAgent):
             chunk = event["data"].get("chunk")
             content = getattr(chunk, "content", None)
             if isinstance(content, str) and content:
+                yielded = True
                 yield content
+        # 挂起等确认的操作由引擎生成回复，不经过模型流，需单独产出
+        if self.pending_confirmation and not yielded:
+            yield confirmation_reply(self.pending_confirmation)
 
     async def close(self) -> None:
         """释放引擎资源。

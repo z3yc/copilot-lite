@@ -6,6 +6,7 @@ import {
   Empty,
   Input,
   Popconfirm,
+  Skeleton,
   Space,
   Spin,
   Tag,
@@ -19,7 +20,7 @@ import {
   ReloadOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
-import { deleteDoc, fetchDocDetail, fetchDocs, uploadDocs } from "../api";
+import { deleteDoc, fetchDocDetail, fetchDocs, retryDoc, uploadDocs } from "../api";
 import type { DocDetail, DocItem } from "../types";
 
 const { Text, Paragraph } = Typography;
@@ -54,16 +55,22 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DocDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [loadingDocs, setLoadingDocs] = useState(true);
   const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 加载（分类 + 内容级搜索，300ms 防抖）
-  const loadDocs = useCallback(() => {
-    const kw = search.trim();
-    const type = activeCat !== "all" ? activeCat : undefined;
-    return fetchDocs(kw || undefined, type)
-      .then(setDocs)
-      .catch((err) => console.error("加载知识库失败", err));
+  const loadDocs = useCallback(async () => {
+    setLoadingDocs(true);
+    try {
+      const kw = search.trim();
+      const type = activeCat !== "all" ? activeCat : undefined;
+      setDocs(await fetchDocs(kw || undefined, type));
+    } catch (err) {
+      console.error("加载知识库失败", err);
+    } finally {
+      setLoadingDocs(false);
+    }
   }, [search, activeCat]);
 
   useEffect(() => {
@@ -115,6 +122,16 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
       fetchDocs(search.trim() || undefined).then(setDocs).catch(() => {});
     } catch (err) {
       message.error(`删除失败: ${err}`);
+    }
+  };
+
+  const retry = async (id: string) => {
+    try {
+      await retryDoc(id);
+      message.success("已重新摄取");
+      loadDocs();
+    } catch (err) {
+      message.error(`重试失败: ${err}`);
     }
   };
 
@@ -188,7 +205,9 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
           </div>
         )}
 
-        {docs.length === 0 ? (
+        {loadingDocs && docs.length === 0 ? (
+          <Skeleton active paragraph={{ rows: 5 }} />
+        ) : docs.length === 0 ? (
           search ? (
             <Empty description="没有匹配的文档，换个关键词试试" />
           ) : (
@@ -243,6 +262,18 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                           <Text type="secondary" style={{ fontSize: 12 }}>
                             {d.chunk_count} 分块
                           </Text>
+                          {d.status === "failed" && (
+                            <Button
+                              type="text"
+                              size="small"
+                              title="重试摄取"
+                              icon={<ReloadOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                retry(d.id);
+                              }}
+                            />
+                          )}
                           <Popconfirm
                             title="删除该文档？其分块与向量将一并清理。"
                             onConfirm={() => remove(d.id)}

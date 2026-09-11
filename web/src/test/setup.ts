@@ -30,6 +30,12 @@ vi.stubGlobal("ResizeObserver", ResizeObserverMock);
 // jsdom 未实现 Element.scrollTo（ChatPanel 滚动到底部用）
 Element.prototype.scrollTo = vi.fn() as unknown as typeof Element.prototype.scrollTo;
 
+// jsdom 未实现 URL.createObjectURL / revokeObjectURL（会话导出下载用）
+if (!URL.createObjectURL) {
+  URL.createObjectURL = vi.fn(() => "blob:mock");
+  URL.revokeObjectURL = vi.fn();
+}
+
 // 每个测试后自动清理 DOM 与 localStorage（RTL v16 在非 globals 模式下需手动 cleanup）
 afterEach(() => {
   cleanup();

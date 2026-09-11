@@ -16,6 +16,15 @@ copilot = "copilot_cli.main:app"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["copilot_cli"]
 

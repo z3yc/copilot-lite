@@ -13,7 +13,7 @@ async def test_profile_stats(authed_headers: dict) -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.get("/api/v1/auth/profile", headers=authed_headers)
     assert r.status_code == 200
-    data = r.json()
+    data = r.json()["data"]
     assert data["username"].startswith("u")
     assert "session_count" in data
     assert "chunk_count" in data
@@ -73,7 +73,7 @@ async def test_change_password_invalidates_old_token(authed_headers: dict) -> No
         # 改密前旧 token 可用
         r = await client.get("/api/v1/auth/me", headers=authed_headers)
         assert r.status_code == 200
-        username = r.json()["username"]
+        username = r.json()["data"]["username"]
 
         # 改密
         r = await client.post(
@@ -93,7 +93,7 @@ async def test_change_password_invalidates_old_token(authed_headers: dict) -> No
             json={"username": username, "password": "newpass123"},
         )
         assert r.status_code == 200
-        new_token = r.json()["token"]
+        new_token = r.json()["data"]["token"]
         r = await client.get(
             "/api/v1/auth/me", headers={"Authorization": f"Bearer {new_token}"}
         )

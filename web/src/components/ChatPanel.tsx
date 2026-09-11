@@ -2,6 +2,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Avatar,
   Button,
   Input,
@@ -20,6 +21,7 @@ import {
   UserOutlined,
 } from "@ant-design/icons";
 import {
+  confirmChat,
   createSession,
   deleteSessionFile,
   fetchSessionFiles,
@@ -65,6 +67,7 @@ export default function ChatPanel({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<SessionFile[]>([]);
+  const [confirming, setConfirming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -152,6 +155,21 @@ export default function ChatPanel({
             return next;
           });
         },
+        onPending: (actions) => {
+          // 高风险操作挂起：给最后一条助手消息附加确认信息
+          setMessages((prev) => {
+            const next = [...prev];
+            const lastIdx = next.length - 1;
+            const last = next[lastIdx];
+            if (last && last.role === "assistant") {
+              next[lastIdx] = {
+                ...last,
+                extra: { ...(last.extra || {}), pending_confirmation: actions },
+              };
+            }
+            return next;
+          });
+        },
         onDone: () => setBusy(false),
         onError: (msg) => {
           setMessages((prev) => {
@@ -179,6 +197,29 @@ export default function ChatPanel({
   };
 
   const stop = () => abortRef.current?.abort();
+
+  const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  const pending = lastAssistant?.extra?.pending_confirmation ?? [];
+
+  const resolvePending = async (approve: boolean) => {
+    if (!sessionId || confirming) return;
+    setConfirming(true);
+    try {
+      const res = await confirmChat(sessionId, approve);
+      setMessages((prev) => [
+        ...prev.map((m) =>
+          m.extra?.pending_confirmation?.length
+            ? { ...m, extra: { ...m.extra, pending_confirmation: [] } }
+            : m
+        ),
+        { role: "assistant", content: res.reply },
+      ]);
+    } catch (err) {
+      message.error(`操作失败: ${err}`);
+    } finally {
+      setConfirming(false);
+    }
+  };
 
   return (
     <div className="chat-panel">
@@ -226,6 +267,40 @@ export default function ChatPanel({
           </div>
         ))}
       </div>
+
+      {/* 高风险操作确认（human-in-the-loop） */}
+      {pending.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ margin: "0 12px 8px" }}
+          message="以下操作需要你确认后才会执行"
+          description={
+            <div>
+              <div className="dim" style={{ fontSize: 12 }}>
+                {pending.map((p) => `${p.name}(${p.arguments ?? ""})`).join("；")}
+              </div>
+              <Space style={{ marginTop: 8 }}>
+                <Button
+                  type="primary"
+                  size="small"
+                  loading={confirming}
+                  onClick={() => resolvePending(true)}
+                >
+                  确认执行
+                </Button>
+                <Button
+                  size="small"
+                  disabled={confirming}
+                  onClick={() => resolvePending(false)}
+                >
+                  取消
+                </Button>
+              </Space>
+            </div>
+          }
+        />
+      )}
 
       {/* 会话附件区 */}
       {files.length > 0 && (

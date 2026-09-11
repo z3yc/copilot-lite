@@ -10,6 +10,17 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   created_at?: string;
+  /** 工具审计 / 待确认操作（human-in-the-loop）等附加信息 */
+  extra?: {
+    pending_confirmation?: PendingAction[];
+    tool_calls?: unknown[];
+  };
+}
+
+export interface PendingAction {
+  name: string;
+  arguments?: string;
+  tool_call_id?: string;
 }
 
 export interface DocItem {

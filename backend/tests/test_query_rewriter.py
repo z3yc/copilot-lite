@@ -19,7 +19,7 @@ class _FakeLLM:
     def __init__(self, content: str) -> None:
         self.content = content
 
-    async def chat(self, messages, tools=None, temperature=0.7):
+    async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
         return ChatResult(content=self.content)
 
     async def close(self) -> None:
@@ -61,7 +61,7 @@ async def test_rewriter_fallback_on_bad_llm() -> None:
     assert await QueryRewriter(llm=_FakeLLM("不是JSON")).rewrite("问题") == ["问题"]
 
     class Boom:
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             raise RuntimeError("boom")
 
         async def close(self) -> None:

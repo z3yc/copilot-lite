@@ -4,6 +4,7 @@ import type {
   DocDetail,
   DocItem,
   MemoryItem,
+  PendingAction,
   Profile,
   Session,
   SessionFile,
@@ -18,6 +19,12 @@ export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t);
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
+interface Envelope<T> {
+  code: number;
+  message: string;
+  data: T;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   const token = getToken();
@@ -31,10 +38,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error("登录已过期，请重新登录");
   }
   if (!resp.ok) {
-    const detail = await resp.text();
-    throw new Error(`请求失败 ${resp.status}: ${detail.slice(0, 200)}`);
+    // 后端统一错误体 {code,message,data}；非 JSON 时回退状态码提示
+    let message = `请求失败 ${resp.status}`;
+    try {
+      const body = await resp.json();
+      if (body && typeof body.message === "string" && body.message) {
+        message = body.message;
+      }
+    } catch {
+      // 忽略：保留状态码提示
+    }
+    throw new Error(message);
   }
-  return resp.json() as Promise<T>;
+  const body = (await resp.json()) as Envelope<T> | T;
+  // 统一响应结构：解包 data；兼容非信封响应
+  if (body && typeof body === "object" && "code" in (body as Record<string, unknown>)) {
+    const env = body as Envelope<T>;
+    if (env.code !== 0) throw new Error(env.message || "请求失败");
+    return env.data;
+  }
+  return body as T;
 }
 
 // ---- 认证 ----
@@ -74,12 +97,41 @@ export const updateMemory = (id: string, fact: string, category: string) =>
 export const deleteMemory = (id: string) =>
   request<{ deleted: string }>(`/memories/${id}`, { method: "DELETE" });
 
+// ---- 分页 ----
+export interface Page<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 // ---- 会话 ----
-export const fetchSessions = () => request<Session[]>("/sessions");
+export const fetchSessions = async (q?: string): Promise<Session[]> =>
+  (
+    await request<Page<Session>>(
+      `/sessions${q ? `?q=${encodeURIComponent(q)}` : ""}`
+    )
+  ).items;
 export const fetchMessages = (sessionId: string) =>
   request<ChatMessage[]>(`/sessions/${sessionId}/messages`);
 export const deleteSession = (sessionId: string) =>
   request<{ deleted: string }>(`/sessions/${sessionId}`, { method: "DELETE" });
+export const renameSession = (sessionId: string, title: string) =>
+  request<Session>(`/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+
+/** 导出会话 Markdown（带认证的裸 fetch，不走 JSON 解析）。 */
+export async function exportSessionMarkdown(sessionId: string): Promise<string> {
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const resp = await fetch(`${BASE}/sessions/${sessionId}/export`, { headers });
+  if (!resp.ok) throw new Error(`导出失败 ${resp.status}`);
+  return resp.text();
+}
 
 // ---- 待办 ----
 export interface TodoPayload {
@@ -91,13 +143,17 @@ export interface TodoPayload {
   tags?: string[];
 }
 
-export const fetchTodos = (params?: { status?: string; category_id?: string; tag?: string }) => {
+export const fetchTodos = async (params?: {
+  status?: string;
+  category_id?: string;
+  tag?: string;
+}): Promise<TodoItem[]> => {
   const qs = new URLSearchParams();
   if (params?.status) qs.set("status", params.status);
   if (params?.category_id) qs.set("category_id", params.category_id);
   if (params?.tag) qs.set("tag", params.tag);
   const s = qs.toString();
-  return request<TodoItem[]>(`/todos${s ? `?${s}` : ""}`);
+  return (await request<Page<TodoItem>>(`/todos${s ? `?${s}` : ""}`)).items;
 };
 export const fetchCategories = () => request<Category[]>(`/todos/categories`);
 export const createTodo = (data: TodoPayload) =>
@@ -122,17 +178,19 @@ export const aiCreateTodo = (text: string) =>
   });
 
 // ---- 文档 ----
-export const fetchDocs = (q?: string, type?: string) => {
+export const fetchDocs = async (q?: string, type?: string): Promise<DocItem[]> => {
   const params = new URLSearchParams();
   if (q) params.set("q", q);
   if (type) params.set("type", type);
   const qs = params.toString();
-  return request<DocItem[]>(`/documents${qs ? `?${qs}` : ""}`);
+  return (await request<Page<DocItem>>(`/documents${qs ? `?${qs}` : ""}`)).items;
 };
 export const fetchDocDetail = (docId: string) =>
   request<DocDetail>(`/documents/${docId}/chunks`);
 export const deleteDoc = (docId: string) =>
   request<{ deleted: string }>(`/documents/${docId}`, { method: "DELETE" });
+export const retryDoc = (docId: string) =>
+  request<DocItem>(`/documents/${docId}/retry`, { method: "POST" });
 
 export async function uploadDocs(files: File[]): Promise<DocItem[]> {
   const results: DocItem[] = [];
@@ -158,12 +216,22 @@ export async function uploadSessionFile(sessionId: string, file: File): Promise<
   form.append("file", file);
   return request<SessionFile>(`/sessions/${sessionId}/files`, { method: "POST", body: form });
 }
+// ---- Human-in-the-loop：确认/取消挂起的副作用操作 ----
+export const confirmChat = (sessionId: string, approve: boolean) =>
+  request<{ reply: string }>("/chat/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, approve }),
+  });
+
 // ---- SSE 流式对话 ----
 export interface StreamHandlers {
   onSession: (sessionId: string) => void;
   onChunk: (text: string) => void;
   onDone: () => void;
   onError: (message: string) => void;
+  /** 挂起确认操作（human-in-the-loop） */
+  onPending?: (actions: PendingAction[]) => void;
   /** 取消信号：调用方（停止生成按钮/会话切换）用它中断请求 */
   signal?: AbortSignal;
 }
@@ -216,7 +284,12 @@ export async function streamChat(
       else if (line.startsWith("data: ")) data += line.slice(6);
     }
     if (!data) return; // SSE 注释（心跳 ": ping"）等无数据行直接跳过
-    let payload: { session_id?: string; text?: string; detail?: string };
+    let payload: {
+      session_id?: string;
+      text?: string;
+      detail?: string;
+      actions?: PendingAction[];
+    };
     try {
       payload = JSON.parse(data);
     } catch {
@@ -224,6 +297,7 @@ export async function streamChat(
     }
     if (event === "session" && payload.session_id) handlers.onSession(payload.session_id);
     else if (event === "chunk" && typeof payload.text === "string") handlers.onChunk(payload.text);
+    else if (event === "pending" && Array.isArray(payload.actions)) handlers.onPending?.(payload.actions);
     else if (event === "error") handlers.onError(payload.detail ?? "未知错误");
     else if (event === "done") handlers.onDone();
   };

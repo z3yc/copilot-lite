@@ -141,11 +141,14 @@ class LLMClient:
         messages: list[dict],
         tools: list[dict] | None = None,
         temperature: float = 0.7,
+        response_format: dict | None = None,
     ) -> ChatResult:
         """发起一次对话补全请求。
 
         messages: OpenAI 消息格式列表
         tools:    OpenAI tools 格式（Function Calling 定义）
+        response_format: 结构化输出约束，如 {"type": "json_object"}；
+                         兼容网关不支持时保持 None（仅靠 prompt 约束 + 容错解析）。
         """
         kwargs: dict = {
             "model": self.model,
@@ -154,6 +157,8 @@ class LLMClient:
         }
         if tools:
             kwargs["tools"] = tools
+        if response_format:
+            kwargs["response_format"] = response_format
         if settings.LLM_MAX_TOKENS:
             kwargs["max_tokens"] = settings.LLM_MAX_TOKENS
 

@@ -16,7 +16,7 @@ async def test_session_files_crud(authed_headers: dict) -> None:
         # 创建会话
         r = await client.post("/api/v1/sessions", json={"title": "附件会话"}, headers=authed_headers)
         assert r.status_code == 200
-        sid = r.json()["id"]
+        sid = r.json()["data"]["id"]
 
         # 上传附件（Markdown）
         r = await client.post(
@@ -25,18 +25,18 @@ async def test_session_files_crud(authed_headers: dict) -> None:
             headers=authed_headers,
         )
         assert r.status_code == 200
-        fid = r.json()["id"]
+        fid = r.json()["data"]["id"]
 
         # 列表
         r = await client.get(f"/api/v1/sessions/{sid}/files", headers=authed_headers)
         assert r.status_code == 200
-        assert any(x["id"] == fid for x in r.json())
+        assert any(x["id"] == fid for x in r.json()["data"])
 
         # 删除
         r = await client.delete(f"/api/v1/sessions/{sid}/files/{fid}", headers=authed_headers)
         assert r.status_code == 200
         r = await client.get(f"/api/v1/sessions/{sid}/files", headers=authed_headers)
-        assert r.json() == []
+        assert r.json()["data"] == []
 
 
 @pytest.mark.asyncio
@@ -46,7 +46,7 @@ async def test_session_file_rejects_unsupported_type(authed_headers: dict) -> No
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.post("/api/v1/sessions", json={"title": "t"}, headers=authed_headers)
         assert r.status_code == 200
-        sid = r.json()["id"]
+        sid = r.json()["data"]["id"]
 
         r = await client.post(
             f"/api/v1/sessions/{sid}/files",
@@ -54,7 +54,7 @@ async def test_session_file_rejects_unsupported_type(authed_headers: dict) -> No
             headers=authed_headers,
         )
         assert r.status_code == 400
-        assert "不支持" in r.json()["detail"]
+        assert "不支持" in r.json()["message"]
 
 
 @pytest.mark.asyncio
@@ -67,7 +67,7 @@ async def test_session_file_size_is_real_bytes_and_count_limit(
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.post("/api/v1/sessions", json={"title": "t"}, headers=authed_headers)
-        sid = r.json()["id"]
+        sid = r.json()["data"]["id"]
 
         raw = "## 标题\n\n内容123".encode()
         r = await client.post(
@@ -76,7 +76,7 @@ async def test_session_file_size_is_real_bytes_and_count_limit(
             headers=authed_headers,
         )
         assert r.status_code == 200
-        assert r.json()["size"] == len(raw), "size 应为原始字节数而非文本长度"
+        assert r.json()["data"]["size"] == len(raw), "size 应为原始字节数而非文本长度"
 
         # 数量上限：改小上限后第三个附件被拒
         monkeypatch.setattr(sessions_module, "MAX_FILES_PER_SESSION", 2)
@@ -92,7 +92,7 @@ async def test_session_file_size_is_real_bytes_and_count_limit(
             headers=authed_headers,
         )
         assert r.status_code == 400
-        assert "上限" in r.json()["detail"]
+        assert "上限" in r.json()["message"]
 
 
 @pytest.mark.asyncio
@@ -115,7 +115,7 @@ async def test_document_upload_rejects_unsupported_type(authed_headers: dict) ->
             headers=authed_headers,
         )
         assert r.status_code == 400
-        assert "不支持" in r.json()["detail"]
+        assert "不支持" in r.json()["message"]
 
 
 @pytest.mark.asyncio
@@ -129,7 +129,7 @@ async def test_chat_injects_session_files(monkeypatch, authed_headers: dict) -> 
     captured: list[dict] = []
 
     class CaptureLLM:
-        async def chat(self, messages, tools=None, temperature=0.7):
+        async def chat(self, messages, tools=None, temperature=0.7, response_format=None):
             captured.append(messages)
             return ChatResult(content="回复")
 

@@ -6,20 +6,15 @@
 失败时静默回退原始问题（可用性优先，改写是锦上添花不是链路必需）。
 """
 
-import json
 import logging
 from functools import lru_cache
 
 from app.core.config import settings
+from app.core.json_parse import parse_json_array
 from app.core.llm import LLMClient, get_llm
+from app.core.prompts.rag import QUERY_REWRITE_PROMPT
 
 logger = logging.getLogger(__name__)
-
-_REWRITE_PROMPT = """你是检索查询改写助手。把用户问题改写为 {n} 个适合知识库检索的不同表述：
-- 同义改写（换一种说法）；
-- 补全上下文（口语省略的主语/背景补全）；
-- 拆分子问题（复合问题拆成单一问题）。
-只输出 JSON 字符串数组，不要输出其他内容，例如：["改写1", "改写2"]"""
 
 
 class QueryRewriter:
@@ -41,11 +36,12 @@ class QueryRewriter:
         try:
             result = await self.llm.chat(
                 [
-                    {"role": "system", "content": _REWRITE_PROMPT.format(n=n)},
+                    {"role": "system", "content": QUERY_REWRITE_PROMPT.format(n=n)},
                     {"role": "user", "content": query},
-                ]
+                ],
+                response_format={"type": "json_object"},
             )
-            parsed = json.loads((result.content or "[]").strip())
+            parsed = parse_json_array(result.content)
             if isinstance(parsed, list):
                 seen = {query}
                 for item in parsed:

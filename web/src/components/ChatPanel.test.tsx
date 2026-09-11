@@ -13,6 +13,8 @@ import ChatPanel from "./ChatPanel";
 vi.mock("../api", () => ({
   createSession: vi.fn(),
   fetchSessionFiles: vi.fn(),
+  fetchMessages: vi.fn(),
+  confirmChat: vi.fn(),
   streamChat: vi.fn(),
   uploadSessionFile: vi.fn(),
   deleteSessionFile: vi.fn(),
@@ -36,6 +38,8 @@ function renderPanel(overrides?: Partial<React.ComponentProps<typeof ChatPanel>>
 describe("ChatPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks(); // 隔离用例间的调用记录与实现
+    mocked.fetchSessionFiles.mockResolvedValue([]);
+    mocked.fetchMessages.mockResolvedValue([]);
   });
 
   it("渲染历史消息与标题", () => {
@@ -53,6 +57,31 @@ describe("ChatPanel", () => {
   it("无消息时展示空状态引导", () => {
     renderPanel();
     expect(screen.getByText(/你好！我是青木/)).toBeInTheDocument();
+  });
+
+  it("有待确认操作时展示确认按钮并调用 confirmChat", async () => {
+    mocked.confirmChat.mockResolvedValue({ reply: "已执行" });
+    renderPanel({
+      sessionId: "s1",
+      initialMessages: [
+        {
+          role: "assistant",
+          content: "需要确认",
+          extra: {
+            pending_confirmation: [
+              { name: "todo_delete", arguments: '{"todo_id":"x"}' },
+            ],
+          },
+        },
+      ],
+    });
+    expect(screen.getByText(/需要你确认/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /确认执行/ }));
+    await waitFor(() =>
+      expect(mocked.confirmChat).toHaveBeenCalledWith("s1", true)
+    );
+    expect(await screen.findByText("已执行")).toBeInTheDocument();
   });
 
   it("发送消息：调用 streamChat，chunk 增量渲染，完成后恢复 busy", async () => {

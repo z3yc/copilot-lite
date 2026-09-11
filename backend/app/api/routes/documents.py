@@ -1,5 +1,6 @@
 """文档管理接口：上传/摄取、列表、详情、删除。"""
 
+import hashlib
 import logging
 import uuid
 from datetime import datetime
@@ -14,7 +15,6 @@ from app.api.deps import get_current_user, parse_uuid
 from app.core.db import get_session
 from app.models import Chunk, Document, User
 from app.rag import (
-    IngestError,
     get_embedding_service,
     get_vector_store,
     ingest_document,
@@ -89,52 +89,114 @@ async def upload_document(
             status_code=400,
             detail=f"不支持的文件类型: {Path(file.filename or '').suffix or '未知'}",
         )
+
+    # 内容去重：同用户同内容且已就绪 → 直接复用（避免重复向量与存储）
+    content_hash = hashlib.sha256(content).hexdigest()
+    existing = await db.scalar(
+        select(Document).where(
+            Document.user_id == user.id,
+            Document.content_hash == content_hash,
+            Document.status == "ready",
+        )
+    )
+    if existing is not None:
+        return await _to_out(db, existing)
+
     document = Document(
         user_id=user.id,
         title=file.filename or "未命名文档",
         source_type=source_type,
         status="uploaded",
+        content_hash=content_hash,
     )
     db.add(document)
     await db.commit()
     await db.refresh(document)
 
-    # 保存原件副本（文件名只取 basename，防路径穿越/绝对路径逃逸）
+    await _save_original(db, document, content, file.filename)
+    await _run_ingest(db, document, content)
+    return await _to_out(db, document)
+
+
+async def _save_original(
+    db: AsyncSession, document: Document, content: bytes, filename: str | None
+) -> None:
+    """保存原件副本（文件名只取 basename，防路径穿越）并记录路径供失败重试。"""
     try:
         save_dir = _DATA_DIR / str(document.id)
         save_dir.mkdir(parents=True, exist_ok=True)
-        safe_name = Path(file.filename).name if file.filename else "unnamed"
+        safe_name = Path(filename).name if filename else "unnamed"
         if not safe_name or safe_name in {".", ".."}:
             safe_name = "unnamed"
-        (save_dir / safe_name).write_bytes(content)
+        path = save_dir / safe_name
+        path.write_bytes(content)
+        document.storage_path = str(path)
+        await db.commit()
     except OSError as exc:
         logger.warning("原件保存失败（不影响摄取）: %s", exc)
 
-    # 同步摄取（个人量级够用；大数据量可改后台任务）
+
+def _read_original(document: Document) -> bytes | None:
+    """读取已保存的原件（失败重试用）。"""
+    if document.storage_path:
+        path = Path(document.storage_path)
+        if path.is_file():
+            return path.read_bytes()
+    directory = _DATA_DIR / str(document.id)
+    if directory.is_dir():
+        for item in sorted(directory.iterdir()):
+            if item.is_file():
+                return item.read_bytes()
+    return None
+
+
+async def _cleanup_chunks(db: AsyncSession, document: Document) -> None:
+    """清理文档残留分块与向量（幂等重试基础）。"""
+    from sqlalchemy import delete as sa_delete
+
     try:
-        document.status = "parsing"
-        await db.commit()
+        await db.execute(sa_delete(Chunk).where(Chunk.document_id == document.id))
+        await get_vector_store().delete_by_document(document.id)
+    except Exception:
+        logger.warning("摄取失败清理异常", exc_info=True)
+
+
+async def _run_ingest(db: AsyncSession, document: Document, content: bytes) -> None:
+    """执行摄取并按状态机落库；失败置 failed 并清理残留，向上抛 422。"""
+    document.status = "parsing"
+    await db.commit()
+    try:
         await ingest_document(
             db, document, content, get_embedding_service(), get_vector_store()
         )
         document.status = "ready"
-    except (IngestError, Exception) as exc:
+        document.extra = {}
+        await db.commit()
+    except Exception as exc:
         document.status = "failed"
         document.extra = {"error": str(exc)}
-        # 失败补偿：清理可能残留的分块与向量（幂等重传基础）
-        try:
-            from sqlalchemy import delete as sa_delete
-
-            await db.execute(sa_delete(Chunk).where(Chunk.document_id == document.id))
-            await get_vector_store().delete_by_document(document.id)
-            await db.commit()
-        except Exception:  # 清理失败不影响原始异常
-            logger.warning("摄取失败清理异常", exc_info=True)
-        raise HTTPException(status_code=422, detail=f"文档摄取失败: {exc}") from exc
-    finally:
+        await _cleanup_chunks(db, document)
         await db.commit()
+        raise HTTPException(status_code=422, detail=f"文档摄取失败: {exc}") from exc
 
-    return await _to_out(db, document)
+
+@router.post("/{doc_id}/retry", response_model=DocumentOut)
+async def retry_document(
+    doc_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> DocumentOut:
+    """重试失败的文档摄取（复用已保存原件；已就绪直接返回）。"""
+    doc = await _get_doc(db, doc_id, user)
+    if doc.status == "ready":
+        return await _to_out(db, doc)
+    content = _read_original(doc)
+    if content is None:
+        raise HTTPException(status_code=400, detail="原件不存在，请重新上传")
+    await _cleanup_chunks(db, doc)
+    await db.commit()
+    await _run_ingest(db, doc, content)
+    return await _to_out(db, doc)
 
 
 @router.get("", response_model=list[DocumentOut])

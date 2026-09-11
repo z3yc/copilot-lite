@@ -21,6 +21,10 @@ class Document(Base):
     )
     title: Mapped[str] = mapped_column(String(255))
     source_type: Mapped[str] = mapped_column(String(32))  # md / pdf / docx / code / web
+    # 内容 SHA-256：同用户同内容去重，避免重复向量（可空：历史数据）
+    content_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     storage_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="uploaded")  # uploaded/parsing/ready/failed
     extra: Mapped[dict] = mapped_column(JSON, default=dict)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, Empty, List, Spin, Tag, Typography, message } from "antd";
-import { UndoOutlined } from "@ant-design/icons";
+import { DeleteOutlined, UndoOutlined } from "@ant-design/icons";
 import { fetchTrash, restoreTrashItem } from "../api";
 import type { TrashItem } from "../types";
 
@@ -49,7 +49,14 @@ export default function TrashPanel() {
   }
 
   return (
-    <Card className="profile-card" title="🗑️ 回收站（删除的数据可恢复）">
+    <Card
+      className="profile-card"
+      title={
+        <>
+          <DeleteOutlined /> 回收站（删除的数据可恢复）
+        </>
+      }
+    >
       <div className="dim" style={{ marginBottom: 8, fontSize: 13 }}>
         删除只做标记、不物理删除；恢复后自动回到原位置。
       </div>

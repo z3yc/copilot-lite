@@ -19,12 +19,14 @@ import {
   message,
 } from "antd";
 import {
+  BookOutlined,
   DeleteOutlined,
   InboxOutlined,
   LinkOutlined,
   PlusOutlined,
   ReloadOutlined,
   SyncOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import {
   createWikiSpace,
@@ -257,7 +259,9 @@ export default function WikiPanel() {
       <div className="wiki-side">
         <Space direction="vertical" style={{ width: "100%" }} size={10}>
           <Space style={{ width: "100%", justifyContent: "space-between" }}>
-            <Text strong>🕸️ Wiki 空间</Text>
+            <Text strong>
+              <BookOutlined /> Wiki 空间
+            </Text>
             <Button size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
               新建
             </Button>
@@ -446,7 +450,9 @@ export default function WikiPanel() {
             </Space>
             {detail.document_status === "failed" && (
               <div style={{ marginBottom: 8 }}>
-                <Text type="danger">⚠️ 上次摄取失败，可点“重新索引”重试</Text>
+                <Text type="danger">
+                  <WarningOutlined /> 上次摄取失败，可点“重新索引”重试
+                </Text>
               </div>
             )}
             <div

@@ -17,7 +17,15 @@ import {
   theme,
 } from "antd";
 import zhCN from "antd/locale/zh_CN";
-import { BulbOutlined, LogoutOutlined, MoonOutlined } from "@ant-design/icons";
+import {
+  BookOutlined,
+  BulbOutlined,
+  CheckSquareOutlined,
+  LogoutOutlined,
+  MessageOutlined,
+  MoonOutlined,
+  PartitionOutlined,
+} from "@ant-design/icons";
 import { clearToken, fetchMessages, fetchProfile, getToken } from "./api";
 import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
 import { keyboardActivate } from "./utils/a11y";
@@ -200,10 +208,38 @@ export default function App() {
                 onChange={(k) => setTab(k as "chat" | "kb" | "wiki" | "todo")}
                 centered
                 items={[
-                  { key: "chat", label: "💬 对话" },
-                  { key: "kb", label: "📚 知识库" },
-                  { key: "wiki", label: "🕸️ Wiki" },
-                  { key: "todo", label: "📋 待办" },
+                  {
+                    key: "chat",
+                    label: (
+                      <span>
+                        <MessageOutlined /> 对话
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "kb",
+                    label: (
+                      <span>
+                        <BookOutlined /> 知识库
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "wiki",
+                    label: (
+                      <span>
+                        <PartitionOutlined /> Wiki
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "todo",
+                    label: (
+                      <span>
+                        <CheckSquareOutlined /> 待办
+                      </span>
+                    ),
+                  },
                 ]}
               />
             </div>

@@ -177,9 +177,9 @@ export default function ChatPanel({
             const lastIdx = next.length - 1;
             const last = next[lastIdx];
             if (last && last.role === "assistant" && !last.content) {
-              next[lastIdx] = { ...last, content: `⚠️ ${msg}` };
+              next[lastIdx] = { ...last, content: `生成出错：${msg}` };
             } else {
-              next.push({ role: "assistant", content: `⚠️ ${msg}` });
+              next.push({ role: "assistant", content: `生成出错：${msg}` });
             }
             return next;
           });
@@ -236,7 +236,9 @@ export default function ChatPanel({
       <div className="messages" ref={scrollRef} onScroll={handleScroll}>
         {messages.length === 0 && (
           <div className="empty-tip">
-            <div style={{ fontSize: 40, marginBottom: 8 }}>🤖</div>
+            <div style={{ marginBottom: 8 }}>
+              <RobotOutlined style={{ fontSize: 40, color: "var(--color-primary)" }} />
+            </div>
             <Text strong style={{ fontSize: 16 }}>
               你好！我是青木，你的个人 AI 助理
             </Text>
@@ -359,7 +361,7 @@ export default function ChatPanel({
               onClose={() => onDeleteFile(f.id)}
               style={{ fontSize: 12 }}
             >
-              📎 {f.filename}
+              <PaperClipOutlined /> {f.filename}
             </Tag>
           ))}
         </div>

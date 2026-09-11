@@ -27,14 +27,12 @@ import {
   streamChat,
   uploadSessionFile,
 } from "../api";
+import { ACCEPT_EXTENSIONS } from "../constants";
 import type { ChatMessage, SessionFile } from "../types";
 import { renderMarkdown } from "../utils/markdown";
 
 const { TextArea } = Input;
 const { Text } = Typography;
-
-const ACCEPT =
-  ".md,.txt,.pdf,.docx,.py,.js,.ts,.tsx,.jsx,.java,.go,.rs,.c,.cpp,.sql,.html,.htm";
 
 interface Props {
   sessionId: string | null;
@@ -370,7 +368,7 @@ export default function ChatPanel({
       <div className="input-bar">
         <Tooltip title="上传文件到本次对话（不进知识库），可针对文件提问">
           <Upload
-            accept={ACCEPT}
+            accept={ACCEPT_EXTENSIONS}
             showUploadList={false}
             beforeUpload={async (file) => {
               await onUploadFile(file);

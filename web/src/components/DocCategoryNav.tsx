@@ -1,19 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Badge, List, Spin, Typography, message } from "antd";
 import { fetchDocs } from "../api";
+import { ALL_SOURCE_META, SOURCE_META, type SourceMeta } from "../constants";
 import type { DocItem } from "../types";
 import { keyboardActivate } from "../utils/a11y";
 
 const { Text } = Typography;
-
-const SOURCE_META: Record<string, { label: string; icon: string }> = {
-  md: { label: "笔记", icon: "📄" },
-  wiki: { label: "Wiki", icon: "🕸️" },
-  pdf: { label: "PDF", icon: "📕" },
-  docx: { label: "Word", icon: "📘" },
-  code: { label: "代码", icon: "💻" },
-  web: { label: "网页", icon: "🌐" },
-};
 
 interface Props {
   activeCat: string;
@@ -42,12 +34,16 @@ export default function DocCategoryNav({ activeCat, onChange }: Props) {
   }, [docs]);
 
   const cats = useMemo(() => {
-    const items: { key: string; label: string; icon: string; count: number }[] = [
-      { key: "all", label: "全部", icon: "🗂️", count: docs.length },
+    const items: { key: string; label: string; Icon: SourceMeta["Icon"]; count: number }[] = [
+      {
+        key: "all",
+        label: ALL_SOURCE_META.label,
+        Icon: ALL_SOURCE_META.Icon,
+        count: docs.length,
+      },
     ];
     Object.entries(SOURCE_META).forEach(([key, meta]) => {
-      const n = catCount.get(key) ?? 0;
-      items.push({ key, label: meta.label, icon: meta.icon, count: n });
+      items.push({ key, label: meta.label, Icon: meta.Icon, count: catCount.get(key) ?? 0 });
     });
     return items;
   }, [docs.length, catCount]);
@@ -73,7 +69,7 @@ export default function DocCategoryNav({ activeCat, onChange }: Props) {
               style={{ cursor: "pointer", borderRadius: 8, padding: "8px 12px" }}
             >
               <Text>
-                {c.icon} {c.label}
+                <c.Icon /> {c.label}
               </Text>
               <Badge
                 count={c.count}

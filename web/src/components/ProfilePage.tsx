@@ -7,6 +7,7 @@ import {
   Empty,
   Form,
   Input,
+  InputNumber,
   List,
   Modal,
   Popconfirm,
@@ -35,17 +36,21 @@ import {
 import {
   changePassword,
   clearToken,
+  deleteLlmSettings,
   deleteMemory,
   deleteSession,
   deleteTodo,
+  fetchLlmSettings,
   fetchMemories,
   fetchProfile,
   fetchSessions,
   fetchTodos,
+  saveLlmSettings,
+  testLlmSettings,
   updateMemory,
   updateTodo,
 } from "../api";
-import type { MemoryItem, Profile, Session, TodoItem } from "../types";
+import type { LLMSettings, MemoryItem, Profile, Session, TodoItem } from "../types";
 
 const { Title, Text } = Typography;
 
@@ -60,6 +65,12 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
   const [changing, setChanging] = useState(false);
   const [pwForm] = Form.useForm();
 
+  // 模型设置
+  const [llm, setLlm] = useState<LLMSettings | null>(null);
+  const [llmForm] = Form.useForm();
+  const [savingLlm, setSavingLlm] = useState(false);
+  const [testingLlm, setTestingLlm] = useState(false);
+
   // 我的会话
   const [sessions, setSessions] = useState<Session[]>([]);
   // 我的待办
@@ -72,7 +83,18 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
     fetchSessions().then(setSessions).catch(() => {});
     fetchTodos().then(setTodos).catch(() => {});
     fetchMemories().then(setMemories).catch(() => {});
-  }, []);
+    fetchLlmSettings()
+      .then((s) => {
+        setLlm(s);
+        llmForm.setFieldsValue({
+          base_url: s.base_url,
+          model: s.model,
+          temperature: s.temperature,
+          max_tokens: s.max_tokens,
+        });
+      })
+      .catch(() => {});
+  }, [llmForm]);
 
   useEffect(() => {
     loadData();
@@ -89,6 +111,69 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
       message.error(`${err}`);
     } finally {
       setChanging(false);
+    }
+  };
+
+  const saveLlm = async (values: {
+    base_url: string;
+    model: string;
+    api_key?: string;
+    temperature: number;
+    max_tokens: number;
+  }) => {
+    setSavingLlm(true);
+    try {
+      const saved = await saveLlmSettings({
+        base_url: values.base_url,
+        model: values.model,
+        temperature: values.temperature,
+        max_tokens: values.max_tokens,
+        // 留空则不修改已存 Key
+        ...(values.api_key ? { api_key: values.api_key } : {}),
+      });
+      setLlm(saved);
+      llmForm.setFieldValue("api_key", "");
+      message.success("模型配置已保存");
+    } catch (err) {
+      message.error(`${err}`);
+    } finally {
+      setSavingLlm(false);
+    }
+  };
+
+  const testLlm = async () => {
+    const values = await llmForm.validateFields(["base_url", "model"]);
+    setTestingLlm(true);
+    try {
+      const res = await testLlmSettings({
+        base_url: values.base_url,
+        model: values.model,
+        api_key: llmForm.getFieldValue("api_key") || undefined,
+      });
+      if (res.ok) message.success(res.message);
+      else message.error(res.message);
+    } catch (err) {
+      message.error(`${err}`);
+    } finally {
+      setTestingLlm(false);
+    }
+  };
+
+  const resetLlm = async () => {
+    try {
+      await deleteLlmSettings();
+      const s = await fetchLlmSettings();
+      setLlm(s);
+      llmForm.setFieldsValue({
+        base_url: s.base_url,
+        model: s.model,
+        temperature: s.temperature,
+        max_tokens: s.max_tokens,
+        api_key: "",
+      });
+      message.success("已恢复默认模型配置");
+    } catch (err) {
+      message.error(`${err}`);
     }
   };
 
@@ -370,6 +455,90 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                     )}
                   />
                 )}
+              </Card>
+            ),
+          },
+          {
+            key: "model",
+            label: "⚙️ 模型设置",
+            children: (
+              <Card
+                className="profile-card"
+                title={
+                  <Space>
+                    <RobotOutlined />
+                    模型配置
+                  </Space>
+                }
+              >
+                <div className="dim" style={{ marginBottom: 12, fontSize: 13 }}>
+                  当前来源：
+                  {llm?.source === "user"
+                    ? "个人配置"
+                    : llm?.source === "env"
+                      ? "环境变量默认"
+                      : "未配置"}
+                  {llm?.api_key_set
+                    ? ` · API Key ${llm.api_key_preview}`
+                    : " · 未设置 API Key"}
+                </div>
+                <Form
+                  form={llmForm}
+                  layout="vertical"
+                  style={{ maxWidth: 440 }}
+                  onFinish={saveLlm}
+                  initialValues={{ temperature: 0.7, max_tokens: 2048 }}
+                >
+                  <Form.Item
+                    name="base_url"
+                    label="Base URL"
+                    rules={[{ required: true, message: "请输入 Base URL" }]}
+                  >
+                    <Input placeholder="https://api.deepseek.com" />
+                  </Form.Item>
+                  <Form.Item
+                    name="model"
+                    label="模型名称"
+                    rules={[{ required: true, message: "请输入模型名称" }]}
+                  >
+                    <Input placeholder="deepseek-chat" />
+                  </Form.Item>
+                  <Form.Item
+                    name="api_key"
+                    label="API Key"
+                    extra="留空不修改已存 Key；填写新值将覆盖（加密存储，不回显明文）"
+                  >
+                    <Input.Password
+                      autoComplete="off"
+                      placeholder={
+                        llm?.api_key_set
+                          ? `已配置（${llm.api_key_preview}），留空不修改`
+                          : "sk-..."
+                      }
+                    />
+                  </Form.Item>
+                  <Space size={16} align="start">
+                    <Form.Item name="temperature" label="温度">
+                      <InputNumber min={0} max={2} step={0.1} />
+                    </Form.Item>
+                    <Form.Item name="max_tokens" label="最大 tokens">
+                      <InputNumber min={1} max={32768} step={256} />
+                    </Form.Item>
+                  </Space>
+                  <div style={{ marginTop: 8 }}>
+                    <Space>
+                      <Button type="primary" htmlType="submit" loading={savingLlm}>
+                        保存
+                      </Button>
+                      <Button onClick={testLlm} loading={testingLlm}>
+                        测试连接
+                      </Button>
+                      <Popconfirm title="恢复环境变量默认配置？" onConfirm={resetLlm}>
+                        <Button danger>恢复默认</Button>
+                      </Popconfirm>
+                    </Space>
+                  </div>
+                </Form>
               </Card>
             ),
           },

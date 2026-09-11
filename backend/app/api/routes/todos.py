@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.db import get_session
 from app.core.json_parse import parse_json_object
 from app.core.llm import get_llm, get_usage_stats
+from app.core.llm_settings import apply_user_llm_config
 from app.core.pagination import (
     DEFAULT_PAGE_SIZE,
     PageOut,
@@ -233,6 +234,7 @@ async def ai_create_todo(
     解析失败时降级为"整句作为标题"，保证功能可用。
     """
     check_token_budget(user.id)
+    await apply_user_llm_config(db, user.id)
     tokens_before = get_usage_stats().get("total_tokens", 0)
     try:
         llm = get_llm()

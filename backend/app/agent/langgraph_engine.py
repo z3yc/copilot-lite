@@ -28,7 +28,7 @@ from langgraph.graph import END, START, StateGraph
 from app.agent.base import BaseAgent, confirmation_reply, split_system_context
 from app.core.config import settings
 from app.core.json_parse import parse_json_object
-from app.core.llm import LLMError
+from app.core.llm import LLMError, get_llm_config
 from app.core.prompts.agent import (
     CHAT_SYSTEM_PROMPT,
     KB_SYSTEM_PROMPT,
@@ -54,12 +54,31 @@ AGENT_TOOLS: dict[str, list[str] | None] = {
 _ROUTE_RE = re.compile(r'"route"\s*:\s*"(kb|tools|chat)"')
 
 
+@lru_cache(maxsize=32)
+def _build_langchain_llm(
+    api_key: str, base_url: str, model: str, temperature: float, max_tokens: int | None
+) -> ChatOpenAI:
+    """按配置构建 ChatOpenAI（按参数缓存）。"""
+    kwargs: dict = {
+        "model": model,
+        "api_key": api_key,
+        "base_url": base_url,
+        "temperature": temperature,
+        "timeout": settings.LLM_TIMEOUT_SECONDS,
+        "max_retries": settings.LLM_MAX_RETRIES,
+    }
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+    return ChatOpenAI(**kwargs)
+
+
 @lru_cache
-def _get_langchain_llm() -> ChatOpenAI:
-    """LangChain ChatOpenAI 进程级单例（连接池复用 + 显式超时/重试）。"""
+def _env_langchain_llm() -> ChatOpenAI:
+    """环境变量默认 ChatOpenAI（进程级单例）。"""
     if not settings.DEEPSEEK_API_KEY:
         raise RuntimeError(
-            "未配置 DEEPSEEK_API_KEY：请在 backend/.env 中设置（参考 .env.example）"
+            "未配置模型：请在「个人中心 → 模型设置」中配置，"
+            "或在 backend/.env 设置 DEEPSEEK_API_KEY（参考 .env.example）"
         )
     return ChatOpenAI(
         model=settings.DEEPSEEK_MODEL,
@@ -69,6 +88,20 @@ def _get_langchain_llm() -> ChatOpenAI:
         timeout=settings.LLM_TIMEOUT_SECONDS,
         max_retries=settings.LLM_MAX_RETRIES,
     )
+
+
+def _get_langchain_llm() -> ChatOpenAI:
+    """获取当前请求的 ChatOpenAI：用户配置优先，否则环境变量。"""
+    config = get_llm_config()
+    if config is not None:
+        return _build_langchain_llm(
+            config.api_key,
+            config.base_url,
+            config.model,
+            config.temperature,
+            config.max_tokens,
+        )
+    return _env_langchain_llm()
 
 # 关键词兜底：工具优先于知识库（避免"创建/删除"等动作被知识库抢走）
 _TOOL_KEYWORDS = ("待办", "todo", "创建", "完成", "删除", "提醒", "任务", "清单")

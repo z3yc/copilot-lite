@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Empty, Input, List, Popconfirm, Spin, Typography } from "antd";
+import { Alert, Button, Empty, Input, List, Popconfirm, Skeleton, Typography } from "antd";
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -26,15 +26,19 @@ interface Props {
 export default function SessionList({ activeId, onSelect, onNew }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
   const load = useCallback(async (kw: string) => {
+    setLoading(true);
+    setError(null);
     try {
       setSessions(await fetchSessions(kw.trim() || undefined));
     } catch (err) {
       console.error("加载会话失败", err);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -112,9 +116,19 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
       />
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: 24 }}>
-          <Spin size="small" />
-        </div>
+        <Skeleton active paragraph={{ rows: 4 }} />
+      ) : error ? (
+        <Alert
+          type="error"
+          showIcon
+          title="加载会话失败"
+          description={error}
+          action={
+            <Button size="small" onClick={() => load(keyword)}>
+              重试
+            </Button>
+          }
+        />
       ) : sessions.length === 0 ? (
         <Empty
           description={keyword ? "无匹配会话" : "暂无会话"}

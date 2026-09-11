@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   Empty,
@@ -10,8 +11,8 @@ import {
   Popconfirm,
   Radio,
   Select,
+  Skeleton,
   Space,
-  Spin,
   Tag,
   Typography,
   Upload,
@@ -54,6 +55,7 @@ export default function WikiPanel() {
   const [keyword, setKeyword] = useState("");
   const [detail, setDetail] = useState<WikiPageDetail | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pagesError, setPagesError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -78,6 +80,7 @@ export default function WikiPanel() {
 
   const loadPages = useCallback(async () => {
     setLoading(true);
+    setPagesError(null);
     try {
       const res = await fetchWikiPages(
         activeSpace,
@@ -89,6 +92,7 @@ export default function WikiPanel() {
       setTotal(res.total);
     } catch (err) {
       console.error("加载页面失败", err);
+      setPagesError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -370,7 +374,19 @@ export default function WikiPanel() {
 
           <Card size="small" title="页面">
             {loading ? (
-              <Spin size="small" />
+              <Skeleton active paragraph={{ rows: 4 }} />
+            ) : pagesError ? (
+              <Alert
+                type="error"
+                showIcon
+                title="加载页面失败"
+                description={pagesError}
+                action={
+                  <Button size="small" onClick={loadPages}>
+                    重试
+                  </Button>
+                }
+              />
             ) : pages.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无页面，请先导入" />
             ) : (

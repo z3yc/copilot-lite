@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   Collapse,
@@ -57,18 +58,21 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
   const [detail, setDetail] = useState<DocDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [loadingDocs, setLoadingDocs] = useState(true);
+  const [errorDocs, setErrorDocs] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 加载（分类 + 内容级搜索，300ms 防抖）
   const loadDocs = useCallback(async () => {
     setLoadingDocs(true);
+    setErrorDocs(null);
     try {
       const kw = search.trim();
       const type = activeCat !== "all" ? activeCat : undefined;
       setDocs(await fetchDocs(kw || undefined, type));
     } catch (err) {
       console.error("加载知识库失败", err);
+      setErrorDocs(err instanceof Error ? err.message : String(err));
     } finally {
       setLoadingDocs(false);
     }
@@ -209,6 +213,18 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
 
         {loadingDocs && docs.length === 0 ? (
           <Skeleton active paragraph={{ rows: 5 }} />
+        ) : errorDocs ? (
+          <Alert
+            type="error"
+            showIcon
+            title="加载知识库失败"
+            description={errorDocs}
+            action={
+              <Button size="small" onClick={loadDocs}>
+                重试
+              </Button>
+            }
+          />
         ) : docs.length === 0 ? (
           search ? (
             <Empty description="没有匹配的文档，换个关键词试试" />

@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.context import set_user_id
 from app.core.db import get_session
 from app.core.security import decode_token
 from app.models import User
@@ -41,4 +42,5 @@ async def get_current_user(
     # token 版本校验：改密/封号后旧 token 立即失效（无状态撤销）
     if user.token_version != token_version:
         raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+    set_user_id(user.id)  # 写入请求上下文，WARN/ERROR 日志自动携带 user_id
     return user

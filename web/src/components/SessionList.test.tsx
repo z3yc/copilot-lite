@@ -92,7 +92,7 @@ describe("SessionList", () => {
     const onSelect = vi.fn();
     renderList({ onSelect });
     fireEvent.click(await screen.findByText("面试准备"));
-    expect(onSelect).toHaveBeenCalledWith("s1");
+    expect(onSelect).toHaveBeenCalledWith("s1", "面试准备");
   });
 
   it("会话项支持键盘 Enter 激活（可访问性回归）", async () => {
@@ -100,7 +100,7 @@ describe("SessionList", () => {
     renderList({ onSelect });
     const item = await screen.findByRole("button", { name: "打开会话：面试准备" });
     fireEvent.keyDown(item, { key: "Enter" });
-    expect(onSelect).toHaveBeenCalledWith("s1");
+    expect(onSelect).toHaveBeenCalledWith("s1", "面试准备");
   });
 
   it("加载失败时展示错误态与重试入口（而非误导性空态）", async () => {

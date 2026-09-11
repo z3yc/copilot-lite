@@ -30,7 +30,7 @@ const { Text } = Typography;
 
 interface Props {
   activeId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, title?: string) => void;
   onNew: () => void;
 }
 
@@ -158,8 +158,8 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
               role="button"
               tabIndex={0}
               aria-label={`打开会话：${s.title || "未命名会话"}`}
-              onClick={() => onSelect(s.id)}
-              onKeyDown={keyboardActivate(() => onSelect(s.id))}
+              onClick={() => onSelect(s.id, s.title)}
+              onKeyDown={keyboardActivate(() => onSelect(s.id, s.title))}
               style={{ cursor: "pointer", padding: "10px 12px" }}
               actions={[
                 <Button

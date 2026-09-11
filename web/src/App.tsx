@@ -51,6 +51,7 @@ export default function App() {
   const [authed, setAuthed] = useState<boolean>(() => !!getToken());
   const [tab, setTab] = useState<"chat" | "kb" | "wiki" | "todo">("chat");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [activeCat, setActiveCat] = useState<string>("all");
@@ -156,9 +157,10 @@ export default function App() {
     localStorage.setItem("kb-theme", dark ? "dark" : "light");
   }, [dark]);
 
-  const selectSession = useCallback(async (id: string) => {
+  const selectSession = useCallback(async (id: string, title?: string) => {
     setTab("chat");
     setSessionId(id);
+    setSessionTitle(title ?? null);
     try {
       setMessages(await fetchMessages(id));
     } catch (err) {
@@ -169,6 +171,7 @@ export default function App() {
 
   const newSession = useCallback(() => {
     setSessionId(null);
+    setSessionTitle(null);
     setMessages([]);
     setTab("chat");
   }, []);
@@ -327,14 +330,15 @@ export default function App() {
             {showProfile ? (
               <ProfilePage
                 onBack={() => setShowProfile(false)}
-                onOpenSession={(id) => {
+                onOpenSession={(id, title) => {
                   setShowProfile(false);
-                  selectSession(id);
+                  selectSession(id, title);
                 }}
               />
             ) : tab === "chat" ? (
               <ChatPanel
                 sessionId={sessionId}
+                sessionTitle={sessionTitle}
                 initialMessages={messages}
                 onSessionCreated={setSessionId}
                 onNewSession={newSession}

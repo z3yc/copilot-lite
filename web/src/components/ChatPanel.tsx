@@ -40,6 +40,8 @@ const nextMessageId = () => `m-${Date.now().toString(36)}-${messageSeq++}`;
 
 interface Props {
   sessionId: string | null;
+  /** 当前会话标题；为空时回退到品牌名 */
+  sessionTitle?: string | null;
   initialMessages: ChatMessage[];
   onSessionCreated: (id: string) => void;
   onNewSession: () => void;
@@ -49,6 +51,7 @@ interface Props {
 
 export default function ChatPanel({
   sessionId,
+  sessionTitle,
   initialMessages,
   onSessionCreated,
   onNewSession,
@@ -230,7 +233,14 @@ export default function ChatPanel({
       <div className="chat-header">
         <Space>
           <RobotOutlined style={{ color: "var(--color-primary)", fontSize: 18 }} />
-          <Text strong>Copilot-Lite · 青木</Text>
+          <Text
+            strong
+            ellipsis
+            style={{ maxWidth: 360 }}
+            title={sessionTitle || undefined}
+          >
+            {sessionTitle || "Copilot-Lite · 青木"}
+          </Text>
         </Space>
         <Button size="small" onClick={onNewSession} disabled={busy}>
           ＋ 新会话

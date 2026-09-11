@@ -60,7 +60,7 @@ const { Title, Text } = Typography;
 
 interface Props {
   onBack: () => void;
-  onOpenSession: (sessionId: string) => void;
+  onOpenSession: (sessionId: string, title?: string) => void;
 }
 
 export default function ProfilePage({ onBack, onOpenSession }: Props) {
@@ -362,7 +362,9 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                       >
                         <List.Item.Meta
                           title={
-                            <a onClick={() => onOpenSession(s.id)}>{s.title || "未命名会话"}</a>
+                            <a onClick={() => onOpenSession(s.id, s.title)}>
+                              {s.title || "未命名会话"}
+                            </a>
                           }
                           description={`${s.message_count} 条消息 · ${
                             s.updated_at

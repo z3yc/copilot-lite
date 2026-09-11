@@ -10,6 +10,7 @@ import type {
   Session,
   SessionFile,
   TodoItem,
+  TrashItem,
   WikiPage,
   WikiPageDetail,
   WikiSpace,
@@ -221,6 +222,13 @@ export async function uploadSessionFile(sessionId: string, file: File): Promise<
   form.append("file", file);
   return request<SessionFile>(`/sessions/${sessionId}/files`, { method: "POST", body: form });
 }
+// ---- 回收站（软删除）----
+export const fetchTrash = () => request<TrashItem[]>("/trash");
+export const restoreTrashItem = (type: string, id: string) =>
+  request<{ restored: string; type: string }>(`/trash/${type}/${id}/restore`, {
+    method: "POST",
+  });
+
 // ---- Wiki ----
 export const fetchWikiSpaces = () => request<WikiSpace[]>("/wiki/spaces");
 

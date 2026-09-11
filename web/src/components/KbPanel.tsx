@@ -276,7 +276,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                             />
                           )}
                           <Popconfirm
-                            title="删除该文档？其分块与向量将一并清理。"
+                            title="删除该文档？可在回收站恢复（索引停用，不物理删）"
                             onConfirm={() => remove(d.id)}
                           >
                             <Button

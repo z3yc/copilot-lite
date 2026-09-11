@@ -120,7 +120,8 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
         setDetail(null);
       }
       message.success("已删除");
-      fetchDocs(search.trim() || undefined).then(setDocs).catch(() => {});
+      // 走统一的 loadDocs，保留当前分类 + 关键词筛选（此前漏传 activeCat 导致筛选丢失）
+      loadDocs();
     } catch (err) {
       message.error(`删除失败: ${err}`);
     }

@@ -520,3 +520,12 @@ body.dark .login-wrap {
   margin-right: 8px;
   color: var(--color-primary);
 }
+
+/* ===== 可访问性：图标按钮命中区 ≥44×44（WCAG 2.5.5）===== */
+.session-item .ant-list-item-action .ant-btn,
+.todo-item .ant-btn-icon-only,
+.doc-card .ant-btn-icon-only,
+.input-bar .ant-btn-icon-only {
+  min-width: 44px;
+  min-height: 44px;
+}

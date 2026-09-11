@@ -57,6 +57,8 @@ class MessageOut(BaseModel):
     role: str
     content: str
     created_at: str | None = None
+    # 工具审计 / 待确认操作（human-in-the-loop）等附加信息
+    extra: dict = {}
 
 
 class SessionFileOut(BaseModel):
@@ -210,6 +212,7 @@ async def session_messages(
             role=m.role,
             content=m.content,
             created_at=m.created_at.isoformat() if m.created_at else None,
+            extra=m.extra or {},
         )
         for m in msgs
     ]

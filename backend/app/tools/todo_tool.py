@@ -117,9 +117,9 @@ async def todo_complete(ctx: ToolContext, todo_id: str) -> dict:
     return _todo_out(todo)
 
 
-@registry.register
+@registry.register(requires_confirmation=True)
 async def todo_delete(ctx: ToolContext, todo_id: str) -> dict:
-    """按 id 删除一条待办事项。"""
+    """按 id 删除一条待办事项（属于高风险副作用操作，需用户确认）。"""
     todo = await ctx.session.get(Todo, uuid.UUID(todo_id))
     if todo is None or todo.user_id != ctx.user_id:
         return {"error": f"待办 {todo_id} 不存在或无权限"}

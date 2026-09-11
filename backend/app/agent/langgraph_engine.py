@@ -25,7 +25,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.base import BaseAgent, split_system_context
+from app.agent.base import BaseAgent, confirmation_reply, split_system_context
 from app.core.config import settings
 from app.core.json_parse import parse_json_object
 from app.core.llm import LLMError
@@ -136,6 +136,8 @@ class LangGraphEngine(BaseAgent):
         self.max_turns = max_turns
         # 本轮工具调用审计（run 后由上层写入 Message.extra 落库）
         self.last_tool_calls: list[dict] = []
+        # 需用户确认的挂起操作（human-in-the-loop）
+        self.pending_confirmation: list[dict] = []
         self._ctx: ToolContext | None = None  # 每次 run 注入（引擎按请求新建，无并发问题）
         self.graph = self._build_graph().compile()
 
@@ -201,17 +203,29 @@ class LangGraphEngine(BaseAgent):
                     name = tc.get("name", "")
                     args = tc.get("args") or {}
                     logger.info("调用工具: %s(%s)", name, args)
-                    result = await self.registry.execute(
-                        name, json.dumps(args, ensure_ascii=False), self._ctx
-                    )
-                    self.last_tool_calls.append(
-                        {
-                            "name": name,
-                            "arguments": json.dumps(args, ensure_ascii=False),
-                            "result": str(result)[:500],
-                        }
-                    )
+                    if self.registry.is_confirmation_required(name):
+                        self.pending_confirmation.append(
+                            {
+                                "name": name,
+                                "arguments": json.dumps(args, ensure_ascii=False),
+                                "tool_call_id": tc.get("id", ""),
+                            }
+                        )
+                        result = "（该操作需用户确认，已挂起，尚未执行）"
+                    else:
+                        result = await self.registry.execute(
+                            name, json.dumps(args, ensure_ascii=False), self._ctx
+                        )
+                        self.last_tool_calls.append(
+                            {
+                                "name": name,
+                                "arguments": json.dumps(args, ensure_ascii=False),
+                                "result": str(result)[:500],
+                            }
+                        )
                     messages.append(ToolMessage(content=result, tool_call_id=tc.get("id", "")))
+                if self.pending_confirmation:
+                    return {"reply": confirmation_reply(self.pending_confirmation)}
             return {"reply": "（已达到最大工具调用轮数，请简化请求后重试）"}
 
         return node
@@ -258,6 +272,7 @@ class LangGraphEngine(BaseAgent):
         """执行一次对话（图完整运行），返回最终回复。"""
         self._ctx = ToolContext(session=session, user_id=user_id)
         self.last_tool_calls = []
+        self.pending_confirmation = []
         state: AgentState = {
             "history": history,
             "user_message": user_message,
@@ -271,6 +286,7 @@ class LangGraphEngine(BaseAgent):
         """流式执行：token 级产出最终回复（仅叶子 Agent 的模型输出）。"""
         self._ctx = ToolContext(session=session, user_id=user_id)
         self.last_tool_calls = []
+        self.pending_confirmation = []
         state: AgentState = {
             "history": history,
             "user_message": user_message,
@@ -278,6 +294,7 @@ class LangGraphEngine(BaseAgent):
             "reply": "",
         }
         leaf_nodes = ("kb_agent", "tools_agent", "chat_agent")
+        yielded = False
         async for event in self.graph.astream_events(state, version="v2"):
             if event["event"] != "on_chat_model_stream":
                 continue
@@ -287,7 +304,11 @@ class LangGraphEngine(BaseAgent):
             chunk = event["data"].get("chunk")
             content = getattr(chunk, "content", None)
             if isinstance(content, str) and content:
+                yielded = True
                 yield content
+        # 挂起等确认的操作由引擎生成回复，不经过模型流，需单独产出
+        if self.pending_confirmation and not yielded:
+            yield confirmation_reply(self.pending_confirmation)
 
     async def close(self) -> None:
         """释放引擎资源。

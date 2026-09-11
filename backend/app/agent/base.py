@@ -63,6 +63,18 @@ def split_system_context(
     return system_msgs, _trim_by_tokens(convo[-window:], budget)
 
 
+def confirmation_reply(pending: list[dict]) -> str:
+    """构造“待用户确认”回复（human-in-the-loop）。"""
+    lines = [
+        f"- {p.get('name')}（参数：{p.get('arguments') or '{}'}）" for p in pending
+    ]
+    return (
+        "以下操作需要你确认后才会执行：\n"
+        + "\n".join(lines)
+        + "\n\n请在界面上点击「确认执行」或「取消」。"
+    )
+
+
 class BaseAgent(ABC):
     """所有 Agent 的公共协议。"""
 

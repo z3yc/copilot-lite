@@ -32,6 +32,7 @@ from app.core.rate_limit import SlidingWindowLimiter
 from app.memory import get_memory_service
 from app.models import ChatSession, Message, User
 from app.tools import registry
+from app.tools.base import ToolContext
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -268,8 +269,8 @@ def _build_agent():
 
 async def _run_agent(
     db: AsyncSession, history: list[dict], message: str, user_id
-) -> tuple[str, list[dict]]:
-    """执行一轮对话，返回 (回复, 工具调用审计列表)。"""
+) -> tuple[str, list[dict], list[dict]]:
+    """执行一轮对话，返回 (回复, 工具调用审计列表, 待确认操作列表)。"""
     try:
         agent = _build_agent()
     except RuntimeError as exc:
@@ -278,7 +279,11 @@ async def _run_agent(
         reply = await agent.run(
             session=db, user_id=user_id, history=history, user_message=message
         )
-        return reply, list(getattr(agent, "last_tool_calls", []))
+        return (
+            reply,
+            list(getattr(agent, "last_tool_calls", [])),
+            list(getattr(agent, "pending_confirmation", [])),
+        )
     except LLMError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
@@ -289,15 +294,25 @@ async def _run_agent(
 
 
 async def _persist(
-    db: AsyncSession, session_id, user_msg: str, reply: str, audit: list[dict] | None = None
+    db: AsyncSession,
+    session_id,
+    user_msg: str,
+    reply: str,
+    audit: list[dict] | None = None,
+    pending: list[dict] | None = None,
 ) -> None:
     db.add(Message(session_id=session_id, role="user", content=user_msg))
+    extra: dict = {}
+    if audit:
+        extra["tool_calls"] = audit
+    if pending:
+        extra["pending_confirmation"] = pending
     db.add(
         Message(
             session_id=session_id,
             role="assistant",
             content=reply,
-            extra={"tool_calls": audit} if audit else {},
+            extra=extra,
         )
     )
     await db.commit()
@@ -380,9 +395,9 @@ async def chat(
         summary=session.summary,
     )
     tokens_before = _total_llm_tokens()
-    reply, audit = await _run_agent(db, history, req.message, user.id)
+    reply, audit, pending = await _run_agent(db, history, req.message, user.id)
     add_token_usage(user.id, _total_llm_tokens() - tokens_before)
-    await _persist(db, session.id, req.message, reply, audit)
+    await _persist(db, session.id, req.message, reply, audit, pending)
     _schedule_memory_extract(session.id, user.id)
     _schedule_summary_compress(session.id)
     return ChatResponse(session_id=str(session.id), reply=reply)
@@ -466,19 +481,28 @@ async def chat_stream(
             yield _sse("error", {"detail": "生成中断，请重试"})
             return
         else:
-            # 5. 落库成功后才发 done（done 语义 = 已持久化）；工具审计一并落库
+            # 5. 落库成功后才发 done（done 语义 = 已持久化）；工具审计与挂起操作一并落库
             reply = "".join(reply_parts)
             audit = list(getattr(agent, "last_tool_calls", []))
+            pending = list(getattr(agent, "pending_confirmation", []))
+            extra: dict = {}
+            if audit:
+                extra["tool_calls"] = audit
+            if pending:
+                extra["pending_confirmation"] = pending
             db.add(
                 Message(
                     session_id=session.id,
                     role="assistant",
                     content=reply,
-                    extra={"tool_calls": audit} if audit else {},
+                    extra=extra,
                 )
             )
             await db.commit()
             saved = True
+            if pending:
+                # 挂起确认事件（human-in-the-loop）：前端据此展示确认按钮
+                yield _sse("pending", {"actions": pending})
             yield _sse("done", {})
             _schedule_memory_extract(session.id, user.id)
             _schedule_summary_compress(session.id)
@@ -491,3 +515,57 @@ async def chat_stream(
             await agent.close()
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+# ---------------- Human-in-the-loop：确认/取消挂起的副作用操作 ----------------
+
+
+class ConfirmRequest(BaseModel):
+    session_id: str
+    approve: bool = True
+
+
+@router.post("/confirm")
+async def confirm_action(
+    req: ConfirmRequest,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """确认或取消上一条消息挂起的高风险工具操作。
+
+    仅执行当前会话最近一条含待确认操作的助手消息；执行后清除挂起标记并落库结果。
+    """
+    session = await db.get(ChatSession, parse_uuid(req.session_id))
+    if session is None or session.user_id != user.id:
+        raise HTTPException(status_code=404, detail="会话不存在")
+
+    last = await db.scalar(
+        select(Message)
+        .where(Message.session_id == session.id, Message.role == "assistant")
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    )
+    extra: dict = dict(last.extra or {}) if last is not None else {}
+    pending: list[dict] = extra.get("pending_confirmation") or []
+    if not pending:
+        raise HTTPException(status_code=400, detail="没有待确认的操作")
+
+    if req.approve:
+        ctx = ToolContext(session=db, user_id=user.id)
+        results: list[str] = []
+        for item in pending:
+            result = await registry.execute(
+                str(item.get("name", "")), str(item.get("arguments") or "{}"), ctx
+            )
+            results.append(f"{item.get('name')}：{result}")
+        reply = "已执行确认的操作：\n" + "\n".join(results)
+    else:
+        reply = "已取消挂起的操作。"
+
+    # 清除挂起标记（防重复确认），追加结果消息
+    if last is not None:
+        extra.pop("pending_confirmation", None)
+        last.extra = extra
+    db.add(Message(session_id=session.id, role="assistant", content=reply))
+    await db.commit()
+    return {"reply": reply}

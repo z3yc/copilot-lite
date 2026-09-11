@@ -6,7 +6,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, parse_uuid
@@ -15,6 +15,12 @@ from app.core.config import settings
 from app.core.db import get_session
 from app.core.json_parse import parse_json_object
 from app.core.llm import get_llm, get_usage_stats
+from app.core.pagination import (
+    DEFAULT_PAGE_SIZE,
+    PageOut,
+    normalize_page,
+    page_offset,
+)
 from app.core.prompts.todo import AI_PARSE_PROMPT
 from app.core.rate_limit import SlidingWindowLimiter
 from app.models import Category, Todo, User
@@ -105,15 +111,17 @@ async def list_categories(
     return [CategoryOut.model_validate(c) for c in cats]
 
 
-@router.get("", response_model=list[TodoOut])
+@router.get("", response_model=PageOut[TodoOut])
 async def list_todos(
     status: str | None = None,
     category_id: str | None = None,
     tag: str | None = None,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
-) -> list[TodoOut]:
-    """待办列表；支持按状态 / 分类 / 标签过滤。"""
+) -> PageOut[TodoOut]:
+    """待办列表（分页）；支持按状态 / 分类 / 标签过滤。"""
     stmt = select(Todo).where(Todo.user_id == user.id)
     if status:
         stmt = stmt.where(Todo.status == status)
@@ -124,11 +132,22 @@ async def list_todos(
             raise HTTPException(status_code=400, detail="无效的分类 id") from None
         stmt = stmt.where(Todo.category_id == cat_id)
     stmt = stmt.order_by(Todo.created_at.desc())
-    todos = (await db.scalars(stmt)).all()
+
+    page, page_size = normalize_page(page, page_size)
     if tag:
-        # 内存过滤（个人量级足够，且 SQLite/PG 行为一致）
-        todos = [t for t in todos if tag in (t.tags or [])]
-    return [await _attach_category(db, TodoOut.from_model(t), user.id) for t in todos]
+        # 标签为 JSON 数组，跨库过滤不便：内存过滤后手动分页（个人量级足够）
+        all_todos = (await db.scalars(stmt)).all()
+        filtered = [t for t in all_todos if tag in (t.tags or [])]
+        total = len(filtered)
+        offset, limit = page_offset(page, page_size)
+        page_items = filtered[offset : offset + limit]
+    else:
+        total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+        offset, limit = page_offset(page, page_size)
+        page_items = (await db.scalars(stmt.limit(limit).offset(offset))).all()
+
+    items = [await _attach_category(db, TodoOut.from_model(t), user.id) for t in page_items]
+    return PageOut(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.post("", response_model=TodoOut)

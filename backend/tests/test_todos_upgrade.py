@@ -50,11 +50,11 @@ async def test_todo_full_crud_with_category_tags(authed_headers: dict) -> None:
 
         # 分类过滤
         r = await client.get(f"/api/v1/todos?category_id={work['id']}", headers=authed_headers)
-        assert any(x["id"] == tid for x in r.json()["data"])
+        assert any(x["id"] == tid for x in r.json()["data"]["items"])
 
         # 标签过滤
         r = await client.get("/api/v1/todos?tag=汇报", headers=authed_headers)
-        assert any(x["id"] == tid for x in r.json()["data"])
+        assert any(x["id"] == tid for x in r.json()["data"]["items"])
 
         # 全字段编辑
         r = await client.patch(

@@ -49,10 +49,12 @@ describe("request 封装", () => {
 
   it("自动携带 Authorization 头并解析 JSON", async () => {
     setToken("tok123");
-    fetchMock.mockResolvedValue(okJson({ id: "s1" }));
+    fetchMock.mockResolvedValue(
+      okJson({ items: [{ id: "s1" }], total: 1, page: 1, page_size: 20 })
+    );
 
     const data = await fetchSessions();
-    expect(data).toEqual({ id: "s1" });
+    expect(data).toEqual([{ id: "s1" }]);
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toBe("/api/v1/sessions");
@@ -97,7 +99,9 @@ describe("request 封装", () => {
   });
 
   it("fetchTodos 按参数拼接查询串", async () => {
-    fetchMock.mockResolvedValue(okJson([]));
+    fetchMock.mockResolvedValue(
+      okJson({ items: [], total: 0, page: 1, page_size: 20 })
+    );
     await fetchTodos({ status: "open", tag: "urgent" });
 
     const url = String(fetchMock.mock.calls[0][0]);
@@ -107,7 +111,9 @@ describe("request 封装", () => {
   });
 
   it("fetchDocs 拼接 q 与 type 参数", async () => {
-    fetchMock.mockResolvedValue(okJson([]));
+    fetchMock.mockResolvedValue(
+      okJson({ items: [], total: 0, page: 1, page_size: 20 })
+    );
     await fetchDocs("笔记", "md");
 
     const url = String(fetchMock.mock.calls[0][0]);

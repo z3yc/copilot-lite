@@ -164,7 +164,8 @@ app.add_typer(todo_app, name="todo")
 def todo_list(status: str | None = typer.Option(None, "--status", help="过滤: pending/done")):
     """列出待办事项。"""
     path = "/api/v1/todos" + (f"?status={status}" if status else "")
-    todos = _request("GET", path)
+    data = _request("GET", path)
+    todos = data.get("items", []) if isinstance(data, dict) else (data or [])
     if not todos:
         console.print("[dim]暂无待办事项[/dim]")
         return

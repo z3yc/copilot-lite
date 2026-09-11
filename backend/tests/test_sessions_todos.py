@@ -60,7 +60,7 @@ async def test_sessions_crud(authed_headers: dict) -> None:
         # 列表
         r = await client.get("/api/v1/sessions", headers=authed_headers)
         assert r.status_code == 200
-        assert any(x["id"] == sid for x in r.json()["data"])
+        assert any(x["id"] == sid for x in r.json()["data"]["items"])
 
         # 历史消息
         r = await client.get(f"/api/v1/sessions/{sid}/messages", headers=authed_headers)
@@ -91,7 +91,7 @@ async def test_todos_api_crud(authed_headers: dict) -> None:
         # 列表
         r = await client.get("/api/v1/todos", headers=authed_headers)
         assert r.status_code == 200
-        assert any(x["id"] == tid for x in r.json()["data"])
+        assert any(x["id"] == tid for x in r.json()["data"]["items"])
 
         # 完成
         r = await client.patch(f"/api/v1/todos/{tid}", json={"status": "done"}, headers=authed_headers)

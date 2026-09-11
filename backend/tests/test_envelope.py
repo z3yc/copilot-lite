@@ -16,7 +16,8 @@ async def test_success_response_enveloped(authed_headers: dict) -> None:
     body = resp.json()
     assert body["code"] == 0
     assert body["message"] == "ok"
-    assert isinstance(body["data"], list)
+    assert isinstance(body["data"], dict)
+    assert isinstance(body["data"]["items"], list)
 
 
 async def test_http_error_enveloped_with_business_code() -> None:

@@ -9,10 +9,10 @@ from datetime import datetime
 from sqlalchemy import JSON, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base
+from app.core.db import Base, SoftDeleteMixin
 
 
-class Document(Base):
+class Document(SoftDeleteMixin, Base):
     __tablename__ = "documents"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

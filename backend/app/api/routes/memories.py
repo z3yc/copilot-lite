@@ -1,5 +1,7 @@
 """长期记忆管理接口：列表 / 编辑 / 删除。"""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -7,8 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, parse_uuid
 from app.core.db import get_session
+from app.core.soft_delete import soft_delete
 from app.memory import get_memory_service
 from app.models import MemoryFact, User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 
@@ -47,7 +52,7 @@ async def list_memories(
     """当前用户的记忆列表（按更新时间倒序）。"""
     stmt = (
         select(MemoryFact)
-        .where(MemoryFact.user_id == user.id)
+        .where(MemoryFact.user_id == user.id, MemoryFact.deleted_at.is_(None))
         .order_by(MemoryFact.updated_at.desc())
     )
     rows = (await db.scalars(stmt)).all()
@@ -81,8 +86,14 @@ async def delete_memory(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> dict:
-    """删除一条记忆（表 + 向量）。"""
-    ok = await get_memory_service().delete(db, user.id, parse_uuid(memory_id))
-    if not ok:
+    """删除一条记忆（软删除：标记删除 + 向量标记 deleted，可恢复）。"""
+    mid = parse_uuid(memory_id)
+    row = await db.get(MemoryFact, mid)
+    if row is None or row.user_id != user.id or row.deleted_at is not None:
         raise HTTPException(status_code=404, detail="记忆不存在")
-    return {"deleted": memory_id}
+    await soft_delete(db, row, user.id)
+    try:
+        await get_memory_service().vector_store.set_deleted_by_memory(str(mid), True)
+    except Exception:
+        logger.warning("记忆向量软删除标记失败 memory=%s", mid, exc_info=True)
+    return {"deleted": memory_id, "soft": True}

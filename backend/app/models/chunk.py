@@ -10,10 +10,10 @@ from datetime import datetime
 from sqlalchemy import JSON, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base
+from app.core.db import Base, SoftDeleteMixin
 
 
-class Chunk(Base):
+class Chunk(SoftDeleteMixin, Base):
     __tablename__ = "chunks"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

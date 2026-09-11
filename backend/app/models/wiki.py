@@ -20,10 +20,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base
+from app.core.db import Base, SoftDeleteMixin
 
 
-class WikiSpace(Base):
+class WikiSpace(SoftDeleteMixin, Base):
     __tablename__ = "wiki_spaces"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -40,7 +40,7 @@ class WikiSpace(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
-class WikiPage(Base):
+class WikiPage(SoftDeleteMixin, Base):
     __tablename__ = "wiki_pages"
     __table_args__ = (
         UniqueConstraint("space_id", "rel_path", name="uq_wiki_page_space_path"),

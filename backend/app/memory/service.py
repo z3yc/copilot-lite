@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.json_parse import parse_json_array
 from app.core.llm import get_llm
 from app.core.prompts.memory import MEMORY_EXTRACT_PROMPT
+from app.core.soft_delete import mark_deleted
 from app.models import MemoryFact
 from app.rag.embeddings import EmbeddingService, get_embedding_service
 from app.rag.vector_store import VectorStore
@@ -156,16 +157,16 @@ class MemoryService:
     # ---------- 删除 ----------
 
     async def delete(self, db: AsyncSession, user_id, memory_id: uuid.UUID) -> bool:
-        """删除记忆（表 + 向量）。"""
+        """软删除记忆（标记 + 向量 `deleted`），可恢复。"""
         row = await db.get(MemoryFact, memory_id)
-        if row is None or row.user_id != user_id:
+        if row is None or row.user_id != user_id or row.deleted_at is not None:
             return False
-        await db.delete(row)
+        mark_deleted(row, user_id)
         await db.commit()
-        # 同步删除向量（按 memory_id 过滤）
+        # 向量为派生索引：标记删除而非物理删（便于恢复）
         try:
-            await self.vector_store.delete_by_memory(str(memory_id))
-        except Exception as exc:  # noqa: BLE001  向量删除失败不影响表删除
+            await self.vector_store.set_deleted_by_memory(str(memory_id), True)
+        except Exception as exc:  # noqa: BLE001  向量标记失败不影响表删除
             logger.warning("记忆向量删除失败: %s", exc)
         return True
 
@@ -181,7 +182,7 @@ class MemoryService:
     ) -> bool:
         """编辑记忆：修正事实内容与分类（同步更新向量）。"""
         row = await db.get(MemoryFact, memory_id)
-        if row is None or row.user_id != user_id:
+        if row is None or row.user_id != user_id or row.deleted_at is not None:
             return False
         row.fact = fact.strip()[:300]
         row.category = category if category in ("preference", "fact", "background") else "fact"

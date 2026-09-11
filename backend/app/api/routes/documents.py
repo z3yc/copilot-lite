@@ -3,12 +3,12 @@
 import hashlib
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, parse_uuid
@@ -19,6 +19,7 @@ from app.core.pagination import (
     normalize_page,
     page_offset,
 )
+from app.core.soft_delete import mark_deleted
 from app.models import Chunk, Document, User
 from app.rag import (
     get_embedding_service,
@@ -103,6 +104,7 @@ async def upload_document(
             Document.user_id == user.id,
             Document.content_hash == content_hash,
             Document.status == "ready",
+            Document.deleted_at.is_(None),
         )
     )
     if existing is not None:
@@ -220,7 +222,9 @@ async def list_documents(
     type:      按来源类型过滤（md / pdf / docx / code / web）
     page/page_size: 分页参数（默认 20，最大 100）
     """
-    stmt = select(Document).where(Document.user_id == user.id)
+    stmt = select(Document).where(
+        Document.user_id == user.id, Document.deleted_at.is_(None)
+    )
     if q and q.strip():
         from sqlalchemy import or_
 
@@ -301,27 +305,33 @@ async def delete_document(
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> dict:
-    """删除文档（PostgreSQL 分块 + Qdrant 向量 + 原件）。"""
-    doc = await _get_doc(db, doc_id, user)
-    # 1. 删除 Qdrant 向量
-    await get_vector_store().delete_by_document(doc.id)
-    # 2. 删除分块与文档（级联）
-    await db.delete(doc)
-    await db.commit()
-    # 3. 删除原件目录
-    try:
-        import shutil
+    """删除文档（软删除）与分块标记，清理向量（标记 deleted，不物理删）。
 
-        shutil.rmtree(_DATA_DIR / str(doc.id), ignore_errors=True)
-    except OSError:
-        pass
-    return {"deleted": doc_id}
+    按 AGENTS §13：业务数据只标记不物理删除；原件文件保留（可恢复）；
+    向量是派生索引，仅改 payload `deleted=true`。
+    """
+    doc = await _get_doc(db, doc_id, user)
+    now = datetime.now(UTC).replace(tzinfo=None)
+    uid = uuid.UUID(str(user.id))
+    # 软删除分块（批量）
+    await db.execute(
+        update(Chunk)
+        .where(Chunk.document_id == doc.id, Chunk.deleted_at.is_(None))
+        .values(deleted_at=now, deleted_by=uid)
+    )
+    mark_deleted(doc, user.id)
+    await db.commit()
+    try:
+        await get_vector_store().set_deleted_by_document(doc.id, True)
+    except Exception:
+        logger.warning("文档向量软删除标记失败 document=%s", doc.id, exc_info=True)
+    return {"deleted": doc_id, "soft": True}
 
 
 async def _get_doc(db: AsyncSession, doc_id: str, user: User) -> Document:
     """定位文档并校验归属（越权返回 404）。"""
     doc = await db.get(Document, parse_uuid(doc_id))
-    if doc is None or doc.user_id != user.id:
+    if doc is None or doc.user_id != user.id or doc.deleted_at is not None:
         raise HTTPException(status_code=404, detail="文档不存在")
     return doc
 

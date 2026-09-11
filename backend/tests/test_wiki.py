@@ -503,8 +503,8 @@ async def test_delete_local_space_keeps_user_files(
     assert (vault / "note.md").exists()
 
 
-async def test_delete_upload_space_removes_managed_copy(authed_headers, wiki_env):
-    """upload 空间：删除时清理受管副本目录。"""
+async def test_delete_upload_space_soft_deletes_keeps_copy(authed_headers, wiki_env):
+    """upload 空间：软删除，保留受管副本（可恢复），列表不再可见。"""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         sid = await _create_space(client, authed_headers, "managed")
@@ -513,4 +513,32 @@ async def test_delete_upload_space_removes_managed_copy(authed_headers, wiki_env
         assert imported_dir.is_dir()
         resp = await client.delete(f"/api/v1/wiki/spaces/{sid}", headers=authed_headers)
         assert resp.status_code == 200
-    assert not imported_dir.exists()
+        assert resp.json()["data"]["soft"] is True
+        spaces = (
+            await client.get("/api/v1/wiki/spaces", headers=authed_headers)
+        ).json()["data"]
+        assert all(s["id"] != sid for s in spaces)
+    assert imported_dir.is_dir()  # 软删除保留副本
+
+
+async def test_wiki_page_trash_and_restore(authed_headers, wiki_env):
+    """删除空间后页面进回收站，可恢复。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "trashspace")
+        await _import(client, authed_headers, sid, {"A.md": "# A\n\n正文"})
+        pages = (
+            await client.get(f"/api/v1/wiki/pages?space={sid}", headers=authed_headers)
+        ).json()["data"]["items"]
+        pid = pages[0]["id"]
+
+        await client.delete(f"/api/v1/wiki/spaces/{sid}", headers=authed_headers)
+        trash = (await client.get("/api/v1/trash", headers=authed_headers)).json()["data"]
+        assert any(i["type"] == "wiki_page" and i["id"] == pid for i in trash)
+
+        restored = await client.post(
+            f"/api/v1/trash/wiki_page/{pid}/restore", headers=authed_headers
+        )
+        assert restored.status_code == 200
+        detail = await client.get(f"/api/v1/wiki/pages/{pid}", headers=authed_headers)
+        assert detail.status_code == 200

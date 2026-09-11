@@ -11,10 +11,10 @@ from datetime import date, datetime
 from sqlalchemy import JSON, Date, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base
+from app.core.db import Base, SoftDeleteMixin
 
 
-class Todo(Base):
+class Todo(SoftDeleteMixin, Base):
     __tablename__ = "todos"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

@@ -9,17 +9,19 @@
 import hashlib
 import logging
 import shutil
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.obsidian.importer import extract_zip, safe_join, save_uploaded_files
 from app.connectors.obsidian.links import extract_frontmatter, extract_links, slugify
 from app.connectors.obsidian.parser import WikiParser
 from app.core.config import settings
+from app.core.soft_delete import mark_deleted
 from app.models import Chunk, Document, WikiLink, WikiPage, WikiSpace
 from app.rag import get_embedding_service, get_vector_store, ingest_document
 from app.rag.parsers.base import decode_text
@@ -322,12 +324,24 @@ async def _update_page(
     await db.commit()
 
 
-async def _delete_page(db: AsyncSession, page: WikiPage) -> None:
+async def _delete_page(db: AsyncSession, page: WikiPage, user_id=None) -> None:
+    """软删除页面（及其文档/分块/向量标记）——不物理删除，可恢复。"""
     if page.document_id:
         doc = await db.get(Document, page.document_id)
-        if doc is not None:
-            await _delete_document(db, doc)
-    await db.delete(page)
+        if doc is not None and doc.deleted_at is None:
+            now = datetime.now(UTC).replace(tzinfo=None)
+            uid = uuid.UUID(str(user_id)) if user_id else None
+            await db.execute(
+                update(Chunk)
+                .where(Chunk.document_id == doc.id, Chunk.deleted_at.is_(None))
+                .values(deleted_at=now, deleted_by=uid)
+            )
+            mark_deleted(doc, user_id)
+            try:
+                await get_vector_store().set_deleted_by_document(doc.id, True)
+            except Exception:
+                logger.warning("Wiki 向量软删除标记失败 document=%s", doc.id, exc_info=True)
+    mark_deleted(page, user_id)
     await db.commit()
 
 

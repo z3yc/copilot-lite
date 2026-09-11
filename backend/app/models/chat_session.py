@@ -6,10 +6,10 @@ from datetime import datetime
 from sqlalchemy import ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.db import Base
+from app.core.db import Base, SoftDeleteMixin
 
 
-class ChatSession(Base):
+class ChatSession(SoftDeleteMixin, Base):
     __tablename__ = "chat_sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

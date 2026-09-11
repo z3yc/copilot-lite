@@ -24,3 +24,21 @@ def test_orchestrator_prompt_keeps_security_boundary():
 
 def test_query_rewrite_template_has_placeholder():
     assert "{n}" in prompts.QUERY_REWRITE_PROMPT
+
+
+def test_kb_prompts_mention_wiki():
+    """知识库相关提示应明示 Wiki/维基，避免模型把它当成外部维基百科。"""
+    for name in (
+        "ORCHESTRATOR_SYSTEM_PROMPT",
+        "SUPERVISOR_SYSTEM_PROMPT",
+        "KB_SYSTEM_PROMPT",
+    ):
+        text = getattr(prompts, name)
+        assert "Wiki" in text or "维基" in text, name
+
+
+def test_keyword_route_recognizes_wiki():
+    from app.agent.langgraph_engine import _keyword_route
+
+    assert _keyword_route("调用wiki") == "kb"
+    assert _keyword_route("查一下维基") == "kb"

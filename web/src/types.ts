@@ -14,7 +14,16 @@ export interface ChatMessage {
   extra?: {
     pending_confirmation?: PendingAction[];
     tool_calls?: unknown[];
+    citations?: Citation[];
   };
+}
+
+export interface Citation {
+  index: number;
+  chunk_id: string;
+  document_id?: string;
+  source: string;
+  snippet?: string;
 }
 
 export interface PendingAction {

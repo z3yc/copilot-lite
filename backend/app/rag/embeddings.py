@@ -84,9 +84,13 @@ class EmbeddingService:
 
     @lru_cache(maxsize=settings.EMBED_QUERY_CACHE_SIZE)  # noqa: B019  服务为进程级单例，缓存随生命周期有效
     def _embed_one(self, text: str) -> tuple[float, ...]:
-        """单条文本嵌入（lru_cache 缓存查询向量；线程安全）。"""
+        """单条文本嵌入（lru_cache 缓存查询向量；线程安全）。
+
+        注意：fastembed 的 `embed()` 返回**生成器**，不能下标访问（`[0]` 会报
+        'generator' object is not subscriptable），必须用 next() 取首个。
+        """
         model = self._load()
-        vec = model.embed([text])[0]
+        vec = next(iter(model.embed([text])))
         return tuple(float(x) for x in vec)
 
     def _embed_sync(self, model, texts: list[str]) -> list[list[float]]:

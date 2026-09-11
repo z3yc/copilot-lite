@@ -58,6 +58,8 @@ class Orchestrator(BaseAgent):
         self.last_tool_calls: list[dict] = []
         # 需用户确认的挂起操作（human-in-the-loop）
         self.pending_confirmation: list[dict] = []
+        # 本轮检索引用（供上层落 Message.extra.citations）
+        self.last_citations: list[dict] = []
 
     async def run(
         self,
@@ -73,6 +75,7 @@ class Orchestrator(BaseAgent):
         messages = _assemble_messages(ORCHESTRATOR_SYSTEM_PROMPT, history, user_message)
         self.last_tool_calls = []
         self.pending_confirmation = []
+        self.last_citations = []
 
         ctx = ToolContext(session=session, user_id=user_id)
 
@@ -84,6 +87,7 @@ class Orchestrator(BaseAgent):
                 raise LLMError("模型服务暂时不可用") from exc
 
             if not result.has_tool_calls:
+                self.last_citations = list(ctx.citations)
                 return result.content or "（模型未返回内容）"
 
             # 追加 assistant 的工具调用声明（OpenAI 协议要求）
@@ -128,8 +132,10 @@ class Orchestrator(BaseAgent):
                     }
                 )
             if self.pending_confirmation:
+                self.last_citations = list(ctx.citations)
                 return confirmation_reply(self.pending_confirmation)
 
+        self.last_citations = list(ctx.citations)
         return "（已达到最大工具调用轮数，请简化请求后重试）"
 
     async def run_stream(
@@ -148,6 +154,7 @@ class Orchestrator(BaseAgent):
         messages = _assemble_messages(ORCHESTRATOR_SYSTEM_PROMPT, history, user_message)
         self.last_tool_calls = []
         self.pending_confirmation = []
+        self.last_citations = []
 
         ctx = ToolContext(session=session, user_id=user_id)
 
@@ -180,6 +187,7 @@ class Orchestrator(BaseAgent):
                 raise LLMError("模型服务暂时不可用") from exc
 
             if not tool_calls:
+                self.last_citations = list(ctx.citations)
                 return  # 纯文本轮完成
 
             # 工具轮：追加 assistant tool_calls 声明并执行
@@ -226,9 +234,11 @@ class Orchestrator(BaseAgent):
                     }
                 )
             if self.pending_confirmation:
+                self.last_citations = list(ctx.citations)
                 yield confirmation_reply(self.pending_confirmation)
                 return
 
+        self.last_citations = list(ctx.citations)
         yield "（已达到最大工具调用轮数，请简化请求后重试）"
 
     async def close(self) -> None:

@@ -22,7 +22,7 @@ from app.core.prompts.rag import QUERY_REWRITE_PROMPT
 from app.core.prompts.todo import AI_PARSE_PROMPT
 
 # Prompt 资产版本：任何 prompt 文案/策略变更都递增（便于灰度与回溯）
-PROMPT_VERSION = "1.0.0"
+PROMPT_VERSION = "1.1.0"
 
 __all__ = [
     "AI_PARSE_PROMPT",

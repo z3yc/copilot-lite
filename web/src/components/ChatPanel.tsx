@@ -251,6 +251,26 @@ export default function ChatPanel({
               ) : (
                 <span dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
               )}
+              {m.role === "assistant" && (m.extra?.citations?.length ?? 0) > 0 && (
+                <div className="citations">
+                  <span className="dim" style={{ fontSize: 12 }}>
+                    来源：
+                  </span>
+                  {m.extra!.citations!.map((c) => (
+                    <a
+                      key={c.index}
+                      className="cite"
+                      title={c.snippet || c.source}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        message.info(`[${c.index}] ${c.source}`);
+                      }}
+                    >
+                      [{c.index}]
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}

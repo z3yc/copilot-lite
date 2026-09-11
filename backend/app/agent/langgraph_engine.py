@@ -105,7 +105,7 @@ def _get_langchain_llm() -> ChatOpenAI:
 
 # 关键词兜底：工具优先于知识库（避免"创建/删除"等动作被知识库抢走）
 _TOOL_KEYWORDS = ("待办", "todo", "创建", "完成", "删除", "提醒", "任务", "清单")
-_KB_KEYWORDS = ("笔记", "文档", "知识库", "资料", "pdf", "文件", "检索")
+_KB_KEYWORDS = ("笔记", "文档", "知识库", "资料", "pdf", "文件", "检索", "wiki", "维基")
 
 
 class AgentState(TypedDict):
@@ -171,6 +171,10 @@ class LangGraphEngine(BaseAgent):
         self.last_tool_calls: list[dict] = []
         # 需用户确认的挂起操作（human-in-the-loop）
         self.pending_confirmation: list[dict] = []
+        # 本轮检索引用（供上层落 Message.extra.citations）
+        self.last_citations: list[dict] = []
+        # 是否流式运行（run_stream 置 True）：决定子 Agent 用 astream 还是 ainvoke
+        self._streaming = False
         self._ctx: ToolContext | None = None  # 每次 run 注入（引擎按请求新建，无并发问题）
         self.graph = self._build_graph().compile()
 
@@ -224,10 +228,20 @@ class LangGraphEngine(BaseAgent):
             bound = self.llm.bind_tools(schemas) if schemas else self.llm
             for _ in range(self.max_turns):
                 try:
-                    resp = await bound.ainvoke(messages)
+                    if self._streaming:
+                        # 流式运行：用 astream 聚合，真实模型才会产生 on_chat_model_stream
+                        # 事件（ainvoke 不产生）——否则客户端只收到空 done。
+                        full = None
+                        async for chunk in bound.astream(messages):
+                            full = chunk if full is None else full + chunk
+                        resp = full
+                    else:
+                        resp = await bound.ainvoke(messages)
                 except Exception as exc:
                     logger.exception("子 Agent LLM 调用失败")
                     raise LLMError("模型服务暂时不可用") from exc
+                if resp is None:
+                    return {"reply": "（模型未返回内容）"}
                 if not resp.tool_calls:
                     return {"reply": resp.content or "（模型未返回内容）"}
                 # 追加 assistant 工具调用声明，逐个执行并回填 ToolMessage
@@ -306,6 +320,8 @@ class LangGraphEngine(BaseAgent):
         self._ctx = ToolContext(session=session, user_id=user_id)
         self.last_tool_calls = []
         self.pending_confirmation = []
+        self.last_citations = []
+        self._streaming = False
         state: AgentState = {
             "history": history,
             "user_message": user_message,
@@ -313,6 +329,7 @@ class LangGraphEngine(BaseAgent):
             "reply": "",
         }
         result = await self.graph.ainvoke(state)
+        self.last_citations = list(self._ctx.citations)
         return result.get("reply") or ""
 
     async def run_stream(self, session, user_id, history: list[dict], user_message: str):
@@ -320,6 +337,8 @@ class LangGraphEngine(BaseAgent):
         self._ctx = ToolContext(session=session, user_id=user_id)
         self.last_tool_calls = []
         self.pending_confirmation = []
+        self.last_citations = []
+        self._streaming = True
         state: AgentState = {
             "history": history,
             "user_message": user_message,
@@ -339,6 +358,8 @@ class LangGraphEngine(BaseAgent):
             if isinstance(content, str) and content:
                 yielded = True
                 yield content
+        if self._ctx is not None:
+            self.last_citations = list(self._ctx.citations)
         # 挂起等确认的操作由引擎生成回复，不经过模型流，需单独产出
         if self.pending_confirmation and not yielded:
             yield confirmation_reply(self.pending_confirmation)

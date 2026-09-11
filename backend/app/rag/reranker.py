@@ -16,6 +16,7 @@
 import asyncio
 import logging
 import os
+import threading
 from functools import lru_cache
 
 from app.core.config import settings
@@ -41,15 +42,39 @@ class Reranker:
         self.model_name = model_name
         self.batch_size = batch_size
         self._model = None  # 懒加载
+        self._lock = threading.Lock()  # 防并发重复加载
 
     def _load(self):
         if self._model is None:
-            from fastembed.rerank.cross_encoder import TextCrossEncoder
+            with self._lock:
+                if self._model is None:
+                    from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-            logger.info("加载重排模型: %s（首次使用自动下载）", self.model_name)
-            self._model = TextCrossEncoder(model_name=self.model_name)
-            logger.info("重排模型就绪")
+                    logger.info(
+                        "加载重排模型: %s（缓存目录: %s）",
+                        self.model_name,
+                        settings.EMBEDDING_CACHE_DIR,
+                    )
+                    try:
+                        # 离线优先：缓存完整时秒级加载（否则每次联网校验/重下会很慢）
+                        self._model = TextCrossEncoder(
+                            model_name=self.model_name,
+                            cache_dir=settings.EMBEDDING_CACHE_DIR,
+                            local_files_only=True,
+                        )
+                        logger.info("重排模型就绪（本地缓存命中，未联网）")
+                    except Exception:  # noqa: BLE001  缓存未命中 → 联网下载（首次）
+                        logger.info("重排模型本地缓存未命中，改为联网下载…")
+                        self._model = TextCrossEncoder(
+                            model_name=self.model_name,
+                            cache_dir=settings.EMBEDDING_CACHE_DIR,
+                        )
+                        logger.info("重排模型就绪（已下载到 %s）", settings.EMBEDDING_CACHE_DIR)
         return self._model
+
+    def prewarm(self) -> None:
+        """预热模型（建议在线程池中调用）。"""
+        self._load()
 
     async def rerank(self, query: str, passages: list[str], top_n: int) -> list[tuple[int, float]]:
         """对候选段落精排，返回前 top_n 个 (原索引, 分数)，按分数降序。

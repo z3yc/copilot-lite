@@ -12,7 +12,7 @@ import {
 } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { BulbOutlined, LogoutOutlined, MoonOutlined } from "@ant-design/icons";
-import { clearToken, fetchMessages, getToken } from "./api";
+import { clearToken, fetchMessages, fetchProfile, getToken } from "./api";
 import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
 import { keyboardActivate } from "./utils/a11y";
 import ChatPanel from "./components/ChatPanel";
@@ -23,7 +23,7 @@ import ProfilePage from "./components/ProfilePage";
 import SessionList from "./components/SessionList";
 import TodoPage from "./components/TodoPage";
 import WikiPanel from "./components/WikiPanel";
-import type { ChatMessage } from "./types";
+import type { ChatMessage, Profile } from "./types";
 
 const { Sider, Content } = Layout;
 
@@ -35,6 +35,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [activeCat, setActiveCat] = useState<string>("all");
   const [showProfile, setShowProfile] = useState(false);
+  const [me, setMe] = useState<Profile | null>(null);
   const [dark, setDark] = useState<boolean>(
     () => localStorage.getItem("kb-theme") === "dark"
   );
@@ -45,6 +46,23 @@ export default function App() {
     window.addEventListener("auth-expired", onExpired);
     return () => window.removeEventListener("auth-expired", onExpired);
   }, []);
+
+  // 登录后拉取当前用户，侧栏展示真实昵称/头像，而非写死
+  useEffect(() => {
+    if (!authed) {
+      setMe(null);
+      return;
+    }
+    let cancelled = false;
+    fetchProfile()
+      .then((p) => {
+        if (!cancelled) setMe(p);
+      })
+      .catch((err) => console.error("加载当前用户失败", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [authed]);
 
   const logout = () => {
     clearToken();
@@ -147,10 +165,10 @@ export default function App() {
                   title="个人主页"
                 >
                   <Avatar size={28} style={{ backgroundColor: "var(--color-primary)" }}>
-                    {(getToken() ? "青" : "U")[0]}
+                    {(me?.username?.[0] ?? "U").toUpperCase()}
                   </Avatar>
                   <span style={{ fontSize: 13, color: "var(--text)" }}>
-                    青木的助理
+                    {me?.username ?? "未登录"}
                   </span>
                 </Space>
                 <Space size={4}>

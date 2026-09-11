@@ -224,7 +224,13 @@ export default function App() {
                 待办工作区（右侧操作）
               </div>
             )}
-            <div style={{ padding: 12, borderTop: "1px solid var(--border)" }}>
+            <div
+              style={{
+                marginTop: "auto", // 始终钉在侧栏底部（左下角）
+                padding: 12,
+                borderTop: "1px solid var(--border)",
+              }}
+            >
               <Space style={{ width: "100%", justifyContent: "space-between" }}>
                 <Space
                   size={8}

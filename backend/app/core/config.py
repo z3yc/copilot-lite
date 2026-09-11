@@ -106,6 +106,20 @@ class Settings(BaseSettings):
     # 会话摘要后台压缩开关（测试环境关闭，避免后台任务占用测试库句柄）
     SUMMARY_COMPRESS_ENABLED: bool = True
 
+    # ---- Wiki 本地知识库（Obsidian 导入）----
+    WIKI_ENABLED: bool = True
+    # 受管副本根目录（本地路径导入需位于此目录下；zip 导入解压到此）
+    WIKI_STORAGE_ROOT: str = "./data/wiki"
+    # 定时同步间隔（分钟；0=仅手动触发）
+    WIKI_SCAN_INTERVAL_MINUTES: int = 0
+    # 检索时是否用双链邻居扩展召回（可开关对比效果）
+    WIKI_LINK_EXPANSION_ENABLED: bool = True
+    WIKI_EXPAND_HOPS: int = 1  # 邻居扩展跳数（保留接口，当前实现 1 跳）
+    # 导入安全上限（防 zip 炸弹）
+    WIKI_MAX_ARCHIVE_BYTES: int = 200 * 1024 * 1024  # 压缩包大小上限 200MB
+    WIKI_MAX_EXTRACT_BYTES: int = 500 * 1024 * 1024  # 解压后总大小上限 500MB
+    WIKI_MAX_FILES: int = 5000  # 单次导入文件数上限
+
     @model_validator(mode="after")
     def _reject_default_secret(self) -> "Settings":
         """安全自检：云模式禁止使用代码内置的默认 JWT 密钥。

@@ -10,6 +10,7 @@ from app.models.message import Message
 from app.models.session_file import SessionFile
 from app.models.todo import Todo
 from app.models.user import User
+from app.models.wiki import WikiLink, WikiPage, WikiSpace
 
 __all__ = [
     "Category",
@@ -22,4 +23,7 @@ __all__ = [
     "SessionFile",
     "Todo",
     "User",
+    "WikiLink",
+    "WikiPage",
+    "WikiSpace",
 ]

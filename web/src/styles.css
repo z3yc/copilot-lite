@@ -418,3 +418,31 @@ body.dark .login-wrap {
   flex-shrink: 0;
   padding-top: 2px;
 }
+
+/* ---- Wiki 正文（Markdown 渲染区）---- */
+.wiki-content {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.wiki-content h1,
+.wiki-content h2,
+.wiki-content h3 {
+  margin: 12px 0 6px;
+}
+.wiki-content pre {
+  background: rgba(127, 127, 127, 0.12);
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow: auto;
+}
+.wiki-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+.wiki-content blockquote {
+  margin: 8px 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--border);
+  color: var(--dim, #8a90a3);
+}

@@ -33,6 +33,54 @@ export interface LLMSettings {
   source: "user" | "env" | "none";
 }
 
+// ---- Wiki ----
+export interface WikiSpace {
+  id: string;
+  name: string;
+  source_type: string;
+  page_count: number;
+  last_synced_at?: string | null;
+}
+
+export interface WikiSyncStats {
+  added: number;
+  updated: number;
+  moved: number;
+  deleted: number;
+  failed: number;
+  total: number;
+  imported_files?: number | null;
+}
+
+export interface WikiPage {
+  id: string;
+  space_id: string;
+  space_name?: string | null;
+  rel_path: string;
+  title: string;
+  slug: string;
+  document_id?: string | null;
+}
+
+export interface WikiLinkItem {
+  target_slug: string;
+  target_page_id?: string | null;
+  alias?: string | null;
+  kind: string;
+}
+
+export interface WikiBacklink {
+  source_page_id: string;
+  source_title?: string | null;
+}
+
+export interface WikiPageDetail extends WikiPage {
+  content: string;
+  tags: string[];
+  links: WikiLinkItem[];
+  backlinks: WikiBacklink[];
+}
+
 export interface DocItem {
   id: string;
   title: string;

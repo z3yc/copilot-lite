@@ -5,6 +5,7 @@ import uuid
 import numpy as np
 import pytest
 
+from app.core.config import settings
 from app.rag.embeddings import EmbeddingService
 
 
@@ -35,3 +36,29 @@ async def test_single_query_embedding_cached() -> None:
 
     await svc.embed(["批量甲", "批量乙"])
     assert model.calls == 3  # 批量路径不缓存
+
+
+def test_prewarm_invokes_load(monkeypatch) -> None:
+    """预热应触发一次模型加载（用于启动后台下载，避免首次请求卡顿）。"""
+    svc = EmbeddingService()
+    calls: list[int] = []
+    monkeypatch.setattr(svc, "_load", lambda: calls.append(1))
+    svc.prewarm()
+    assert calls == [1]
+
+
+def test_load_uses_configured_cache_dir(monkeypatch) -> None:
+    """模型加载应使用 EMBEDDING_CACHE_DIR（固定持久卷，避免落 %TEMP% 被清理）。"""
+    captured: dict = {}
+
+    class _FakeTextEmbedding:
+        def __init__(self, model_name=None, cache_dir=None, **kwargs):
+            captured["model_name"] = model_name
+            captured["cache_dir"] = cache_dir
+
+    import fastembed
+
+    monkeypatch.setattr(fastembed, "TextEmbedding", _FakeTextEmbedding)
+    svc = EmbeddingService()
+    svc._load()
+    assert captured["cache_dir"] == settings.EMBEDDING_CACHE_DIR

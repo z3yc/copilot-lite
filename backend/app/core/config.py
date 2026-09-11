@@ -100,6 +100,13 @@ class Settings(BaseSettings):
     RAG_QUERY_REWRITE_ENABLED: bool = True
     RAG_QUERY_REWRITE_VARIANTS: int = 2  # 除原问题外的改写数量
 
+    # ---- 嵌入模型缓存 ----
+    # fastembed 模型缓存目录（默认落 %TEMP% 易被清理 → 每次加载都联网重下，很慢）
+    # 固定到持久卷（如挂载 data/ 卷），下载一次后长期复用
+    EMBEDDING_CACHE_DIR: str = "./data/models"
+    # 启动时后台预热嵌入模型（首次会下载约 50MB；测试环境关闭）
+    EMBEDDING_PREWARM: bool = True
+
     # 长期记忆
     MEMORY_TOP_K: int = 5  # 每次召回记忆条数
     MEMORY_EXTRACT_ENABLED: bool = True  # 会话结束后台提取开关（测试环境关闭）
@@ -119,6 +126,9 @@ class Settings(BaseSettings):
     WIKI_MAX_ARCHIVE_BYTES: int = 200 * 1024 * 1024  # 压缩包大小上限 200MB
     WIKI_MAX_EXTRACT_BYTES: int = 500 * 1024 * 1024  # 解压后总大小上限 500MB
     WIKI_MAX_FILES: int = 5000  # 单次导入文件数上限
+    # 是否允许 local 空间使用**绝对文件夹路径**直接扫描：
+    # 本地/自托管建议 true；云端多用户部署建议 false（仅允许受管目录/zip）
+    WIKI_ALLOW_LOCAL_PATH: bool = True
 
     @model_validator(mode="after")
     def _reject_default_secret(self) -> "Settings":

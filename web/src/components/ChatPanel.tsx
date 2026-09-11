@@ -1,5 +1,3 @@
-import { marked } from "marked";
-import DOMPurify from "dompurify";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -29,6 +27,7 @@ import {
   uploadSessionFile,
 } from "../api";
 import type { ChatMessage, SessionFile } from "../types";
+import { renderMarkdown } from "../utils/markdown";
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -43,17 +42,6 @@ interface Props {
   onNewSession: () => void;
   busy: boolean;
   setBusy: (b: boolean) => void;
-}
-
-function renderMarkdown(text: string): string {
-  try {
-    const html = marked.parse(text, { async: false }) as string;
-    // 消毒：LLM 输出会复述用户上传的不可信内容（附件/知识库），
-    // 必须视为攻击面（防存储型 XSS）
-    return DOMPurify.sanitize(html);
-  } catch {
-    return text;
-  }
 }
 
 export default function ChatPanel({

@@ -239,9 +239,20 @@ body.dark .login-wrap {
   background: var(--panel);
 }
 
+/* ===== 侧栏内部布局 =====
+   antd Sider 的 style 加在最外层 <aside> 上，子元素实际被包在
+   .ant-layout-sider-children（块级容器）里 → 必须显式设为 flex 列，
+   内部 .session-pane(flex:1) 与底部用户区(margin-top:auto) 才会生效。 */
+.ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 /* ===== 会话列表 ===== */
 .session-pane {
   flex: 1;
+  min-height: 0; /* 允许在 flex 列中收缩并滚动，避免把底部用户区顶出可视区 */
   overflow-y: auto;
   padding: var(--space-1) var(--space-3) var(--space-3);
   display: flex;

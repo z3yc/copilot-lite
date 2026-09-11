@@ -52,6 +52,12 @@ class LLMSettingsOut(BaseModel):
     source: str  # user / env / none
 
 
+class LLMModelsOut(BaseModel):
+    models: list[str]
+    current: str
+    source: str  # user / env
+
+
 class LLMTestIn(BaseModel):
     base_url: str = DEFAULT_BASE_URL
     model: str = DEFAULT_MODEL
@@ -98,6 +104,39 @@ async def get_llm_settings(
         api_key_set=False,
         api_key_preview="",
         source="none",
+    )
+
+
+@router.get("/llm/models", response_model=LLMModelsOut)
+async def list_llm_models(
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> LLMModelsOut:
+    """按当前用户配置的 API Key / Base URL 拉取可用模型列表。
+
+    用户配置优先，否则回退环境变量；均未配置时返回 400（前端引导去配置）。
+    上游不提供 /models 时返回 502，前端回退为当前模型。
+    """
+    user_config = await resolve_user_llm_config(db, user.id)
+    config = user_config or env_llm_config()
+    if config is None:
+        raise HTTPException(
+            status_code=400,
+            detail="未配置 API Key，请先在「个人主页 → 模型设置」中配置",
+        )
+
+    client = build_llm(config)
+    try:
+        models = await client.list_models()
+    except Exception as exc:  # 上游网关差异需回显给用户
+        logger.warning("获取模型列表失败: %s", exc)
+        raise HTTPException(
+            status_code=502, detail=f"获取模型列表失败：{str(exc)[:200]}"
+        ) from exc
+    return LLMModelsOut(
+        models=models,
+        current=config.model,
+        source="user" if user_config is not None else "env",
     )
 
 

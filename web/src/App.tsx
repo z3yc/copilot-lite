@@ -30,6 +30,7 @@ import { clearToken, fetchMessages, fetchProfile, getToken } from "./api";
 import { SiderNavContext } from "./contexts/SiderNav";
 import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
 import { keyboardActivate } from "./utils/a11y";
+import ApiKeyOnboarding from "./components/ApiKeyOnboarding";
 import ChatPanel from "./components/ChatPanel";
 import DocCategoryNav from "./components/DocCategoryNav";
 import KbPanel from "./components/KbPanel";
@@ -57,6 +58,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [activeCat, setActiveCat] = useState<string>("all");
   const [showProfile, setShowProfile] = useState(false);
+  // 打开个人主页时定位的页签（未配置 Key 时直达「模型设置」）
+  const [profileTab, setProfileTab] = useState("overview");
   const [me, setMe] = useState<Profile | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   // 「工作区」侧栏中、Wiki/待办导航的挂载点
@@ -150,6 +153,11 @@ export default function App() {
       persistSiderWidth(SIDER_MAX);
     }
   };
+
+  const openProfile = useCallback((tab = "overview") => {
+    setProfileTab(tab);
+    setShowProfile(true);
+  }, []);
 
   const logout = () => {
     clearToken();
@@ -279,8 +287,8 @@ export default function App() {
                   tabIndex={0}
                   aria-label="打开个人主页"
                   style={{ cursor: "pointer" }}
-                  onClick={() => setShowProfile(true)}
-                  onKeyDown={keyboardActivate(() => setShowProfile(true))}
+                  onClick={() => openProfile("overview")}
+                  onKeyDown={keyboardActivate(() => openProfile("overview"))}
                   title="个人主页"
                 >
                   <Avatar size={28} style={{ backgroundColor: "var(--color-primary)" }}>
@@ -331,6 +339,7 @@ export default function App() {
           <Content style={{ display: "flex", overflow: "hidden" }}>
             {showProfile ? (
               <ProfilePage
+                initialTab={profileTab}
                 onBack={() => setShowProfile(false)}
                 onOpenSession={(id, title) => {
                   setShowProfile(false);
@@ -346,6 +355,7 @@ export default function App() {
                 onNewSession={newSession}
                 busy={busy}
                 setBusy={setBusy}
+                onOpenSettings={() => openProfile("model")}
               />
             ) : tab === "kb" ? (
               <KbPanel activeCat={activeCat} onCatChange={setActiveCat} />
@@ -356,6 +366,7 @@ export default function App() {
             )}
           </Content>
         </Layout>
+        <ApiKeyOnboarding onConfigure={() => openProfile("model")} />
         </SiderNavContext.Provider>
         )}
       </AntApp>

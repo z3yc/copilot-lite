@@ -297,6 +297,14 @@ class LLMClient:
             raise
         return _GuardedStream(stream, sem)
 
+    async def list_models(self) -> list[str]:
+        """拉取服务端可用模型 id（OpenAI 兼容 `GET /models`）。
+
+        供前端在聊天窗口按用户配置的 Key / Base URL 提供模型候选。
+        """
+        resp = await self._client.models.list()
+        return sorted(m.id for m in resp.data)
+
     async def close(self) -> None:
         await self._client.close()
 

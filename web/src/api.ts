@@ -304,6 +304,15 @@ export const resyncWikiPage = (pageId: string) =>
 // ---- 模型设置 ----
 export const fetchLlmSettings = () => request<LLMSettings>("/settings/llm");
 
+export interface LLMModels {
+  models: string[];
+  current: string;
+  source: "user" | "env" | "none";
+}
+
+/** 按已配置的 API Key / Base URL 拉取可用模型（上游不支持时抛错，调用方回退当前模型）。 */
+export const fetchLlmModels = () => request<LLMModels>("/settings/llm/models");
+
 export interface LLMSettingsPayload {
   base_url: string;
   model: string;

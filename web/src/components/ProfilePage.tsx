@@ -61,9 +61,11 @@ const { Title, Text } = Typography;
 interface Props {
   onBack: () => void;
   onOpenSession: (sessionId: string, title?: string) => void;
+  /** 首次打开时定位到的页签（如未配置 Key 时直达「模型设置」） */
+  initialTab?: string;
 }
 
-export default function ProfilePage({ onBack, onOpenSession }: Props) {
+export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [changing, setChanging] = useState(false);
@@ -283,7 +285,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
       </Button>
 
       <Tabs
-        defaultActiveKey="overview"
+        defaultActiveKey={initialTab ?? "overview"}
         items={[
           {
             key: "overview",

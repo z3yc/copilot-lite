@@ -13,6 +13,7 @@ HF_HUB_DISABLE_XET=1 禁用 xet 协议（已默认设置）。
 import asyncio
 import logging
 import os
+import threading
 from functools import lru_cache
 
 from app.core.config import settings
@@ -20,6 +21,8 @@ from app.core.config import settings
 # 模型下载镜像与协议配置（setdefault：用户显式配置优先）
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+# Windows 默认无符号链接权限，禁用警告噪音
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 logger = logging.getLogger(__name__)
 
@@ -34,15 +37,35 @@ class EmbeddingService:
         self.model_name = model_name
         self.batch_size = batch_size
         self._model = None  # 懒加载
+        self._lock = threading.Lock()  # 防并发重复加载
 
     def _load(self):
         if self._model is None:
-            from fastembed import TextEmbedding
+            with self._lock:
+                if self._model is None:
+                    from fastembed import TextEmbedding
 
-            logger.info("加载嵌入模型: %s（首次使用自动下载）", self.model_name)
-            self._model = TextEmbedding(model_name=self.model_name)
-            logger.info("嵌入模型就绪")
+                    logger.info("加载嵌入模型: %s（缓存目录: %s）", self.model_name, settings.EMBEDDING_CACHE_DIR)
+                    try:
+                        # 优先离线：缓存完整时秒级加载（否则每次联网校验/重试会卡 50s+）
+                        self._model = TextEmbedding(
+                            model_name=self.model_name,
+                            cache_dir=settings.EMBEDDING_CACHE_DIR,
+                            local_files_only=True,
+                        )
+                        logger.info("嵌入模型就绪（本地缓存命中，未联网）")
+                    except Exception:  # noqa: BLE001  缓存未命中 → 联网下载（首次）
+                        logger.info("本地缓存未命中，改为联网下载嵌入模型…")
+                        self._model = TextEmbedding(
+                            model_name=self.model_name,
+                            cache_dir=settings.EMBEDDING_CACHE_DIR,
+                        )
+                        logger.info("嵌入模型就绪（已下载到 %s）", settings.EMBEDDING_CACHE_DIR)
         return self._model
+
+    def prewarm(self) -> None:
+        """预热模型（建议在线程池中调用）：触发一次加载/下载，避免首次请求卡顿。"""
+        self._load()
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """文本列表 → 向量列表（异步非阻塞）。

@@ -1,5 +1,6 @@
 """应用入口：FastAPI 实例、生命周期、路由挂载。"""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -52,6 +53,22 @@ async def _seed_categories() -> None:
         await session.commit()
 
 
+async def _prewarm_embeddings() -> None:
+    """后台预热嵌入模型（首次会下载约 50MB；失败不影响服务启动）。
+
+    背景：fastembed 默认缓存落 %TEMP%，被清理后每次加载都联网重下，首次同步会卡很久。
+    预热 + 固定缓存目录（EMBEDDING_CACHE_DIR）可让后续使用改为纯本地。
+    """
+    from app.rag.embeddings import get_embedding_service
+
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(None, get_embedding_service().prewarm)
+        logger.info("嵌入模型预热完成")
+    except Exception:
+        logger.warning("嵌入模型预热失败（首次使用时重试）", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """应用生命周期。
@@ -67,6 +84,8 @@ async def lifespan(_: FastAPI):
     if settings.RUN_MODE == "local":
         await _seed_default_user()
     await _seed_categories()
+    if settings.EMBEDDING_PREWARM:
+        asyncio.create_task(_prewarm_embeddings())
     yield
     await engine.dispose()
 

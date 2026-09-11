@@ -534,6 +534,18 @@ body.dark .login-wrap {
   text-decoration: underline;
 }
 
+/* ===== 动效降级：尊重系统 prefers-reduced-motion ===== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ===== 可访问性：图标按钮命中区 ≥44×44（WCAG 2.5.5）===== */
 .session-item .ant-list-item-action .ant-btn,
 .todo-item .ant-btn-icon-only,

@@ -311,7 +311,12 @@ export default function TodoPage() {
                           </Text>
                         </div>
                       </div>
-                      <span className="todo-priority" title={`优先级 ${PRIORITY_LABEL[t.priority]}`}>
+                      <span
+                        className="todo-priority"
+                        role="img"
+                        aria-label={`优先级：${PRIORITY_LABEL[t.priority]}`}
+                        title={`优先级 ${PRIORITY_LABEL[t.priority]}`}
+                      >
                         {"🔥".repeat(Math.max(0, 4 - t.priority))}
                       </span>
                       <Button

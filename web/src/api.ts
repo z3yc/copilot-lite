@@ -4,6 +4,7 @@ import type {
   DocDetail,
   DocItem,
   MemoryItem,
+  PendingAction,
   Profile,
   Session,
   SessionFile,
@@ -215,12 +216,22 @@ export async function uploadSessionFile(sessionId: string, file: File): Promise<
   form.append("file", file);
   return request<SessionFile>(`/sessions/${sessionId}/files`, { method: "POST", body: form });
 }
+// ---- Human-in-the-loop：确认/取消挂起的副作用操作 ----
+export const confirmChat = (sessionId: string, approve: boolean) =>
+  request<{ reply: string }>("/chat/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, approve }),
+  });
+
 // ---- SSE 流式对话 ----
 export interface StreamHandlers {
   onSession: (sessionId: string) => void;
   onChunk: (text: string) => void;
   onDone: () => void;
   onError: (message: string) => void;
+  /** 挂起确认操作（human-in-the-loop） */
+  onPending?: (actions: PendingAction[]) => void;
   /** 取消信号：调用方（停止生成按钮/会话切换）用它中断请求 */
   signal?: AbortSignal;
 }
@@ -273,7 +284,12 @@ export async function streamChat(
       else if (line.startsWith("data: ")) data += line.slice(6);
     }
     if (!data) return; // SSE 注释（心跳 ": ping"）等无数据行直接跳过
-    let payload: { session_id?: string; text?: string; detail?: string };
+    let payload: {
+      session_id?: string;
+      text?: string;
+      detail?: string;
+      actions?: PendingAction[];
+    };
     try {
       payload = JSON.parse(data);
     } catch {
@@ -281,6 +297,7 @@ export async function streamChat(
     }
     if (event === "session" && payload.session_id) handlers.onSession(payload.session_id);
     else if (event === "chunk" && typeof payload.text === "string") handlers.onChunk(payload.text);
+    else if (event === "pending" && Array.isArray(payload.actions)) handlers.onPending?.(payload.actions);
     else if (event === "error") handlers.onError(payload.detail ?? "未知错误");
     else if (event === "done") handlers.onDone();
   };

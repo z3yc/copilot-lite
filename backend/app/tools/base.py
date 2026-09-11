@@ -69,6 +69,8 @@ class Tool:
     description: str
     func: Callable[..., Awaitable[Any]]
     parameters: dict
+    # 副作用操作（删/改/发送）标记为需用户确认后再执行（human-in-the-loop）
+    requires_confirmation: bool = False
 
     def to_openai_schema(self) -> dict:
         """转换为 OpenAI Function Calling 的 tools 定义。"""
@@ -153,27 +155,45 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
 
-    def register(self, func: Callable) -> Callable:
+    def register(
+        self, func: Callable | None = None, *, requires_confirmation: bool = False
+    ) -> Callable:
         """装饰器：注册一个工具函数。
+
+        支持两种写法：
+        - ``@registry.register``（默认需确认=False）
+        - ``@registry.register(requires_confirmation=True)``（危险操作需用户确认）
 
         工具函数约定：
         - 第一个参数为 ctx: ToolContext（由执行器注入，不进入 schema）；
         - 其余参数为工具入参，从函数签名自动生成 JSON Schema；
         - 函数 docstring 的第一行作为工具描述。
         """
-        name = func.__name__
-        if name in self._tools:
-            raise ValueError(f"工具重复注册: {name}")
-        description = (func.__doc__ or "").strip().splitlines()[0]
-        tool = Tool(
-            name=name,
-            description=description,
-            func=func,
-            parameters=_build_parameters(func),
-        )
-        self._tools[name] = tool
-        logger.debug("已注册工具: %s", name)
-        return func
+
+        def decorator(target: Callable) -> Callable:
+            name = target.__name__
+            if name in self._tools:
+                raise ValueError(f"工具重复注册: {name}")
+            description = (target.__doc__ or "").strip().splitlines()[0]
+            tool = Tool(
+                name=name,
+                description=description,
+                func=target,
+                parameters=_build_parameters(target),
+                requires_confirmation=requires_confirmation,
+            )
+            self._tools[name] = tool
+            logger.debug("已注册工具: %s", name)
+            return target
+
+        if func is None:
+            return decorator
+        return decorator(func)
+
+    def is_confirmation_required(self, name: str) -> bool:
+        """该工具是否需要用户确认后才能执行。"""
+        tool = self._tools.get(name)
+        return bool(tool and tool.requires_confirmation)
 
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)

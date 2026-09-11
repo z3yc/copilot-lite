@@ -13,7 +13,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.base import BaseAgent, split_system_context
+from app.agent.base import BaseAgent, confirmation_reply, split_system_context
 from app.core.config import settings
 from app.core.llm import LLMClient, LLMError, ToolCall
 from app.core.prompts import ORCHESTRATOR_SYSTEM_PROMPT
@@ -56,6 +56,8 @@ class Orchestrator(BaseAgent):
         self.max_turns = max_turns
         # 本轮工具调用审计（run 后由上层写入 Message.extra 落库）
         self.last_tool_calls: list[dict] = []
+        # 需用户确认的挂起操作（human-in-the-loop）
+        self.pending_confirmation: list[dict] = []
 
     async def run(
         self,
@@ -70,6 +72,7 @@ class Orchestrator(BaseAgent):
         """
         messages = _assemble_messages(ORCHESTRATOR_SYSTEM_PROMPT, history, user_message)
         self.last_tool_calls = []
+        self.pending_confirmation = []
 
         ctx = ToolContext(session=session, user_id=user_id)
 
@@ -101,14 +104,21 @@ class Orchestrator(BaseAgent):
             # 逐个执行工具并把结果回填
             for tc in result.tool_calls:
                 logger.info("调用工具: %s(%s)", tc.name, tc.arguments)
-                tool_result = await self.registry.execute(tc.name, tc.arguments, ctx)
-                self.last_tool_calls.append(
-                    {
-                        "name": tc.name,
-                        "arguments": tc.arguments,
-                        "result": tool_result[:500],
-                    }
-                )
+                if self.registry.is_confirmation_required(tc.name):
+                    # 高风险副作用：不执行，挂起等用户确认
+                    self.pending_confirmation.append(
+                        {"name": tc.name, "arguments": tc.arguments, "tool_call_id": tc.id}
+                    )
+                    tool_result = "（该操作需用户确认，已挂起，尚未执行）"
+                else:
+                    tool_result = await self.registry.execute(tc.name, tc.arguments, ctx)
+                    self.last_tool_calls.append(
+                        {
+                            "name": tc.name,
+                            "arguments": tc.arguments,
+                            "result": tool_result[:500],
+                        }
+                    )
                 messages.append(
                     {
                         "role": "tool",
@@ -117,6 +127,8 @@ class Orchestrator(BaseAgent):
                         "content": tool_result,
                     }
                 )
+            if self.pending_confirmation:
+                return confirmation_reply(self.pending_confirmation)
 
         return "（已达到最大工具调用轮数，请简化请求后重试）"
 
@@ -135,6 +147,7 @@ class Orchestrator(BaseAgent):
         """
         messages = _assemble_messages(ORCHESTRATOR_SYSTEM_PROMPT, history, user_message)
         self.last_tool_calls = []
+        self.pending_confirmation = []
 
         ctx = ToolContext(session=session, user_id=user_id)
 
@@ -190,14 +203,20 @@ class Orchestrator(BaseAgent):
             )
             for c in calls:
                 logger.info("调用工具: %s(%s)", c.name, c.arguments)
-                tool_result = await self.registry.execute(c.name, c.arguments, ctx)
-                self.last_tool_calls.append(
-                    {
-                        "name": c.name,
-                        "arguments": c.arguments,
-                        "result": tool_result[:500],
-                    }
-                )
+                if self.registry.is_confirmation_required(c.name):
+                    self.pending_confirmation.append(
+                        {"name": c.name, "arguments": c.arguments, "tool_call_id": c.id}
+                    )
+                    tool_result = "（该操作需用户确认，已挂起，尚未执行）"
+                else:
+                    tool_result = await self.registry.execute(c.name, c.arguments, ctx)
+                    self.last_tool_calls.append(
+                        {
+                            "name": c.name,
+                            "arguments": c.arguments,
+                            "result": tool_result[:500],
+                        }
+                    )
                 messages.append(
                     {
                         "role": "tool",
@@ -206,6 +225,9 @@ class Orchestrator(BaseAgent):
                         "content": tool_result,
                     }
                 )
+            if self.pending_confirmation:
+                yield confirmation_reply(self.pending_confirmation)
+                return
 
         yield "（已达到最大工具调用轮数，请简化请求后重试）"
 

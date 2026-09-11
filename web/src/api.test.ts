@@ -133,6 +133,7 @@ describe("streamChat SSE 解析", () => {
     onChunk: vi.fn(),
     onDone: vi.fn(),
     onError: vi.fn(),
+    onPending: vi.fn(),
     signal: undefined,
   });
 

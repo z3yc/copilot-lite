@@ -16,6 +16,8 @@ vi.mock("../api", () => ({
   syncWikiSpace: vi.fn(),
   importWikiZip: vi.fn(),
   importWikiFiles: vi.fn(),
+  resolveWikiPage: vi.fn(),
+  resyncWikiPage: vi.fn(),
   fetchWikiPages: vi.fn(),
   fetchWikiPage: vi.fn(),
 }));
@@ -118,6 +120,22 @@ describe("WikiPanel", () => {
     fireEvent.change(input, { target: { files: [file] } });
 
     await waitFor(() => expect(mocked.importWikiFiles).toHaveBeenCalled());
+  });
+
+  it("详情页可重新索引", async () => {
+    mocked.resyncWikiPage.mockResolvedValue({
+      ...PAGES.items[0],
+      content: "# A\n\n正文内容",
+      tags: [],
+      links: [],
+      backlinks: [],
+      document_status: "ready",
+    });
+    render(<WikiPanel />);
+    fireEvent.click(await screen.findByText("A"));
+    await screen.findByText("正文内容");
+    fireEvent.click(screen.getByRole("button", { name: /重新索引/ }));
+    await waitFor(() => expect(mocked.resyncWikiPage).toHaveBeenCalledWith("p1"));
   });
 
   it("选择本地文件夹时传本地路径并自动同步", async () => {

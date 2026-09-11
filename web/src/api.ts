@@ -290,6 +290,9 @@ export const resolveWikiPage = (spaceId: string, slug: string) =>
     `/wiki/spaces/${spaceId}/resolve?slug=${encodeURIComponent(slug)}`
   );
 
+export const resyncWikiPage = (pageId: string) =>
+  request<WikiPageDetail>(`/wiki/pages/${pageId}/sync`, { method: "POST" });
+
 // ---- 模型设置 ----
 export const fetchLlmSettings = () => request<LLMSettings>("/settings/llm");
 

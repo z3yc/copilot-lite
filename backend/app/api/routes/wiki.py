@@ -24,11 +24,11 @@ from app.api.deps import get_current_user, parse_uuid
 from app.connectors.base import get_connector
 from app.connectors.obsidian import connector as _obsidian_connector  # noqa: F401  导入即注册
 from app.connectors.obsidian.importer import WikiImportError
-from app.connectors.obsidian.service import WikiServiceError, _delete_page
+from app.connectors.obsidian.service import WikiServiceError, _delete_page, refresh_page
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.pagination import DEFAULT_PAGE_SIZE, PageOut, normalize_page, page_offset
-from app.models import Chunk, User, WikiLink, WikiPage, WikiSpace
+from app.models import Chunk, Document, User, WikiLink, WikiPage, WikiSpace
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/wiki", tags=["wiki"])
@@ -79,6 +79,7 @@ class PageDetail(WikiPageOut):
     tags: list[str] = []
     links: list[LinkOut] = []
     backlinks: list[BacklinkOut] = []
+    document_status: str | None = None  # ready / parsing / failed（供重试提示）
 
 
 class SyncResult(BaseModel):
@@ -371,7 +372,13 @@ async def get_wiki_page(
     space = await db.get(WikiSpace, wp.space_id)
     if space is None or (space.owner_id is not None and space.owner_id != user.id):
         raise HTTPException(status_code=404, detail="Wiki 页面不存在")
+    return await _build_page_detail(db, space, wp)
 
+
+async def _build_page_detail(
+    db: AsyncSession, space: WikiSpace, wp: WikiPage
+) -> PageDetail:
+    """组装页面详情（正文/标签/出链/反向链接/文档状态）。"""
     content = ""
     ext = Path(wp.rel_path).suffix.lower()
     if ext in {".md", ".markdown", ".txt"}:
@@ -393,12 +400,16 @@ async def get_wiki_page(
         content = "\n\n".join(c.content for c in chunk_rows)
 
     tags: list[str] = []
+    document_status: str | None = None
     if wp.document_id:
         meta = await db.scalar(
             select(Chunk.meta).where(Chunk.document_id == wp.document_id).limit(1)
         )
         if meta:
             tags = list(meta.get("wiki_tags") or [])
+        doc = await db.get(Document, wp.document_id)
+        if doc is not None:
+            document_status = doc.status
 
     outgoing = (
         await db.scalars(select(WikiLink).where(WikiLink.source_page_id == wp.id))
@@ -406,21 +417,26 @@ async def get_wiki_page(
     backlinks_rows = (
         await db.scalars(select(WikiLink).where(WikiLink.target_page_id == wp.id))
     ).all()
-    source_titles = {
-        p.id: p.title
-        for p in (
-            await db.scalars(
-                select(WikiPage).where(
-                    WikiPage.id.in_([link.source_page_id for link in backlinks_rows])
+    source_titles = (
+        {
+            p.id: p.title
+            for p in (
+                await db.scalars(
+                    select(WikiPage).where(
+                        WikiPage.id.in_([link.source_page_id for link in backlinks_rows])
+                    )
                 )
-            )
-        ).all()
-    } if backlinks_rows else {}
+            ).all()
+        }
+        if backlinks_rows
+        else {}
+    )
 
-    detail = PageDetail(
+    return PageDetail(
         **_page_out(wp, space.name).model_dump(),
         content=content,
         tags=tags,
+        document_status=document_status,
         links=[
             LinkOut(
                 target_slug=link.target_slug,
@@ -438,4 +454,23 @@ async def get_wiki_page(
             for link in backlinks_rows
         ],
     )
-    return detail
+
+
+@router.post("/pages/{page_id}/sync", response_model=PageDetail)
+async def resync_wiki_page(
+    page_id: str,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> PageDetail:
+    """单页重新索引（失败/内容变更时无需全量同步）。"""
+    wp = await db.get(WikiPage, parse_uuid(page_id))
+    if wp is None:
+        raise HTTPException(status_code=404, detail="Wiki 页面不存在")
+    space = await db.get(WikiSpace, wp.space_id)
+    if space is None or (space.owner_id is not None and space.owner_id != user.id):
+        raise HTTPException(status_code=404, detail="Wiki 页面不存在")
+    try:
+        await refresh_page(db, user.id, space, wp)
+    except WikiServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await _build_page_detail(db, space, wp)

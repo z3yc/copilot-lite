@@ -22,6 +22,7 @@ import {
   InboxOutlined,
   LinkOutlined,
   PlusOutlined,
+  ReloadOutlined,
   SyncOutlined,
 } from "@ant-design/icons";
 import {
@@ -33,6 +34,7 @@ import {
   importWikiFiles,
   importWikiZip,
   resolveWikiPage,
+  resyncWikiPage,
   syncWikiSpace,
 } from "../api";
 import type { WikiPage, WikiPageDetail, WikiSpace } from "../types";
@@ -230,6 +232,20 @@ export default function WikiPanel() {
     }
   };
 
+  const resyncCurrent = async () => {
+    if (!detail) return;
+    setBusy(true);
+    try {
+      setDetail(await resyncWikiPage(detail.id));
+      message.success("已重新索引");
+      loadPages();
+    } catch (err) {
+      message.error(`${err}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="wiki-panel" style={{ flex: 1, display: "flex", overflow: "hidden" }}>
       <div
@@ -405,7 +421,20 @@ export default function WikiPanel() {
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {detail.rel_path}
               </Text>
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                loading={busy}
+                onClick={resyncCurrent}
+              >
+                重新索引
+              </Button>
             </Space>
+            {detail.document_status === "failed" && (
+              <div style={{ marginBottom: 8 }}>
+                <Text type="danger">⚠️ 上次摄取失败，可点“重新索引”重试</Text>
+              </div>
+            )}
             <div
               className="wiki-content"
               onClick={(e) => {

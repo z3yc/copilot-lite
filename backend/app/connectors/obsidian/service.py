@@ -151,6 +151,19 @@ async def import_files(
     return save_uploaded_files(Path(space.root_path), items)
 
 
+async def refresh_page(db: AsyncSession, user_id, space: WikiSpace, page: WikiPage) -> None:
+    """单页强制重新索引：读原件 → 重摄取 → 重建该空间链接图。"""
+    _assert_owner(user_id, space)
+    root = Path(space.root_path).resolve()
+    path = root / page.rel_path
+    if not path.is_file():
+        raise WikiServiceError("原件不存在，无法重新索引")
+    content = path.read_bytes()
+    stat = path.stat()
+    await _update_page(db, user_id, space, page, content, stat.st_mtime, stat.st_size)
+    await _rebuild_links(db, user_id, space, root)
+
+
 def _assert_owner(user_id, space: WikiSpace) -> None:
     if space.owner_id is not None and str(space.owner_id) != str(user_id):
         raise WikiServiceError("无权访问该空间")

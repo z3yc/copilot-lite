@@ -454,3 +454,25 @@ async def test_wiki_resolve_page(authed_headers, wiki_env):
             f"/api/v1/wiki/spaces/{sid}/resolve?slug=nope", headers=authed_headers
         )
         assert missing.status_code == 404
+
+
+async def test_wiki_page_resync(authed_headers, wiki_env):
+    """单页重新索引：返回页面详情（含 document_status）。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "resync")
+        await client.post(
+            f"/api/v1/wiki/spaces/{sid}/import-files",
+            data={"paths": json.dumps(["A.md"])},
+            files=[("files", ("A.md", "# A\n\n正文", "text/markdown"))],
+            headers=authed_headers,
+        )
+        pages = (
+            await client.get(f"/api/v1/wiki/pages?space={sid}", headers=authed_headers)
+        ).json()["data"]["items"]
+        pid = pages[0]["id"]
+        resp = await client.post(f"/api/v1/wiki/pages/{pid}/sync", headers=authed_headers)
+        assert resp.status_code == 200, resp.text
+        detail = resp.json()["data"]
+        assert detail["page_type"] == "md"
+        assert detail["document_status"] == "ready"

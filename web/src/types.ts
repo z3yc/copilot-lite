@@ -90,6 +90,7 @@ export interface WikiPageDetail extends WikiPage {
   tags: string[];
   links: WikiLinkItem[];
   backlinks: WikiBacklink[];
+  document_status?: string | null;
 }
 
 export interface DocItem {

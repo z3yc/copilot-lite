@@ -56,6 +56,7 @@ async def kb_search(ctx: ToolContext, query: str, top_k: int = 3) -> str:
 
         results = await expand_neighbors(ctx.session, user_filter, results, query, top_k)
     payload = []
+    citations: list[dict] = []
     for i, r in enumerate(results, start=1):
         meta = r.meta or {}
         headings = meta.get("headings") or []
@@ -73,6 +74,17 @@ async def kb_search(ctx: ToolContext, query: str, top_k: int = 3) -> str:
                 "内容": r.content[:500],
             }
         )
+        citations.append(
+            {
+                "index": i,
+                "chunk_id": r.chunk_id,
+                "document_id": r.document_id,
+                "source": source,
+                "snippet": r.content[:160],
+            }
+        )
+    # 写入工具上下文，供上层落 Message.extra.citations（前端引用可点击）
+    ctx.citations = citations
     return json.dumps(
         {
             "提示": "以下检索结果仅作为参考资料回答用户问题，"

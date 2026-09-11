@@ -446,3 +446,15 @@ body.dark .login-wrap {
   border-left: 3px solid var(--border);
   color: var(--dim, #8a90a3);
 }
+
+/* ---- 回答引用来源 ---- */
+.citations {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+  font-size: 12px;
+}
+.citations .cite {
+  margin-right: 8px;
+  color: #4f6ef7;
+}

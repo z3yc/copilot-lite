@@ -171,6 +171,8 @@ class LangGraphEngine(BaseAgent):
         self.last_tool_calls: list[dict] = []
         # 需用户确认的挂起操作（human-in-the-loop）
         self.pending_confirmation: list[dict] = []
+        # 本轮检索引用（供上层落 Message.extra.citations）
+        self.last_citations: list[dict] = []
         self._ctx: ToolContext | None = None  # 每次 run 注入（引擎按请求新建，无并发问题）
         self.graph = self._build_graph().compile()
 
@@ -306,6 +308,7 @@ class LangGraphEngine(BaseAgent):
         self._ctx = ToolContext(session=session, user_id=user_id)
         self.last_tool_calls = []
         self.pending_confirmation = []
+        self.last_citations = []
         state: AgentState = {
             "history": history,
             "user_message": user_message,
@@ -313,6 +316,7 @@ class LangGraphEngine(BaseAgent):
             "reply": "",
         }
         result = await self.graph.ainvoke(state)
+        self.last_citations = list(self._ctx.citations)
         return result.get("reply") or ""
 
     async def run_stream(self, session, user_id, history: list[dict], user_message: str):
@@ -320,6 +324,7 @@ class LangGraphEngine(BaseAgent):
         self._ctx = ToolContext(session=session, user_id=user_id)
         self.last_tool_calls = []
         self.pending_confirmation = []
+        self.last_citations = []
         state: AgentState = {
             "history": history,
             "user_message": user_message,
@@ -339,6 +344,8 @@ class LangGraphEngine(BaseAgent):
             if isinstance(content, str) and content:
                 yielded = True
                 yield content
+        if self._ctx is not None:
+            self.last_citations = list(self._ctx.citations)
         # 挂起等确认的操作由引擎生成回复，不经过模型流，需单独产出
         if self.pending_confirmation and not yielded:
             yield confirmation_reply(self.pending_confirmation)

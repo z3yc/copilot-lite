@@ -18,7 +18,7 @@ import json
 import logging
 import types
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Union, get_args, get_origin
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,6 +61,8 @@ class ToolContext:
 
     session: AsyncSession
     user_id: Any | None = None
+    # 本轮检索引用（kb_search 写入，供上层落 Message.extra.citations）
+    citations: list[dict] = field(default_factory=list)
 
 
 @dataclass

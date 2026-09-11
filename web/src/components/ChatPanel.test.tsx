@@ -59,6 +59,24 @@ describe("ChatPanel", () => {
     expect(screen.getByText(/你好！我是青木/)).toBeInTheDocument();
   });
 
+  it("渲染引用来源", () => {
+    renderPanel({
+      initialMessages: [
+        {
+          role: "assistant",
+          content: "答案 [1]",
+          extra: {
+            citations: [
+              { index: 1, chunk_id: "c1", source: "文档X > 第一章", snippet: "内容A" },
+            ],
+          },
+        },
+      ],
+    });
+    expect(screen.getByText("来源：")).toBeInTheDocument();
+    expect(screen.getByText("[1]")).toBeInTheDocument();
+  });
+
   it("有待确认操作时展示确认按钮并调用 confirmChat", async () => {
     mocked.confirmChat.mockResolvedValue({ reply: "已执行" });
     renderPanel({

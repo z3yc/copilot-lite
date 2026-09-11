@@ -27,17 +27,21 @@ import {
   streamChat,
   uploadSessionFile,
 } from "../api";
+import { ACCEPT_EXTENSIONS } from "../constants";
 import type { ChatMessage, SessionFile } from "../types";
 import { renderMarkdown } from "../utils/markdown";
 
 const { TextArea } = Input;
 const { Text } = Typography;
 
-const ACCEPT =
-  ".md,.txt,.pdf,.docx,.py,.js,.ts,.tsx,.jsx,.java,.go,.rs,.c,.cpp,.sql,.html,.htm";
+// 本地消息 id 生成器：为流式新增消息提供稳定 key（历史消息可能自带后端 id）
+let messageSeq = 0;
+const nextMessageId = () => `m-${Date.now().toString(36)}-${messageSeq++}`;
 
 interface Props {
   sessionId: string | null;
+  /** 当前会话标题；为空时回退到品牌名 */
+  sessionTitle?: string | null;
   initialMessages: ChatMessage[];
   onSessionCreated: (id: string) => void;
   onNewSession: () => void;
@@ -47,6 +51,7 @@ interface Props {
 
 export default function ChatPanel({
   sessionId,
+  sessionTitle,
   initialMessages,
   onSessionCreated,
   onNewSession,
@@ -130,8 +135,8 @@ export default function ChatPanel({
     setBusy(true);
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: text },
-      { role: "assistant", content: "" },
+      { id: nextMessageId(), role: "user", content: text },
+      { id: nextMessageId(), role: "assistant", content: "" },
     ]);
 
     const controller = new AbortController();
@@ -179,9 +184,9 @@ export default function ChatPanel({
             const lastIdx = next.length - 1;
             const last = next[lastIdx];
             if (last && last.role === "assistant" && !last.content) {
-              next[lastIdx] = { ...last, content: `⚠️ ${msg}` };
+              next[lastIdx] = { ...last, content: `生成出错：${msg}` };
             } else {
-              next.push({ role: "assistant", content: `⚠️ ${msg}` });
+              next.push({ role: "assistant", content: `生成出错：${msg}` });
             }
             return next;
           });
@@ -228,7 +233,14 @@ export default function ChatPanel({
       <div className="chat-header">
         <Space>
           <RobotOutlined style={{ color: "var(--color-primary)", fontSize: 18 }} />
-          <Text strong>Copilot-Lite · 青木</Text>
+          <Text
+            strong
+            ellipsis
+            style={{ maxWidth: 360 }}
+            title={sessionTitle || undefined}
+          >
+            {sessionTitle || "Copilot-Lite · 青木"}
+          </Text>
         </Space>
         <Button size="small" onClick={onNewSession} disabled={busy}>
           ＋ 新会话
@@ -238,7 +250,9 @@ export default function ChatPanel({
       <div className="messages" ref={scrollRef} onScroll={handleScroll}>
         {messages.length === 0 && (
           <div className="empty-tip">
-            <div style={{ fontSize: 40, marginBottom: 8 }}>🤖</div>
+            <div style={{ marginBottom: 8 }}>
+              <RobotOutlined style={{ fontSize: 40, color: "var(--color-primary)" }} />
+            </div>
             <Text strong style={{ fontSize: 16 }}>
               你好！我是青木，你的个人 AI 助理
             </Text>
@@ -248,7 +262,7 @@ export default function ChatPanel({
           </div>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
+          <div key={m.id ?? i} className={`msg ${m.role}`}>
             <Avatar
               size={32}
               icon={m.role === "user" ? <UserOutlined /> : <RobotOutlined />}
@@ -361,7 +375,7 @@ export default function ChatPanel({
               onClose={() => onDeleteFile(f.id)}
               style={{ fontSize: 12 }}
             >
-              📎 {f.filename}
+              <PaperClipOutlined /> {f.filename}
             </Tag>
           ))}
         </div>
@@ -370,7 +384,7 @@ export default function ChatPanel({
       <div className="input-bar">
         <Tooltip title="上传文件到本次对话（不进知识库），可针对文件提问">
           <Upload
-            accept={ACCEPT}
+            accept={ACCEPT_EXTENSIONS}
             showUploadList={false}
             beforeUpload={async (file) => {
               await onUploadFile(file);
@@ -386,7 +400,7 @@ export default function ChatPanel({
         </Tooltip>
         <TextArea
           value={input}
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行；或点击左侧📎上传文件到本次对话"
+          placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
           autoSize={{ minRows: 1, maxRows: 4 }}
           onChange={(e) => setInput(e.target.value)}
           onPressEnter={(e) => {
@@ -395,7 +409,6 @@ export default function ChatPanel({
               send();
             }
           }}
-          disabled={busy}
         />
         {busy ? (
           <Button danger icon={<StopOutlined />} onClick={stop}>

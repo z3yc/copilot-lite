@@ -54,6 +54,12 @@ describe("ChatPanel", () => {
     expect(screen.getByText("我是青木")).toBeInTheDocument();
   });
 
+  it("传入 sessionTitle 时头部回显会话标题（否则回退品牌名）", () => {
+    renderPanel({ sessionTitle: "面试准备" });
+    expect(screen.getByText("面试准备")).toBeInTheDocument();
+    expect(screen.queryByText("Copilot-Lite · 青木")).not.toBeInTheDocument();
+  });
+
   it("无消息时展示空状态引导", () => {
     renderPanel();
     expect(screen.getByText(/你好！我是青木/)).toBeInTheDocument();

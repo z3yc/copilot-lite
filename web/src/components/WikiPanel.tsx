@@ -19,12 +19,14 @@ import {
   message,
 } from "antd";
 import {
+  BookOutlined,
   DeleteOutlined,
   InboxOutlined,
   LinkOutlined,
   PlusOutlined,
   ReloadOutlined,
   SyncOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import {
   createWikiSpace,
@@ -255,9 +257,11 @@ export default function WikiPanel() {
   return (
     <div className="wiki-panel">
       <div className="wiki-side">
-        <Space direction="vertical" style={{ width: "100%" }} size={10}>
+        <Space orientation="vertical" style={{ width: "100%" }} size={10}>
           <Space style={{ width: "100%", justifyContent: "space-between" }}>
-            <Text strong>🕸️ Wiki 空间</Text>
+            <Text strong>
+              <BookOutlined /> Wiki 空间
+            </Text>
             <Button size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
               新建
             </Button>
@@ -307,7 +311,7 @@ export default function WikiPanel() {
           />
 
           {active && (
-            <Space direction="vertical" style={{ width: "100%" }} size={8}>
+            <Space orientation="vertical" style={{ width: "100%" }} size={8}>
               <Dragger
                 accept=".zip"
                 showUploadList={false}
@@ -446,7 +450,9 @@ export default function WikiPanel() {
             </Space>
             {detail.document_status === "failed" && (
               <div style={{ marginBottom: 8 }}>
-                <Text type="danger">⚠️ 上次摄取失败，可点“重新索引”重试</Text>
+                <Text type="danger">
+                  <WarningOutlined /> 上次摄取失败，可点“重新索引”重试
+                </Text>
               </div>
             )}
             <div
@@ -470,7 +476,7 @@ export default function WikiPanel() {
               {detail.backlinks.length === 0 ? (
                 <Text type="secondary">暂无其他页面引用本页</Text>
               ) : (
-                <Space direction="vertical">
+                <Space orientation="vertical">
                   {detail.backlinks.map((b) => (
                     <a
                       key={b.source_page_id}
@@ -490,7 +496,7 @@ export default function WikiPanel() {
               {detail.links.length === 0 ? (
                 <Text type="secondary">本页未引用其他页面</Text>
               ) : (
-                <Space direction="vertical">
+                <Space orientation="vertical">
                   {detail.links.map((l, i) => (
                     <span key={`${l.target_slug}-${i}`}>
                       {l.kind === "embed" ? "!" : ""}
@@ -524,7 +530,7 @@ export default function WikiPanel() {
         confirmLoading={busy}
         onCancel={() => setCreateOpen(false)}
       >
-        <Space direction="vertical" style={{ width: "100%" }} size={10}>
+        <Space orientation="vertical" style={{ width: "100%" }} size={10}>
           <Input
             placeholder="空间名称（如 my-vault）"
             value={newName}

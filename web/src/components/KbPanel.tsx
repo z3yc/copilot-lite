@@ -16,30 +16,23 @@ import {
   message,
 } from "antd";
 import {
+  BookOutlined,
   DeleteOutlined,
+  FileTextOutlined,
+  FolderOutlined,
   InboxOutlined,
   ReloadOutlined,
   SearchOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import { deleteDoc, fetchDocDetail, fetchDocs, retryDoc, uploadDocs } from "../api";
+import { ACCEPT_EXTENSIONS, SOURCE_META, sourceMeta } from "../constants";
 import type { DocDetail, DocItem } from "../types";
 import { keyboardActivate } from "../utils/a11y";
 
 const { Text, Paragraph } = Typography;
 const { Dragger } = Upload;
 const { Search } = Input;
-
-const SOURCE_META: Record<string, { label: string; icon: string }> = {
-  md: { label: "笔记", icon: "📄" },
-  wiki: { label: "Wiki", icon: "🕸️" },
-  pdf: { label: "PDF", icon: "📕" },
-  docx: { label: "Word", icon: "📘" },
-  code: { label: "代码", icon: "💻" },
-  web: { label: "网页", icon: "🌐" },
-};
-
-const ACCEPT =
-  ".md,.txt,.pdf,.docx,.py,.js,.ts,.tsx,.jsx,.java,.go,.rs,.c,.cpp,.sql,.html,.htm";
 
 function StatusTag({ status }: { status: string }) {
   if (status === "ready") return <Tag color="success">已就绪</Tag>;
@@ -146,8 +139,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
   const groups = useMemo(() => {
     const g = new Map<string, DocItem[]>();
     docs.forEach((d) => {
-      const meta = SOURCE_META[d.source_type] ?? { label: "其他", icon: "📄" };
-      const key = `${meta.icon} ${meta.label}`;
+      const key = SOURCE_META[d.source_type] ? d.source_type : "other";
       if (!g.has(key)) g.set(key, []);
       g.get(key)!.push(d);
     });
@@ -155,13 +147,14 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
   }, [docs]);
 
   const hasOtherCats = docs.some((d) => d.source_type !== activeCat);
+  const catMeta = sourceMeta(activeCat);
 
   return (
     <div className="kb-panel">
       <div className="kb-toolbar">
         <Space>
           <Text strong style={{ fontSize: 16 }}>
-            📚 知识库管理
+            <BookOutlined /> 知识库管理
           </Text>
           <Button size="small" icon={<ReloadOutlined />} onClick={loadDocs} />
         </Space>
@@ -186,7 +179,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
             type="file"
             multiple
             hidden
-            accept={ACCEPT}
+            accept={ACCEPT_EXTENSIONS}
             onChange={(e) => onUpload(e.target.files)}
           />
         </Space>
@@ -202,7 +195,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
               color="geekblue"
               onClose={() => onCatChange("all")}
             >
-              {SOURCE_META[activeCat]?.icon} {SOURCE_META[activeCat]?.label}
+              <catMeta.Icon /> {catMeta.label}
             </Tag>
             {hasOtherCats && (
               <Button type="link" size="small" onClick={() => onCatChange("all")}>
@@ -233,7 +226,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
             <Empty description="知识库为空，点击右上角上传文档">
               <Upload
                 multiple
-                accept={ACCEPT}
+                accept={ACCEPT_EXTENSIONS}
                 showUploadList={false}
                 beforeUpload={(file) => {
                   onUpload([file] as unknown as FileList);
@@ -241,7 +234,11 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                 }}
               >
                 <Dragger style={{ padding: 24 }}>
-                  <p style={{ fontSize: 40, margin: 0 }}>📥</p>
+                  <p style={{ margin: 0 }}>
+                    <InboxOutlined
+                      style={{ fontSize: 40, color: "var(--color-primary)" }}
+                    />
+                  </p>
                   <Text>点击或拖拽文档到此处上传</Text>
                   <div className="dim" style={{ fontSize: 12 }}>
                     支持 Markdown / PDF / Word / 代码 / 网页
@@ -252,14 +249,16 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
           )
         ) : (
           <div className="kb-list">
-            {groups.map(([groupName, items]) => (
-              <div key={groupName} className="kb-group">
+            {groups.map(([groupType, items]) => {
+              const groupMeta = sourceMeta(groupType);
+              return (
+              <div key={groupType} className="kb-group">
                 <div className="kb-group-title">
-                  {groupName}
+                  <groupMeta.Icon /> {groupMeta.label}
                   <span className="dim">（{items.length} 个文档）</span>
                 </div>
                 {items.map((d) => {
-                  const meta = SOURCE_META[d.source_type] ?? { label: "其他", icon: "📄" };
+                  const meta = sourceMeta(d.source_type);
                   return (
                     <Card
                       key={d.id}
@@ -273,7 +272,7 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                       hoverable
                       title={
                         <Space>
-                          <span style={{ fontSize: 16 }}>{meta.icon}</span>
+                          <meta.Icon style={{ fontSize: 16 }} />
                           <Text strong ellipsis style={{ maxWidth: 320 }}>
                             {d.title}
                           </Text>
@@ -320,7 +319,9 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                           {detail && (
                             <>
                               {detail.error && (
-                                <Text type="danger">⚠️ 摄取失败：{detail.error}</Text>
+                                <Text type="danger">
+                                  <WarningOutlined /> 摄取失败：{detail.error}
+                                </Text>
                               )}
                               <Collapse
                                 size="small"
@@ -331,12 +332,12 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                                       <Tag color="geekblue">#{c.chunk_index}</Tag>
                                       {c.headings.length > 0 && (
                                         <Text type="secondary" style={{ fontSize: 12 }}>
-                                          📁 {c.headings.join(" > ")}
+                                          <FolderOutlined /> {c.headings.join(" > ")}
                                         </Text>
                                       )}
                                       {c.page != null && (
                                         <Text type="secondary" style={{ fontSize: 12 }}>
-                                          📄 第{c.page}页
+                                          <FileTextOutlined /> 第{c.page}页
                                         </Text>
                                       )}
                                     </Space>
@@ -362,7 +363,8 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
                   );
                 })}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

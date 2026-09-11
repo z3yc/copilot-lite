@@ -17,7 +17,15 @@ import {
   theme,
 } from "antd";
 import zhCN from "antd/locale/zh_CN";
-import { BulbOutlined, LogoutOutlined, MoonOutlined } from "@ant-design/icons";
+import {
+  BookOutlined,
+  BulbOutlined,
+  CheckSquareOutlined,
+  LogoutOutlined,
+  MessageOutlined,
+  MoonOutlined,
+  PartitionOutlined,
+} from "@ant-design/icons";
 import { clearToken, fetchMessages, fetchProfile, getToken } from "./api";
 import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
 import { keyboardActivate } from "./utils/a11y";
@@ -43,6 +51,7 @@ export default function App() {
   const [authed, setAuthed] = useState<boolean>(() => !!getToken());
   const [tab, setTab] = useState<"chat" | "kb" | "wiki" | "todo">("chat");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [activeCat, setActiveCat] = useState<string>("all");
@@ -53,9 +62,12 @@ export default function App() {
     const saved = Number(localStorage.getItem(SIDER_WIDTH_KEY));
     return saved >= SIDER_MIN && saved <= SIDER_MAX ? saved : SIDER_DEFAULT;
   });
-  const [dark, setDark] = useState<boolean>(
-    () => localStorage.getItem("kb-theme") === "dark"
-  );
+  const [dark, setDark] = useState<boolean>(() => {
+    const saved = localStorage.getItem("kb-theme");
+    if (saved) return saved === "dark";
+    // 无显式偏好时跟随系统
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  });
 
   // 令牌过期事件（api.ts 401 时触发）
   useEffect(() => {
@@ -148,9 +160,10 @@ export default function App() {
     localStorage.setItem("kb-theme", dark ? "dark" : "light");
   }, [dark]);
 
-  const selectSession = useCallback(async (id: string) => {
+  const selectSession = useCallback(async (id: string, title?: string) => {
     setTab("chat");
     setSessionId(id);
+    setSessionTitle(title ?? null);
     try {
       setMessages(await fetchMessages(id));
     } catch (err) {
@@ -161,6 +174,7 @@ export default function App() {
 
   const newSession = useCallback(() => {
     setSessionId(null);
+    setSessionTitle(null);
     setMessages([]);
     setTab("chat");
   }, []);
@@ -200,10 +214,38 @@ export default function App() {
                 onChange={(k) => setTab(k as "chat" | "kb" | "wiki" | "todo")}
                 centered
                 items={[
-                  { key: "chat", label: "💬 对话" },
-                  { key: "kb", label: "📚 知识库" },
-                  { key: "wiki", label: "🕸️ Wiki" },
-                  { key: "todo", label: "📋 待办" },
+                  {
+                    key: "chat",
+                    label: (
+                      <span>
+                        <MessageOutlined /> 对话
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "kb",
+                    label: (
+                      <span>
+                        <BookOutlined /> 知识库
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "wiki",
+                    label: (
+                      <span>
+                        <PartitionOutlined /> Wiki
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "todo",
+                    label: (
+                      <span>
+                        <CheckSquareOutlined /> 待办
+                      </span>
+                    ),
+                  },
                 ]}
               />
             </div>
@@ -291,14 +333,15 @@ export default function App() {
             {showProfile ? (
               <ProfilePage
                 onBack={() => setShowProfile(false)}
-                onOpenSession={(id) => {
+                onOpenSession={(id, title) => {
                   setShowProfile(false);
-                  selectSession(id);
+                  selectSession(id, title);
                 }}
               />
             ) : tab === "chat" ? (
               <ChatPanel
                 sessionId={sessionId}
+                sessionTitle={sessionTitle}
                 initialMessages={messages}
                 onSessionCreated={setSessionId}
                 onNewSession={newSession}

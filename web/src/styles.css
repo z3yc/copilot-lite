@@ -1,5 +1,7 @@
 /* Copilot-Lite Web 样式（基于 Ant Design + 语义令牌，支持亮/暗双主题） */
 :root {
+  color-scheme: light; /* 让原生控件/滚动条随主题切换 */
+
   /* ---- 品牌 / 语义色 ---- */
   --color-primary: #4f6ef7; /* 必须与 src/theme.ts 的 BRAND_PRIMARY 一致 */
   --color-primary-hover: #3b5bdb;
@@ -54,6 +56,8 @@
   --dim: var(--text-tertiary);
 }
 body.dark {
+  color-scheme: dark;
+
   --color-primary: #6b86ff;
   --color-primary-hover: #8399ff;
   --color-primary-soft: #232a44;
@@ -74,6 +78,16 @@ body.dark {
   --code-bg: rgba(255, 255, 255, 0.1);
   --border-default: #303030;
   --border-strong: #3d3d3d;
+
+  /* 关键：自定义属性在声明元素上求值。兼容别名必须在暗色作用域内重新声明，
+     否则会沿用 :root 解析出的亮色值（导致 antd 已变暗、自研面板仍为亮色）。 */
+  --bg: var(--surface-base);
+  --panel: var(--surface-panel);
+  --border: var(--border-default);
+  --msg-bg: var(--surface-sunken);
+  --ai-bubble: var(--surface-raised);
+  --text: var(--text-primary);
+  --dim: var(--text-tertiary);
 }
 
 * {
@@ -261,40 +275,41 @@ body.dark .login-wrap {
 .session-list {
   flex: 1;
 }
-.session-item {
-  border-radius: var(--radius-md) !important;
-  border: 1px solid transparent !important;
+/* 用 .session-pane 提升选择器优先级覆盖 antd，避免 !important 对抗主题 */
+.session-pane .session-item {
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
   transition:
     background-color 0.15s,
     border-color 0.15s,
     box-shadow 0.15s;
 }
-.session-item:hover {
+.session-pane .session-item:hover {
   background: var(--bg);
 }
-.session-item.active {
-  background: var(--color-primary-soft) !important;
-  border-color: var(--color-primary) !important;
+.session-pane .session-item.active {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
 }
-.session-item .ant-list-item-action {
+.session-pane .session-item .ant-list-item-action {
   margin-inline-start: var(--space-1);
 }
 
 /* 侧边栏分类导航 */
-.cat-item {
-  border-radius: var(--radius-md) !important;
-  border: 1px solid transparent !important;
+.session-pane .cat-item {
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
   transition:
     background-color 0.15s,
     border-color 0.15s,
     box-shadow 0.15s;
 }
-.cat-item:hover {
+.session-pane .cat-item:hover {
   background: var(--bg);
 }
-.cat-item.active {
-  background: var(--color-primary-soft) !important;
-  border-color: var(--color-primary) !important;
+.session-pane .cat-item.active {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
 }
 
 /* ===== 知识库 ===== */

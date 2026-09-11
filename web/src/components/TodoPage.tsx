@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Button,
   Checkbox,
@@ -15,8 +15,15 @@ import {
   message,
 } from "antd";
 import {
+  CalendarOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
   DeleteOutlined,
   EditOutlined,
+  FieldTimeOutlined,
+  FileTextOutlined,
+  FireOutlined,
+  InboxOutlined,
   PlusOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
@@ -196,14 +203,30 @@ export default function TodoPage() {
     }
   };
 
-  const navItems: { key: string; label: string }[] = [
-    { key: "all", label: "📥 全部待办" },
-    { key: "today", label: "🔴 今天" },
-    { key: "week", label: "🟡 本周" },
-    { key: "future", label: "🗓️ 未来" },
-    { key: "overdue", label: "⏰ 已过期" },
-    { key: "nodate", label: "📄 无日期" },
-    { key: "done", label: "✅ 已完成" },
+  const navItems: { key: string; label: string; icon: ReactNode }[] = [
+    { key: "all", label: "全部待办", icon: <InboxOutlined /> },
+    {
+      key: "today",
+      label: "今天",
+      icon: <ClockCircleOutlined style={{ color: "var(--color-danger)" }} />,
+    },
+    {
+      key: "week",
+      label: "本周",
+      icon: <ClockCircleOutlined style={{ color: "var(--color-warning)" }} />,
+    },
+    { key: "future", label: "未来", icon: <CalendarOutlined /> },
+    {
+      key: "overdue",
+      label: "已过期",
+      icon: <FieldTimeOutlined style={{ color: "var(--color-danger)" }} />,
+    },
+    { key: "nodate", label: "无日期", icon: <FileTextOutlined /> },
+    {
+      key: "done",
+      label: "已完成",
+      icon: <CheckCircleOutlined style={{ color: "var(--color-success)" }} />,
+    },
   ];
 
   return (
@@ -226,7 +249,9 @@ export default function TodoPage() {
               setCatFilter(null);
             })}
           >
-            <span>{n.label}</span>
+            <span>
+              {n.icon} {n.label}
+            </span>
             <span className="todo-nav-count">{counts[n.key] ?? 0}</span>
           </div>
         ))}
@@ -262,7 +287,7 @@ export default function TodoPage() {
           <Space.Compact style={{ width: "60%", maxWidth: 560 }}>
             <Input
               prefix={<RobotOutlined style={{ color: "var(--color-primary)" }} />}
-              placeholder='🤖 AI 快速添加："明天下午3点买菜 生活 #采购"'
+              placeholder='AI 快速添加："明天下午3点买菜 生活 #采购"'
               value={aiText}
               onChange={(e) => setAiText(e.target.value)}
               onPressEnter={aiAdd}
@@ -332,7 +357,9 @@ export default function TodoPage() {
                         aria-label={`优先级：${PRIORITY_LABEL[t.priority]}`}
                         title={`优先级 ${PRIORITY_LABEL[t.priority]}`}
                       >
-                        {"🔥".repeat(Math.max(0, 4 - t.priority))}
+                        {Array.from({ length: Math.max(0, 4 - t.priority) }, (_, i) => (
+                          <FireOutlined key={i} style={{ color: "var(--color-danger)" }} />
+                        ))}
                       </span>
                       <Button
                         type="text"

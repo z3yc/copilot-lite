@@ -25,12 +25,15 @@ import {
   ArrowLeftOutlined,
   BulbOutlined,
   CheckOutlined,
+  CheckSquareOutlined,
+  DashboardOutlined,
   DeleteOutlined,
   EditOutlined,
   FileTextOutlined,
   LockOutlined,
   MessageOutlined,
   RobotOutlined,
+  SettingOutlined,
   TagsOutlined,
 } from "@ant-design/icons";
 import {
@@ -57,7 +60,7 @@ const { Title, Text } = Typography;
 
 interface Props {
   onBack: () => void;
-  onOpenSession: (sessionId: string) => void;
+  onOpenSession: (sessionId: string, title?: string) => void;
 }
 
 export default function ProfilePage({ onBack, onOpenSession }: Props) {
@@ -284,7 +287,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
         items={[
           {
             key: "overview",
-            label: "📊 概览",
+            label: (
+              <span>
+                <DashboardOutlined /> 概览
+              </span>
+            ),
             children: (
               <>
                 <Card className="profile-card">
@@ -329,7 +336,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           },
           {
             key: "sessions",
-            label: "💬 我的会话",
+            label: (
+              <span>
+                <MessageOutlined /> 我的会话
+              </span>
+            ),
             children: (
               <Card className="profile-card">
                 {sessions.length === 0 ? (
@@ -351,7 +362,9 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                       >
                         <List.Item.Meta
                           title={
-                            <a onClick={() => onOpenSession(s.id)}>{s.title || "未命名会话"}</a>
+                            <a onClick={() => onOpenSession(s.id, s.title)}>
+                              {s.title || "未命名会话"}
+                            </a>
                           }
                           description={`${s.message_count} 条消息 · ${
                             s.updated_at
@@ -368,7 +381,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           },
           {
             key: "todos",
-            label: "📋 我的待办",
+            label: (
+              <span>
+                <CheckSquareOutlined /> 我的待办
+              </span>
+            ),
             children: (
               <Card className="profile-card">
                 {todos.length === 0 ? (
@@ -423,7 +440,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           },
           {
             key: "memories",
-            label: "🧠 我的记忆",
+            label: (
+              <span>
+                <BulbOutlined /> 我的记忆
+              </span>
+            ),
             children: (
               <Card className="profile-card">
                 <div className="dim" style={{ marginBottom: 8 }}>
@@ -483,7 +504,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           },
           {
             key: "model",
-            label: "⚙️ 模型设置",
+            label: (
+              <span>
+                <SettingOutlined /> 模型设置
+              </span>
+            ),
             children: (
               <Card
                 className="profile-card"
@@ -567,12 +592,20 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           },
           {
             key: "trash",
-            label: "🗑️ 回收站",
+            label: (
+              <span>
+                <DeleteOutlined /> 回收站
+              </span>
+            ),
             children: <TrashPanel />,
           },
           {
             key: "account",
-            label: "🔒 账号设置",
+            label: (
+              <span>
+                <LockOutlined /> 账号设置
+              </span>
+            ),
             children: (
               <>
                 <Card

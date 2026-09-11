@@ -27,6 +27,7 @@ from app.core.budget import add_token_usage, check_token_budget
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.llm import LLMError, get_llm, get_usage_stats
+from app.core.prompts.chat import SUMMARY_PROMPT
 from app.core.rate_limit import SlidingWindowLimiter
 from app.memory import get_memory_service
 from app.models import ChatSession, Message, User
@@ -97,10 +98,6 @@ async def _load_history(db: AsyncSession, session_id) -> list[dict]:
 # 历史消息超过该数量后，把滚动窗口外的旧消息压缩进 session.summary
 _SUMMARY_THRESHOLD = 40
 
-_SUMMARY_PROMPT = """你是对话摘要助手。请把以下对话内容压缩为一段简短摘要（200 字以内），
-保留：用户的关键事实与偏好、进行中的任务与结论、重要的时间/数字信息。
-只输出摘要本身，不要输出任何其他内容。"""
-
 _summary_locks: dict[str, asyncio.Lock] = {}
 _last_summary_count: dict[str, int] = {}
 
@@ -135,7 +132,7 @@ async def _maybe_compress_history(db: AsyncSession, session_id: str) -> None:
             )
             result = await llm.chat(
                 [
-                    {"role": "system", "content": _SUMMARY_PROMPT},
+                    {"role": "system", "content": SUMMARY_PROMPT},
                     {"role": "user", "content": f"对话内容：\n{transcript}"},
                 ]
             )

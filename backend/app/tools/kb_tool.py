@@ -23,7 +23,7 @@ from app.tools.base import ToolContext, registry
 
 @registry.register
 async def kb_search(ctx: ToolContext, query: str, top_k: int = 3) -> str:
-    """在个人知识库中检索与问题最相关的文档片段，返回带来源的内容（含文档标题、章节、页码）。
+    """在个人知识库/维基（Wiki）中检索与问题最相关的文档片段，返回带来源的内容（含文档标题、章节、页码）。
 
     每条结果带「编号」与 chunk_id——回答引用时用 [n] 标注（n=编号），
     便于用户核对来源，避免模型自由复述来源时编造。

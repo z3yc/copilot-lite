@@ -105,7 +105,7 @@ def _get_langchain_llm() -> ChatOpenAI:
 
 # 关键词兜底：工具优先于知识库（避免"创建/删除"等动作被知识库抢走）
 _TOOL_KEYWORDS = ("待办", "todo", "创建", "完成", "删除", "提醒", "任务", "清单")
-_KB_KEYWORDS = ("笔记", "文档", "知识库", "资料", "pdf", "文件", "检索")
+_KB_KEYWORDS = ("笔记", "文档", "知识库", "资料", "pdf", "文件", "检索", "wiki", "维基")
 
 
 class AgentState(TypedDict):

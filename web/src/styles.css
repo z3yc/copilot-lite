@@ -1,5 +1,7 @@
 /* Copilot-Lite Web 样式（基于 Ant Design + 语义令牌，支持亮/暗双主题） */
 :root {
+  color-scheme: light; /* 让原生控件/滚动条随主题切换 */
+
   /* ---- 品牌 / 语义色 ---- */
   --color-primary: #4f6ef7; /* 必须与 src/theme.ts 的 BRAND_PRIMARY 一致 */
   --color-primary-hover: #3b5bdb;
@@ -54,6 +56,8 @@
   --dim: var(--text-tertiary);
 }
 body.dark {
+  color-scheme: dark;
+
   --color-primary: #6b86ff;
   --color-primary-hover: #8399ff;
   --color-primary-soft: #232a44;

@@ -62,9 +62,12 @@ export default function App() {
     const saved = Number(localStorage.getItem(SIDER_WIDTH_KEY));
     return saved >= SIDER_MIN && saved <= SIDER_MAX ? saved : SIDER_DEFAULT;
   });
-  const [dark, setDark] = useState<boolean>(
-    () => localStorage.getItem("kb-theme") === "dark"
-  );
+  const [dark, setDark] = useState<boolean>(() => {
+    const saved = localStorage.getItem("kb-theme");
+    if (saved) return saved === "dark";
+    // 无显式偏好时跟随系统
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  });
 
   // 令牌过期事件（api.ts 401 时触发）
   useEffect(() => {

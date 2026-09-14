@@ -77,27 +77,37 @@ REDIS_URL=redis://:<口令>@redis:6379/0
 # 如前后端不同域，需在 .env 配置 CORS_ORIGINS=["https://你的前端域名"]
 ```
 
-### 3.3 构建前端静态资源
+### 3.3 一键部署（推荐）
 
-> web 服务（nginx）挂载 `../web/dist`，**必须先构建出该目录**。
-> 服务器需 Node 18+（vite 5 要求）。
+> 前端已进镜像（`deploy/Dockerfile.web` 多阶段构建），服务器**无需安装 Node**，
+> 也无需手动构建 `web/dist`——只需 Docker。
 
 ```bash
-# 在服务器上构建（推荐，保证与后端同机）
-cd /opt/copilot-lite/web && npm ci && npm run build && cd ../deploy
-# 或本地构建后把 web/dist 上传到服务器
+cd /opt/copilot-lite
+bash deploy/deploy.sh
 ```
 
-### 3.4 一键启动
+脚本流程：拉取最新 `main`（仅快进合并，绝不覆盖服务器本地改动）→
+`docker compose up -d --build`（构建后端 + 前端镜像）→ 健康检查（最多 120s）；
+**失败自动回滚**到上一版代码并重建。
+
+```bash
+bash deploy/deploy.sh rollback   # 手动回滚到上一版代码并重建
+```
+
+> 可用环境变量覆盖：`APP_DIR`（默认 `/opt/copilot-lite`）、`BRANCH`（默认 `main`）、
+> `HEALTH_URL`、`WAIT_SECONDS`。
+
+首次构建会 `uv sync` / `npm ci`，约 3-8 分钟；
+BGE 嵌入 / reranker 模型（约 1.1GB）首次使用从 hf-mirror 下载，
+已挂载 `models` 卷持久化，重建容器不重复下载。
+
+### 3.4 手动启动（等价，便于排查）
 
 ```bash
 cd /opt/copilot-lite/deploy
 docker compose up -d --build
 ```
-
-首次启动会拉取镜像 + 构建后端（uv sync 依赖），约 3-8 分钟；
-BGE 嵌入 / reranker 模型（约 1.1GB）首次使用从 hf-mirror 下载，
-已挂载 `models` 卷持久化，重建容器不重复下载。
 
 ### 3.5 验证
 
@@ -143,12 +153,14 @@ certbot certonly --webroot -w /var/www/certbot \
 
 ### 步骤 3：挂载证书并启用 443 段
 
-编辑 `deploy/docker-compose.yml` 的 web 服务 volumes 增加：
+编辑 `deploy/docker-compose.yml` 的 web 服务，在 `build` 之外增加证书挂载与 443 端口：
 
 ```yaml
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
     volumes:
-      - ../web/dist:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - /etc/letsencrypt:/etc/nginx/certs:ro      # 新增：挂载证书目录
       - /var/www/certbot:/var/www/certbot:ro      # certbot webroot 续期用
     ports:
@@ -156,7 +168,8 @@ certbot certonly --webroot -w /var/www/certbot \
       - "443:443"                                  # 新增：放行 443
 ```
 
-然后取消 `deploy/nginx.conf` 中 **443 server 段的注释** 和 **80 段的 301 跳转注释**，重建：
+然后取消 `deploy/nginx.conf` 中 **443 server 段的注释** 和 **80 段的 301 跳转注释**，
+重建 web **镜像**（配置已进镜像，仅重启不会生效）：
 
 ```bash
 cd /opt/copilot-lite/deploy && docker compose up -d --build web
@@ -233,4 +246,4 @@ crontab -e
 | 7 | CORS 与部署形态一致 | 同域部署无需配置；跨域时白名单仅放行可信域名 |
 | 8 | 限流与预算生效 | LLM_DAILY_TOKEN_BUDGET 按需开启；API_CHAT_RATE_LIMIT 按用户限频 |
 | 9 | 镜像与依赖可复现 | uv 版本固定（Dockerfile tag）、uv.lock --frozen 安装 |
-| 10 | 备份与回滚 | pgdata/qdrantdata/models 卷持久化；deploy_remote.sh 支持代码+产物双回滚 |
+| 10 | 备份与回滚 | pgdata/qdrantdata/models 卷持久化；`deploy.sh` 健康检查失败自动回滚，亦可 `bash deploy/deploy.sh rollback` |

@@ -187,7 +187,7 @@ POST /admin/eval/runs → 建 eval_runs(status=queued) → 返回 run_id
 - [ ] **N1.4** `GET /admin/usage` 时间序列。
 - [x] **N1.5** `GET /admin/knowledge`（sync 四态/失败）。
 - [x] **N1.6** `GET /admin/audit` 查询。
-- [ ] **N1.7** `POST /admin/eval/runs` + `GET .../runs`、`.../{id}`（状态/进度）。
+- [x] **N1.7** `POST /admin/eval/runs` + `GET .../runs`、`.../{id}`（状态/进度）。
 - [ ] **N1.8** 前端：管理后台入口（仅 admin）+ 概览/用户/知识库/审计页。
 - [ ] **N1.9** 管理员操作审计 + 用户数据默认脱敏。
 

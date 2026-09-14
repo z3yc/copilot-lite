@@ -4,14 +4,17 @@
 #
 # 说明：本仓库托管于 Gitee，此配置同时兼容 GitHub（面试展示用）。
 # Gitee 可对接 Gitee Go 或自建 Runner 复用同一脚本。
+#
+# 触发分支：main（发布）+ develop（集成分支）——
+# 保证「功能分支 → develop」的 PR 与合入后的 develop 都过 CI，避免集成分支失去质量门。
 
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   backend:

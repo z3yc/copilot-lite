@@ -38,8 +38,9 @@
 ```dockerfile
 FROM node:20-alpine AS build
 WORKDIR /web
+ARG NPM_REGISTRY=https://registry.npmmirror.com   # 国内源，可 --build-arg 覆盖
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+RUN npm ci --registry="$NPM_REGISTRY"
 COPY web/ ./
 RUN npm run build                 # = tsc -b && vite build
 
@@ -110,11 +111,24 @@ COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 - `bash -n deploy/deploy.sh` 语法检查
 - 后端 `pytest` + `ruff`、前端 `vitest` + `build` 回归（无代码改动，应全绿）
 
+**实施结果（2026-09-14，本机 Docker 实测）**：以上全部通过。
+- `health` → `{"status":"ok","run_mode":"cloud"}`；`/` → 200（镜像内 React 入口）；
+- `docker inspect <web>` 挂载为空 → 确认不再依赖宿主机 `web/dist`。
+- 为不破坏既有 `deploy_pgdata`（存量旧口令），验证用独立项目名 `-p clverify` 起全新卷，验后 `down -v` 清理。
+
 ## 8. 风险与回退
 
 - web 镜像首次构建需联网 `npm ci`（服务器需可达 npm 源）。
 - TLS 配置 baked 进镜像，启用/修改需重建 web 镜像（文档注明）。
 - 回退：全部为仓库文件改动，`git revert`/切回上一提交即可恢复旧部署方式。
+
+## 9.5 实施中发现并修复的既有缺陷
+
+| 缺陷 | 现象 | 修复 |
+|---|---|---|
+| 构建容器不继承宿主代理 | `npm ci` 连夜失败（buildkit 不注入 HTTP(S)_PROXY） | Dockerfile.web 默认走 npmmirror 源 |
+| uv 缓存属主错误（既有） | `ENV HOME=/home/app` 先于 `useradd`，`uv sync`(root) 建了 root 属主缓存；容器以 app 用户 `uv run` 报 Permission denied 反复重启 | `chown -R app:app /app /models /home/app` |
+| 存量 pgdata 口令 | 改 `.env` 口令对已初始化卷不生效 | 文档补充排障（ALTER USER 或删 `deploy_pgdata` 卷，勿用 `down -v`） |
 
 ## 9. 验收标准
 

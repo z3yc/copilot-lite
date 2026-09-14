@@ -27,9 +27,11 @@
 
 FROM node:20-alpine AS build
 WORKDIR /web
+# 国内源（构建容器不继承宿主代理）；可 --build-arg NPM_REGISTRY=... 覆盖
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 # 先装依赖，利用缓存层
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+RUN npm ci --registry="$NPM_REGISTRY"
 # 再复制源码并构建（tsc 类型检查 + vite 打包）
 COPY web/ ./
 RUN npm run build

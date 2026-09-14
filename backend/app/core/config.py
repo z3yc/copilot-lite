@@ -140,6 +140,14 @@ class Settings(BaseSettings):
     # 本地/自托管建议 true；云端多用户部署建议 false（仅允许受管目录/zip）
     WIKI_ALLOW_LOCAL_PATH: bool = True
 
+    # ---- 管理后台 / 评测作业（ADMIN_PLAN）----
+    # 管理后台开关：关闭后 /admin 一律 404；仅管理员（role=admin）可访问
+    ADMIN_ENABLED: bool = True
+    # 页面触发评测的后台作业开关（后台任务，测试环境默认关闭，AGENTS §8）
+    EVAL_JOB_ENABLED: bool = False
+    # 评测作业并发上限（评测跑真实嵌入 / LLM judge，必须限并发）
+    EVAL_JOB_CONCURRENCY: int = 1
+
     @model_validator(mode="after")
     def _reject_default_secret(self) -> "Settings":
         """安全自检：云模式禁止使用代码内置的默认 JWT 密钥。

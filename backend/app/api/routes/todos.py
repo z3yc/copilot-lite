@@ -25,6 +25,7 @@ from app.core.pagination import (
 from app.core.prompts.todo import AI_PARSE_PROMPT
 from app.core.rate_limit import SlidingWindowLimiter
 from app.core.soft_delete import soft_delete
+from app.core.usage import record_usage_silently, snapshot_usage
 from app.models import Category, Todo, User
 
 logger = logging.getLogger(__name__)
@@ -236,6 +237,7 @@ async def ai_create_todo(
     check_token_budget(user.id)
     await apply_user_llm_config(db, user.id)
     tokens_before = get_usage_stats().get("total_tokens", 0)
+    usage_before = snapshot_usage()
     try:
         llm = get_llm()
         result = await llm.chat(
@@ -250,6 +252,7 @@ async def ai_create_todo(
     finally:
         # 本轮 LLM 用量计入每日预算（LLM 客户端为单例，不在此关闭）
         add_token_usage(user.id, get_usage_stats().get("total_tokens", 0) - tokens_before)
+        await record_usage_silently(db, user.id, usage_before)
 
     # 容错解析：围栏/前后噪声/非法 JSON 均降级为空对象（整句作为标题）
     parsed = parse_json_object(result.content)

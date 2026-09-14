@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     LLM_MAX_CONCURRENCY: int = 3
     # 每用户每日 token 预算（0=不限，仅统计；开启后超限返回 429）
     LLM_DAILY_TOKEN_BUDGET: int = 0
+    # 模型单价（每百万 token；0=只统计 token 不计成本）——供 usage_daily 成本看板
+    LLM_PRICE_INPUT_PER_MTOK: float = 0.0
+    LLM_PRICE_OUTPUT_PER_MTOK: float = 0.0
     # 流式请求是否请求 usage 统计（stream_options.include_usage；
     # 个别兼容网关不支持时可关闭）
     LLM_TRACK_STREAM_USAGE: bool = True

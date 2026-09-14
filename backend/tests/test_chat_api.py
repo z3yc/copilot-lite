@@ -491,3 +491,40 @@ async def test_chat_stream_heartbeat_on_slow_model(monkeypatch, authed_headers: 
     assert any(line.startswith(": ping") for line in lines), "静默期应发心跳帧"
     events = [line[7:] for line in lines if line.startswith("event: ")]
     assert events[-1] == "done"
+
+
+@pytest.mark.asyncio
+async def test_chat_records_usage_daily(monkeypatch, authed_headers: dict) -> None:
+    """对话结束按 token 增量落 usage_daily（N1.1 采集集成）。"""
+    from app.core import usage as usage_module
+    from app.models import UsageDaily
+
+    fake = FakeLLM([ChatResult(content="你好")])
+    monkeypatch.setattr(chat_module, "get_llm", lambda: fake)
+    # 请求前快照为 0，请求后进程统计增加 → 采集应记录 100/50
+    monkeypatch.setattr(
+        chat_module,
+        "snapshot_usage",
+        lambda: {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    )
+    monkeypatch.setattr(
+        usage_module,
+        "get_usage_stats",
+        lambda: {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/v1/chat", json={"message": "你好"}, headers=authed_headers)
+        assert resp.status_code == 200
+
+    async with async_session_factory() as db:
+        row = await db.scalar(
+            select(UsageDaily).where(
+                UsageDaily.user_id == uuid.UUID(authed_headers["uid"])
+            )
+        )
+    assert row is not None
+    assert row.tokens_in == 100
+    assert row.tokens_out == 50
+    assert row.requests == 1

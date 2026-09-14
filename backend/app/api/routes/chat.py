@@ -30,6 +30,7 @@ from app.core.llm import LLMError, get_llm, get_llm_config, get_usage_stats
 from app.core.llm_settings import apply_user_llm_config
 from app.core.prompts.chat import SUMMARY_PROMPT
 from app.core.rate_limit import SlidingWindowLimiter
+from app.core.usage import record_usage_silently, snapshot_usage
 from app.memory import get_memory_service
 from app.models import ChatSession, Message, User
 from app.tools import registry
@@ -408,8 +409,10 @@ async def chat(
         summary=session.summary,
     )
     tokens_before = _total_llm_tokens()
+    usage_before = snapshot_usage()
     reply, audit, pending, citations = await _run_agent(db, history, req.message, user.id)
     add_token_usage(user.id, _total_llm_tokens() - tokens_before)
+    await record_usage_silently(db, user.id, usage_before)
     await _persist(db, session.id, req.message, reply, audit, pending, citations)
     _schedule_memory_extract(session.id, user.id)
     _schedule_summary_compress(session.id)
@@ -462,6 +465,7 @@ async def chat_stream(
         reply_parts: list[str] = []
         saved = False  # 标记回复是否已落库（防 finally 重复保存）
         tokens_before = _total_llm_tokens()
+        usage_before = snapshot_usage()
         try:
             agent_stream = agent.run_stream(
                 session=db, user_id=user.id, history=history, user_message=req.message
@@ -529,6 +533,7 @@ async def chat_stream(
                 await _persist_partial(db, session.id, reply_parts)
             # 本轮用量计入用户每日预算（成功/失败/中断路径都累计）
             add_token_usage(user.id, _total_llm_tokens() - tokens_before)
+            await record_usage_silently(db, user.id, usage_before)
             await agent.close()
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

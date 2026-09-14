@@ -11,6 +11,7 @@ from app.models.memory_fact import MemoryFact
 from app.models.message import Message
 from app.models.session_file import SessionFile
 from app.models.todo import Todo
+from app.models.usage_daily import UsageDaily
 from app.models.user import User
 from app.models.wiki import WikiLink, WikiPage, WikiSpace
 
@@ -26,6 +27,7 @@ __all__ = [
     "Message",
     "SessionFile",
     "Todo",
+    "UsageDaily",
     "User",
     "WikiLink",
     "WikiPage",

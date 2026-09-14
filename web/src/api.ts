@@ -324,6 +324,14 @@ export interface LLMModels {
 /** 按已配置的 API Key / Base URL 拉取可用模型（上游不支持时抛错，调用方回退当前模型）。 */
 export const fetchLlmModels = () => request<LLMModels>("/settings/llm/models");
 
+/** 用配置页中**尚未保存**的 Base URL / Key 拉取模型（不落库，Key 走请求体）。 */
+export const fetchLlmModelsWithKey = (data: { base_url: string; api_key?: string }) =>
+  request<LLMModels>("/settings/llm/models", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
 export interface LLMSettingsPayload {
   base_url: string;
   model: string;

@@ -72,36 +72,24 @@ def _build_langchain_llm(
     return ChatOpenAI(**kwargs)
 
 
-@lru_cache
-def _env_langchain_llm() -> ChatOpenAI:
-    """环境变量默认 ChatOpenAI（进程级单例）。"""
-    if not settings.DEEPSEEK_API_KEY:
-        raise RuntimeError(
-            "未配置模型：请在「个人中心 → 模型设置」中配置，"
-            "或在 backend/.env 设置 DEEPSEEK_API_KEY（参考 .env.example）"
-        )
-    return ChatOpenAI(
-        model=settings.DEEPSEEK_MODEL,
-        api_key=settings.DEEPSEEK_API_KEY,
-        base_url=settings.DEEPSEEK_BASE_URL,
-        temperature=0.7,
-        timeout=settings.LLM_TIMEOUT_SECONDS,
-        max_retries=settings.LLM_MAX_RETRIES,
-    )
-
-
 def _get_langchain_llm() -> ChatOpenAI:
-    """获取当前请求的 ChatOpenAI：用户配置优先，否则环境变量。"""
+    """获取当前请求的 ChatOpenAI。
+
+    配置由 `apply_user_llm_config` 在请求入口写入上下文（用户自配优先，
+    超级管理员未自配时为 env 兜底，其余 None）；无配置则报错引导去配置。
+    """
     config = get_llm_config()
-    if config is not None:
-        return _build_langchain_llm(
-            config.api_key,
-            config.base_url,
-            config.model,
-            config.temperature,
-            config.max_tokens,
+    if config is None:
+        raise RuntimeError(
+            "未配置模型：请在「个人中心 → 模型设置」中配置你自己的 API Key"
         )
-    return _env_langchain_llm()
+    return _build_langchain_llm(
+        config.api_key,
+        config.base_url,
+        config.model,
+        config.temperature,
+        config.max_tokens,
+    )
 
 # 关键词兜底：工具优先于知识库（避免"创建/删除"等动作被知识库抢走）
 _TOOL_KEYWORDS = ("待办", "todo", "创建", "完成", "删除", "提醒", "任务", "清单")

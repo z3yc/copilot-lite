@@ -258,7 +258,9 @@ npm run build        # 前端类型检查 + 构建
 | 配置项 | 说明 | 本地默认 | 云端建议 |
 |---|---|---|---|
 | `RUN_MODE` | `local` / `cloud` | `local` | `cloud` |
-| `DEEPSEEK_API_KEY` | 大模型 API Key | 必填 | 必填 |
+| `DEEPSEEK_API_KEY` | 大模型 API Key（**可选**：普通用户在前端「个人中心 → 模型设置」各自配置；本项**仅超级管理员**可作兜底） | 可选 | 可不填 |
+| `SUPER_ADMIN_USERNAME` | 超级管理员用户名（配合非空密码才在启动时创建/提升，`role=admin`） | `demo` | `demo` |
+| `SUPER_ADMIN_PASSWORD` | 超级管理员密码（**非空才创建该账号**；唯一可用 env Key 兜底的账号） | 可不填 | 按需 |
 | `DEEPSEEK_BASE_URL` | 模型网关地址（支持切换） | 官方 | 官方/代理 |
 | `DB_URL` | PostgreSQL 连接串 | `localhost:5432` | 内网/托管 |
 | `QDRANT_URL` | 向量库地址 | `localhost:6333` | 同机 Docker |

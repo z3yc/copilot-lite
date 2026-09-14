@@ -15,8 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.crypto import decrypt_secret, encrypt_secret, mask_secret
 from app.core.db import get_session
-from app.core.llm import LLMConfig, build_llm, env_llm_config
-from app.core.llm_settings import get_user_setting, resolve_user_llm_config
+from app.core.llm import LLMConfig, build_llm
+from app.core.llm_settings import (
+    admin_env_config,
+    get_user_setting,
+    resolve_effective_llm_config,
+    resolve_user_llm_config,
+)
 from app.models import LLMSetting, User
 from app.models.llm_setting import DEFAULT_BASE_URL, DEFAULT_MODEL
 
@@ -67,6 +72,15 @@ class LLMTestIn(BaseModel):
     _check_url = field_validator("base_url")(_validate_url)
 
 
+class LLMModelsIn(BaseModel):
+    """配置页拉模型列表：用表单中尚未保存的 Base URL / Key。"""
+
+    base_url: str = DEFAULT_BASE_URL
+    api_key: str | None = Field(default=None, max_length=512)
+
+    _check_url = field_validator("base_url")(_validate_url)
+
+
 @router.get("/llm", response_model=LLMSettingsOut)
 async def get_llm_settings(
     db: AsyncSession = Depends(get_session),
@@ -85,13 +99,14 @@ async def get_llm_settings(
             api_key_preview=preview,
             source="user",
         )
-    env = env_llm_config()
+    env = admin_env_config(user)
     if env is not None:
+        # 管理员：Key 用 env，但允许已存记录的 model/温度/tokens 覆盖
         return LLMSettingsOut(
             base_url=env.base_url,
-            model=env.model,
-            temperature=0.7,
-            max_tokens=env.max_tokens or 2048,
+            model=row.model if row is not None and row.model else env.model,
+            temperature=row.temperature if row is not None else 0.7,
+            max_tokens=row.max_tokens if row is not None else (env.max_tokens or 2048),
             api_key_set=True,
             api_key_preview=mask_secret(env.api_key),
             source="env",
@@ -118,7 +133,7 @@ async def list_llm_models(
     上游不提供 /models 时返回 502，前端回退为当前模型。
     """
     user_config = await resolve_user_llm_config(db, user.id)
-    config = user_config or env_llm_config()
+    config = await resolve_effective_llm_config(db, user.id, user)
     if config is None:
         raise HTTPException(
             status_code=400,
@@ -138,6 +153,49 @@ async def list_llm_models(
         current=config.model,
         source="user" if user_config is not None else "env",
     )
+
+
+@router.post("/llm/models", response_model=LLMModelsOut)
+async def list_llm_models_with_key(
+    req: LLMModelsIn,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> LLMModelsOut:
+    """按配置页中**尚未保存**的 Base URL / Key 拉取模型列表。
+
+    解决“模型名要先填才能保存、但模型名应从列表选”的死循环：
+    - 传了 api_key → 用表单里的 Key/URL 直接拉取（**不落库**，Key 走请求体不入 URL/日志）；
+    - 未传 → 回退已存用户配置 / 管理员 env。
+    """
+    api_key = (req.api_key or "").strip()
+    if api_key:
+        config = LLMConfig(
+            api_key=api_key,
+            base_url=req.base_url,
+            model=DEFAULT_MODEL,
+            temperature=0.0,
+            max_tokens=1,
+        )
+        source = "user"
+    else:
+        user_config = await resolve_user_llm_config(db, user.id)
+        config = await resolve_effective_llm_config(db, user.id, user)
+        if config is None:
+            raise HTTPException(
+                status_code=400,
+                detail="未配置 API Key，请先在「个人主页 → 模型设置」中配置",
+            )
+        source = "user" if user_config is not None else "env"
+
+    client = build_llm(config)
+    try:
+        models = await client.list_models()
+    except Exception as exc:  # 上游网关差异需回显给用户
+        logger.warning("获取模型列表失败: %s", exc)
+        raise HTTPException(
+            status_code=502, detail=f"获取模型列表失败：{str(exc)[:200]}"
+        ) from exc
+    return LLMModelsOut(models=models, current=config.model, source=source)
 
 
 @router.put("/llm", response_model=LLMSettingsOut)
@@ -172,7 +230,7 @@ async def save_llm_settings(
         max_tokens=row.max_tokens,
         api_key_set=has_key,
         api_key_preview=preview,
-        source="user" if has_key else "env",
+        source="user" if has_key else ("env" if admin_env_config(user) else "none"),
     )
 
 
@@ -206,7 +264,7 @@ async def test_llm_settings(
             max_tokens=req.max_tokens,
         )
     else:
-        config = await resolve_user_llm_config(db, user.id) or env_llm_config()
+        config = await resolve_effective_llm_config(db, user.id, user)
         if config is None:
             raise HTTPException(status_code=400, detail="未提供 API Key，且无可用的已存/环境配置")
         config = LLMConfig(

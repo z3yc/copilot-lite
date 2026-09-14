@@ -49,9 +49,13 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # ---- 大模型（DeepSeek，兼容 OpenAI SDK）----
-    DEEPSEEK_API_KEY: str = ""  # 从 .env 读取，必填
+    DEEPSEEK_API_KEY: str = ""  # 可选：默认全员不可用；仅超级管理员可作兜底（见 SUPER_ADMIN）
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     DEEPSEEK_MODEL: str = "deepseek-chat"
+    # 超级管理员（可选）：显式配置非空密码才会在启动时种子该账号（role=admin）。
+    # 该账号未自配 Key 时可用 DEEPSEEK_API_KEY 兜底；其他注册用户一律必须自配（禁白嫖）。
+    SUPER_ADMIN_USERNAME: str = "demo"
+    SUPER_ADMIN_PASSWORD: str = ""
     # LLM 调用健壮性（显式配置，不依赖 SDK 默认值）
     LLM_TIMEOUT_SECONDS: float = 60.0  # 单次请求超时
     LLM_MAX_RETRIES: int = 2  # SDK 层重试次数

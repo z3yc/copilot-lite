@@ -11,7 +11,17 @@ from app.core.db import async_session_factory
 from app.core.llm import LLMConfig, build_llm, env_llm_config
 from app.core.llm_settings import resolve_user_llm_config
 from app.main import app
-from app.models import LLMSetting
+from app.models import LLMSetting, User
+
+
+async def _promote_admin(uid: str) -> None:
+    """把已注册用户提升为超级管理员（测试用）。"""
+    async with async_session_factory() as db:
+        user = await db.get(User, uuid.UUID(uid))
+        assert user is not None
+        user.role = "admin"
+        await db.commit()
+
 
 # ---------------- 加密/掩码 ----------------
 
@@ -51,14 +61,15 @@ def test_env_llm_config_present_in_tests():
 # ---------------- 接口 ----------------
 
 
-async def test_get_returns_env_by_default(authed_headers: dict) -> None:
+async def test_get_returns_none_for_new_user(unconfigured_headers: dict) -> None:
+    """新注册用户即便环境有 Key 也报告未配置（前端据此引导配置）。"""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get("/api/v1/settings/llm", headers=authed_headers)
+        resp = await client.get("/api/v1/settings/llm", headers=unconfigured_headers)
     body = resp.json()["data"]
     assert resp.status_code == 200
-    assert body["source"] == "env"
-    assert body["api_key_set"] is True
+    assert body["source"] == "none"
+    assert body["api_key_set"] is False
 
 
 async def test_save_get_delete_and_encrypted_at_rest(authed_headers: dict) -> None:
@@ -85,10 +96,10 @@ async def test_save_get_delete_and_encrypted_at_rest(authed_headers: dict) -> No
         got = await client.get("/api/v1/settings/llm", headers=authed_headers)
         assert got.json()["data"]["model"] == "my-model"
 
-        # 删除 → 回退环境
+        # 删除 → 普通用户回到未配置（不再全局回退环境变量）
         await client.delete("/api/v1/settings/llm", headers=authed_headers)
         after = await client.get("/api/v1/settings/llm", headers=authed_headers)
-        assert after.json()["data"]["source"] == "env"
+        assert after.json()["data"]["source"] == "none"
 
     # 入库为密文（用保存前的状态另存一次校验）
     async with async_session_factory() as db:
@@ -135,7 +146,7 @@ async def test_cross_user_isolation(authed_headers: dict) -> None:
         )
         other_headers = {"Authorization": f"Bearer {other.json()['data']['token']}"}
         got = await client.get("/api/v1/settings/llm", headers=other_headers)
-    assert got.json()["data"]["source"] == "env"  # 看不到用户1的配置
+    assert got.json()["data"]["source"] == "none"  # 看不到用户1的配置
     assert got.json()["data"]["model"] != "user1-model"
 
 
@@ -217,16 +228,14 @@ async def test_apply_user_config_none_falls_back(db_session) -> None:
 
 
 def test_get_llm_without_any_key_raises(monkeypatch) -> None:
-    """无用户配置且无环境 Key 时给出清晰错误（引导去配置）。"""
+    """无上下文配置时即使有 env Key 也报错（引导去前端配置）。"""
     from app.core import llm as llm_module
+    from app.core.llm import set_llm_config
 
-    monkeypatch.setattr(llm_module.settings, "DEEPSEEK_API_KEY", "")
-    llm_module._env_client.cache_clear()
-    try:
-        with pytest.raises(RuntimeError, match="未配置模型"):
-            llm_module.get_llm()
-    finally:
-        llm_module._env_client.cache_clear()
+    monkeypatch.setattr(llm_module.settings, "DEEPSEEK_API_KEY", "sk-env-ignored")
+    set_llm_config(None)
+    with pytest.raises(RuntimeError, match="未配置模型"):
+        llm_module.get_llm()
 
 
 async def test_llm_client_list_models_sorted(monkeypatch) -> None:
@@ -250,18 +259,19 @@ async def test_llm_client_list_models_sorted(monkeypatch) -> None:
         await client.close()
 
 
-async def test_list_models_from_provider(monkeypatch, authed_headers: dict) -> None:
-    """按已配置的 Key / Base URL 拉取模型列表（Fake 客户端，不触网）。"""
+async def test_list_models_from_provider(monkeypatch, unconfigured_headers: dict) -> None:
+    """超级管理员按 env 配置拉取模型列表（Fake 客户端，不触网）。"""
     from app.api.routes import settings as settings_module
 
     class FakeLLM:
         async def list_models(self):
             return ["deepseek-chat", "deepseek-reasoner"]
 
+    await _promote_admin(unconfigured_headers["uid"])
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         monkeypatch.setattr(settings_module, "build_llm", lambda cfg: FakeLLM())
-        resp = await client.get("/api/v1/settings/llm/models", headers=authed_headers)
+        resp = await client.get("/api/v1/settings/llm/models", headers=unconfigured_headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
     assert data["models"] == ["deepseek-chat", "deepseek-reasoner"]
@@ -303,6 +313,7 @@ async def test_list_models_provider_error(monkeypatch, authed_headers: dict) -> 
         async def list_models(self):
             raise RuntimeError("401 unauthorized")
 
+    await _promote_admin(authed_headers["uid"])  # 管理员有 env 配置，才能走到上游调用
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         monkeypatch.setattr(settings_module, "build_llm", lambda cfg: BadLLM())
@@ -311,13 +322,93 @@ async def test_list_models_provider_error(monkeypatch, authed_headers: dict) -> 
     assert "获取模型列表失败" in resp.json()["message"]
 
 
-async def test_list_models_without_any_config(monkeypatch, authed_headers: dict) -> None:
+async def test_list_models_without_any_config(monkeypatch, unconfigured_headers: dict) -> None:
     """用户与环境均无 Key 时 400，引导前端前往配置。"""
     from app.api.routes import settings as settings_module
 
-    monkeypatch.setattr(settings_module, "env_llm_config", lambda: None)
+    monkeypatch.setattr(settings_module, "admin_env_config", lambda user: None)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get("/api/v1/settings/llm/models", headers=authed_headers)
+        resp = await client.get("/api/v1/settings/llm/models", headers=unconfigured_headers)
     assert resp.status_code == 400
     assert "未配置 API Key" in resp.json()["message"]
+
+
+# ---------------- 配置页：用未保存的 Key 拉模型列表（POST） ----------------
+
+
+async def test_post_models_with_unsaved_key(monkeypatch, authed_headers: dict) -> None:
+    """配置页可用表单中尚未保存的 Base URL / Key 拉取模型列表。"""
+    from app.api.routes import settings as settings_module
+
+    class FakeLLM:
+        async def list_models(self):
+            return ["m-a", "m-b"]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        monkeypatch.setattr(settings_module, "build_llm", lambda cfg: FakeLLM())
+        resp = await client.post(
+            "/api/v1/settings/llm/models",
+            json={"base_url": "https://api.example.com", "api_key": "sk-unsaved"},
+            headers=authed_headers,
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["models"] == ["m-a", "m-b"]
+    assert data["source"] == "user"
+
+
+async def test_post_models_without_key_uses_saved(monkeypatch, authed_headers: dict) -> None:
+    """未传 Key 时回退已存配置（authed_headers 默认已配）。"""
+    from app.api.routes import settings as settings_module
+
+    class FakeLLM:
+        async def list_models(self):
+            return ["saved-model"]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        monkeypatch.setattr(settings_module, "build_llm", lambda cfg: FakeLLM())
+        resp = await client.post(
+            "/api/v1/settings/llm/models",
+            json={"base_url": "https://api.example.com"},
+            headers=authed_headers,
+        )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["source"] == "user"
+
+
+async def test_post_models_without_any_config_400(
+    monkeypatch, unconfigured_headers: dict
+) -> None:
+    from app.api.routes import settings as settings_module
+
+    monkeypatch.setattr(settings_module, "admin_env_config", lambda user: None)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/settings/llm/models",
+            json={"base_url": "https://api.example.com"},
+            headers=unconfigured_headers,
+        )
+    assert resp.status_code == 400
+
+
+async def test_post_models_upstream_error_502(monkeypatch, authed_headers: dict) -> None:
+    from app.api.routes import settings as settings_module
+
+    class BadLLM:
+        async def list_models(self):
+            raise RuntimeError("401 unauthorized")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        monkeypatch.setattr(settings_module, "build_llm", lambda cfg: BadLLM())
+        resp = await client.post(
+            "/api/v1/settings/llm/models",
+            json={"base_url": "https://api.example.com", "api_key": "sk-bad"},
+            headers=authed_headers,
+        )
+    assert resp.status_code == 502
+    assert "获取模型列表失败" in resp.json()["message"]

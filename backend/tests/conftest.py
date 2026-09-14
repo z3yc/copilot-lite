@@ -19,18 +19,26 @@ os.environ.setdefault("DEEPSEEK_API_KEY", "test-key-not-real")
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.models
-from app.core.db import Base, engine
+from app.core.crypto import encrypt_secret
+from app.core.db import Base, async_session_factory, engine
 from app.main import app
+from app.models import LLMSetting
 
 _TEST_DB = "test_copilot.db"
 
 
 @pytest.fixture
 async def authed_headers() -> dict:
-    """建表 + 注册测试用户，返回 Authorization 头与用户 id。"""
+    """建表 + 注册测试用户，返回 Authorization 头与用户 id。
+
+    默认给该用户播种一份**假的个人模型配置**：聊天链路要求用户自配 Key
+    （env Key 仅超级管理员可用），所以绝大多数用例需要一个“已配置”的用户。
+    需要“新账号未配置”语义时改用 `unconfigured_headers`。
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     transport = ASGITransport(app=app)
@@ -44,7 +52,30 @@ async def authed_headers() -> dict:
         )
         assert resp.status_code == 200, resp.text
         data = resp.json()["data"]
+    async with async_session_factory() as db:
+        db.add(
+            LLMSetting(
+                user_id=_uuid.UUID(data["user"]["id"]),
+                base_url="https://api.example.com",
+                model="test-model",
+                api_key_encrypted=encrypt_secret("sk-test-user-key"),
+            )
+        )
+        await db.commit()
     return {"Authorization": f"Bearer {data['token']}", "uid": data["user"]["id"]}
+
+
+@pytest.fixture
+async def unconfigured_headers(authed_headers: dict) -> dict:
+    """已登录但未自配模型 Key 的用户（模拟新注册账号）。"""
+    async with async_session_factory() as db:
+        await db.execute(
+            delete(LLMSetting).where(
+                LLMSetting.user_id == _uuid.UUID(authed_headers["uid"])
+            )
+        )
+        await db.commit()
+    return authed_headers
 
 
 @pytest.fixture(autouse=True)

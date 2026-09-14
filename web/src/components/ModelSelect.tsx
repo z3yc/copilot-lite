@@ -13,7 +13,7 @@ interface Props {
  *
  * - 已配置个人 Key：按 Base URL + Key 拉取可用模型，切换后持久化到用户配置；
  * - 未配置 Key：显示「未配置模型」引导去配置；
- * - 使用环境变量默认（管理员配置）：模型只读，避免写入无 Key 的用户配置而失效。
+ * - 使用环境变量 Key（管理员）：模型同样可选，切换后写入用户记录（Key 仍用 env）。
  */
 export default function ModelSelect({ onOpenSettings }: Props) {
   const [llm, setLlm] = useState<LLMSettings | null>(null);
@@ -97,14 +97,13 @@ export default function ModelSelect({ onOpenSettings }: Props) {
     );
   }
 
-  const envControlled = llm.source === "env";
   const select = (
     <Select
       size="small"
       aria-label="选择模型"
       value={llm.model}
       loading={loading || saving}
-      disabled={envControlled || saving}
+      disabled={saving}
       onChange={changeModel}
       options={models.map((m) => ({ value: m, label: m }))}
       style={{ minWidth: 150 }}
@@ -112,8 +111,8 @@ export default function ModelSelect({ onOpenSettings }: Props) {
     />
   );
 
-  return envControlled ? (
-    <Tooltip title="当前使用环境变量默认模型（由管理员配置）">{select}</Tooltip>
+  return llm.source === "env" ? (
+    <Tooltip title="Key 来自环境变量（部署方）；模型可按需切换">{select}</Tooltip>
   ) : (
     select
   );

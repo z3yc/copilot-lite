@@ -55,11 +55,42 @@ def _as_uuid(value) -> uuid.UUID | None:
         return None
 
 
+async def _load_user(db: AsyncSession, user_id, user: User | None = None) -> User | None:
+    if user is not None:
+        return user
+    uid = _as_uuid(user_id)
+    return await db.get(User, uid) if uid else None
+
+
+async def resolve_effective_llm_config(
+    db: AsyncSession, user_id, user: User | None = None
+) -> LLMConfig | None:
+    """当前用户真正生效的模型配置。
+
+    - 有个人 Key → 用个人配置；
+    - 否则若为超级管理员 → 用 env Key 兜底，并允许用已存记录覆盖
+      `model / temperature / max_tokens`（保留 env 的 Key 与 Base URL）；
+    - 其他 → None（前端引导去配置）。
+    """
+    config = await resolve_user_llm_config(db, user_id)
+    if config is not None:
+        return config
+    owner = await _load_user(db, user_id, user)
+    env = admin_env_config(owner)
+    if env is None or owner is None:
+        return env
+    row = await get_user_setting(db, owner.id)
+    if row is not None and row.model:
+        return LLMConfig(
+            api_key=env.api_key,
+            base_url=env.base_url,
+            model=row.model,
+            temperature=row.temperature,
+            max_tokens=row.max_tokens,
+        )
+    return env
+
+
 async def apply_user_llm_config(db: AsyncSession, user_id) -> None:
     """写入当前请求的有效模型配置（用户自配优先，管理员可 env 兜底，其余 None）。"""
-    config = await resolve_user_llm_config(db, user_id)
-    if config is None:
-        uid = _as_uuid(user_id)
-        user = await db.get(User, uid) if uid else None
-        config = admin_env_config(user)
-    set_llm_config(config)
+    set_llm_config(await resolve_effective_llm_config(db, user_id))

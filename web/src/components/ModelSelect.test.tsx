@@ -98,16 +98,34 @@ describe("ModelSelect", () => {
     await waitFor(() => expect(screen.getByText("deepseek-chat")).toBeInTheDocument());
   });
 
-  it("使用环境变量默认时模型只读", async () => {
+  it("使用环境变量 Key（管理员）时模型同样可选并持久化", async () => {
     mocked.fetchLlmSettings.mockResolvedValue({ ...userSettings, source: "env" });
     mocked.fetchLlmModels.mockResolvedValue({
-      models: ["deepseek-chat"],
+      models: ["deepseek-chat", "deepseek-reasoner"],
       current: "deepseek-chat",
       source: "env",
     });
+    mocked.saveLlmSettings.mockResolvedValue({
+      ...userSettings,
+      source: "env",
+      model: "deepseek-reasoner",
+    });
     render(<ModelSelect />);
 
-    const combo = await screen.findByRole("combobox", { name: "选择模型" });
-    await waitFor(() => expect(combo).toBeDisabled());
+    // 等初始占位 Select 被真实（可交互）Select 替换
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "选择模型" })).not.toBeDisabled()
+    );
+    const combo = screen.getByRole("combobox", { name: "选择模型" });
+    await userEvent.click(combo);
+    await userEvent.click(await screen.findByTitle("deepseek-reasoner"));
+    await waitFor(() =>
+      expect(mocked.saveLlmSettings).toHaveBeenCalledWith({
+        base_url: "https://api.example.com",
+        model: "deepseek-reasoner",
+        temperature: 0.5,
+        max_tokens: 1024,
+      })
+    );
   });
 });

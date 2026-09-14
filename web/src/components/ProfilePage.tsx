@@ -599,6 +599,11 @@ export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props
                         <AutoComplete
                           options={modelOptions.map((m) => ({ value: m }))}
                           placeholder="deepseek-chat（可点右侧「获取模型」拉取列表）"
+                          onFocus={() => {
+                            if (modelOptions.length === 0 && llm?.api_key_set) {
+                              void loadModelOptions();
+                            }
+                          }}
                           filterOption={(input, option) =>
                             String(option?.value ?? "")
                               .toLowerCase()

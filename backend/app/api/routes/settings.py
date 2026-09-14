@@ -19,6 +19,7 @@ from app.core.llm import LLMConfig, build_llm
 from app.core.llm_settings import (
     admin_env_config,
     get_user_setting,
+    resolve_effective_llm_config,
     resolve_user_llm_config,
 )
 from app.models import LLMSetting, User
@@ -100,11 +101,12 @@ async def get_llm_settings(
         )
     env = admin_env_config(user)
     if env is not None:
+        # 管理员：Key 用 env，但允许已存记录的 model/温度/tokens 覆盖
         return LLMSettingsOut(
             base_url=env.base_url,
-            model=env.model,
-            temperature=0.7,
-            max_tokens=env.max_tokens or 2048,
+            model=row.model if row is not None and row.model else env.model,
+            temperature=row.temperature if row is not None else 0.7,
+            max_tokens=row.max_tokens if row is not None else (env.max_tokens or 2048),
             api_key_set=True,
             api_key_preview=mask_secret(env.api_key),
             source="env",
@@ -131,7 +133,7 @@ async def list_llm_models(
     上游不提供 /models 时返回 502，前端回退为当前模型。
     """
     user_config = await resolve_user_llm_config(db, user.id)
-    config = user_config or admin_env_config(user)
+    config = await resolve_effective_llm_config(db, user.id, user)
     if config is None:
         raise HTTPException(
             status_code=400,
@@ -177,7 +179,7 @@ async def list_llm_models_with_key(
         source = "user"
     else:
         user_config = await resolve_user_llm_config(db, user.id)
-        config = user_config or admin_env_config(user)
+        config = await resolve_effective_llm_config(db, user.id, user)
         if config is None:
             raise HTTPException(
                 status_code=400,
@@ -262,7 +264,7 @@ async def test_llm_settings(
             max_tokens=req.max_tokens,
         )
     else:
-        config = await resolve_user_llm_config(db, user.id) or admin_env_config(user)
+        config = await resolve_effective_llm_config(db, user.id, user)
         if config is None:
             raise HTTPException(status_code=400, detail="未提供 API Key，且无可用的已存/环境配置")
         config = LLMConfig(

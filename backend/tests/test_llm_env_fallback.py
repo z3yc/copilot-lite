@@ -121,6 +121,41 @@ async def test_admin_personal_key_wins(authed_headers):
     assert data["model"] == "admin-own-model"
 
 
+async def test_admin_model_choice_persists_with_env_key(unconfigured_headers):
+    """管理员用 env Key 时也能在前端选模型：model 覆盖 env 默认并回显/生效。"""
+    uid = unconfigured_headers["uid"]
+    await _promote_admin(uid)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        put = await client.put(
+            "/api/v1/settings/llm",
+            json={
+                "base_url": "https://api.deepseek.com",
+                "model": "deepseek-reasoner",
+                "temperature": 0.5,
+                "max_tokens": 1024,
+            },
+            headers=unconfigured_headers,
+        )
+        assert put.status_code == 200, put.text
+        assert put.json()["data"]["source"] == "env"
+        assert put.json()["data"]["model"] == "deepseek-reasoner"
+        got = await _settings(client, unconfigured_headers)
+    assert got["source"] == "env"
+    assert got["model"] == "deepseek-reasoner"
+
+    # 生效配置 = env 的 Key/URL + 自选 model/温度/tokens
+    from app.core.llm_settings import resolve_effective_llm_config
+
+    async with async_session_factory() as db:
+        cfg = await resolve_effective_llm_config(db, uuid.UUID(uid))
+    assert cfg is not None
+    assert cfg.api_key == settings.DEEPSEEK_API_KEY
+    assert cfg.model == "deepseek-reasoner"
+    assert cfg.temperature == 0.5
+    assert cfg.max_tokens == 1024
+
+
 # ---------------- 超级管理员种子 ----------------
 
 

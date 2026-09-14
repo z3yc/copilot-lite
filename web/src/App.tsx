@@ -164,6 +164,12 @@ export default function App() {
     setShowProfile(true);
   }, []);
 
+  // 退出管理后台/个人主页，回到工作区（点侧栏页签时调用，避免页签成为死控件）
+  const closeOverlays = useCallback(() => {
+    setShowAdmin(false);
+    setShowProfile(false);
+  }, []);
+
   const logout = () => {
     clearToken();
     setAuthed(false);
@@ -229,7 +235,12 @@ export default function App() {
             <div style={{ padding: "12px 12px 0" }}>
               <Tabs
                 activeKey={tab}
-                onChange={(k) => setTab(k as "chat" | "kb" | "wiki" | "todo")}
+                onChange={(k) => {
+                  setTab(k as "chat" | "kb" | "wiki" | "todo");
+                  closeOverlays();
+                }}
+                // 覆盖视图打开时，点当前已激活的页签也应退出（onChange 不会触发）
+                onTabClick={() => closeOverlays()}
                 centered
                 items={[
                   {
@@ -267,7 +278,12 @@ export default function App() {
                 ]}
               />
             </div>
-            {tab === "chat" ? (
+            {/*
+              工作区目录仅在「工作区」模式显示：管理后台/个人主页打开时隐藏，
+              避免出现空白目录区，以及「点了没有可见反应」的假控件。
+              顶部页签始终作为全局导航可用——点击即退出覆盖视图。
+            */}
+            {showAdmin || showProfile ? null : tab === "chat" ? (
               <SessionList
                 activeId={sessionId}
                 onSelect={selectSession}

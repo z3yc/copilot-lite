@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  AutoComplete,
   Avatar,
   Button,
   Card,
@@ -32,6 +33,7 @@ import {
   FileTextOutlined,
   LockOutlined,
   MessageOutlined,
+  ReloadOutlined,
   RobotOutlined,
   SettingOutlined,
   TagsOutlined,
@@ -43,6 +45,8 @@ import {
   deleteMemory,
   deleteSession,
   deleteTodo,
+  fetchLlmModels,
+  fetchLlmModelsWithKey,
   fetchLlmSettings,
   fetchMemories,
   fetchProfile,
@@ -76,6 +80,8 @@ export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props
   const [llmForm] = Form.useForm();
   const [savingLlm, setSavingLlm] = useState(false);
   const [testingLlm, setTestingLlm] = useState(false);
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
 
   // 我的会话
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -83,6 +89,41 @@ export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props
   const [todos, setTodos] = useState<TodoItem[]>([]);
   // 我的记忆
   const [memories, setMemories] = useState<MemoryItem[]>([]);
+
+  /** 按已存配置预加载模型候选（未配置/上游不支持时静默，保留手输）。 */
+  const loadModelOptions = useCallback(async () => {
+    try {
+      const res = await fetchLlmModels();
+      setModelOptions(res.models ?? []);
+    } catch {
+      // 未配置 Key 或上游无 /models：忽略，用户可点“获取模型”或手输
+    }
+  }, []);
+
+  /** 用表单当前（可能未保存）的 Base URL / Key 拉取模型列表。 */
+  const fetchModels = async () => {
+    const values = llmForm.getFieldsValue(["base_url", "api_key"]);
+    setFetchingModels(true);
+    try {
+      const res = await fetchLlmModelsWithKey({
+        base_url: values.base_url,
+        api_key: values.api_key || undefined,
+      });
+      const list = res.models ?? [];
+      setModelOptions(list);
+      if (!llmForm.getFieldValue("model") && list.length > 0) {
+        llmForm.setFieldValue(
+          "model",
+          res.current && list.includes(res.current) ? res.current : list[0]
+        );
+      }
+      message.success(`已获取 ${list.length} 个可用模型`);
+    } catch (err) {
+      message.error(`${err}`);
+    } finally {
+      setFetchingModels(false);
+    }
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -99,6 +140,7 @@ export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props
           temperature: s.temperature,
           max_tokens: s.max_tokens,
         });
+        if (s.api_key_set) void loadModelOptions();
       }),
     ]);
     const failures = results.filter((r) => r.status === "rejected");
@@ -110,7 +152,7 @@ export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props
       message.error("部分数据加载失败，请稍后重试");
     }
     setLoading(false);
-  }, [llmForm]);
+  }, [llmForm, loadModelOptions]);
 
   useEffect(() => {
     loadData();
@@ -148,6 +190,7 @@ export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props
       });
       setLlm(saved);
       llmForm.setFieldValue("api_key", "");
+      void loadModelOptions();
       message.success("模型配置已保存");
     } catch (err) {
       message.error(`${err}`);
@@ -546,12 +589,31 @@ export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props
                   >
                     <Input placeholder="https://api.deepseek.com" />
                   </Form.Item>
-                  <Form.Item
-                    name="model"
-                    label="模型名称"
-                    rules={[{ required: true, message: "请输入模型名称" }]}
-                  >
-                    <Input placeholder="deepseek-chat" />
+                  <Form.Item label="模型名称" required>
+                    <Space.Compact style={{ width: "100%" }}>
+                      <Form.Item
+                        name="model"
+                        noStyle
+                        rules={[{ required: true, message: "请输入或获取模型名称" }]}
+                      >
+                        <AutoComplete
+                          options={modelOptions.map((m) => ({ value: m }))}
+                          placeholder="deepseek-chat（可点右侧「获取模型」拉取列表）"
+                          filterOption={(input, option) =>
+                            String(option?.value ?? "")
+                              .toLowerCase()
+                              .includes(input.toLowerCase())
+                          }
+                        />
+                      </Form.Item>
+                      <Button
+                        icon={<ReloadOutlined />}
+                        loading={fetchingModels}
+                        onClick={fetchModels}
+                      >
+                        获取模型
+                      </Button>
+                    </Space.Compact>
                   </Form.Item>
                   <Form.Item
                     name="api_key"

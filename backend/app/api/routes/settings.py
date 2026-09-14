@@ -71,6 +71,15 @@ class LLMTestIn(BaseModel):
     _check_url = field_validator("base_url")(_validate_url)
 
 
+class LLMModelsIn(BaseModel):
+    """配置页拉模型列表：用表单中尚未保存的 Base URL / Key。"""
+
+    base_url: str = DEFAULT_BASE_URL
+    api_key: str | None = Field(default=None, max_length=512)
+
+    _check_url = field_validator("base_url")(_validate_url)
+
+
 @router.get("/llm", response_model=LLMSettingsOut)
 async def get_llm_settings(
     db: AsyncSession = Depends(get_session),
@@ -142,6 +151,49 @@ async def list_llm_models(
         current=config.model,
         source="user" if user_config is not None else "env",
     )
+
+
+@router.post("/llm/models", response_model=LLMModelsOut)
+async def list_llm_models_with_key(
+    req: LLMModelsIn,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> LLMModelsOut:
+    """按配置页中**尚未保存**的 Base URL / Key 拉取模型列表。
+
+    解决“模型名要先填才能保存、但模型名应从列表选”的死循环：
+    - 传了 api_key → 用表单里的 Key/URL 直接拉取（**不落库**，Key 走请求体不入 URL/日志）；
+    - 未传 → 回退已存用户配置 / 管理员 env。
+    """
+    api_key = (req.api_key or "").strip()
+    if api_key:
+        config = LLMConfig(
+            api_key=api_key,
+            base_url=req.base_url,
+            model=DEFAULT_MODEL,
+            temperature=0.0,
+            max_tokens=1,
+        )
+        source = "user"
+    else:
+        user_config = await resolve_user_llm_config(db, user.id)
+        config = user_config or admin_env_config(user)
+        if config is None:
+            raise HTTPException(
+                status_code=400,
+                detail="未配置 API Key，请先在「个人主页 → 模型设置」中配置",
+            )
+        source = "user" if user_config is not None else "env"
+
+    client = build_llm(config)
+    try:
+        models = await client.list_models()
+    except Exception as exc:  # 上游网关差异需回显给用户
+        logger.warning("获取模型列表失败: %s", exc)
+        raise HTTPException(
+            status_code=502, detail=f"获取模型列表失败：{str(exc)[:200]}"
+        ) from exc
+    return LLMModelsOut(models=models, current=config.model, source=source)
 
 
 @router.put("/llm", response_model=LLMSettingsOut)

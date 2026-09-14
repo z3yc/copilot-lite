@@ -332,3 +332,83 @@ async def test_list_models_without_any_config(monkeypatch, unconfigured_headers:
         resp = await client.get("/api/v1/settings/llm/models", headers=unconfigured_headers)
     assert resp.status_code == 400
     assert "未配置 API Key" in resp.json()["message"]
+
+
+# ---------------- 配置页：用未保存的 Key 拉模型列表（POST） ----------------
+
+
+async def test_post_models_with_unsaved_key(monkeypatch, authed_headers: dict) -> None:
+    """配置页可用表单中尚未保存的 Base URL / Key 拉取模型列表。"""
+    from app.api.routes import settings as settings_module
+
+    class FakeLLM:
+        async def list_models(self):
+            return ["m-a", "m-b"]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        monkeypatch.setattr(settings_module, "build_llm", lambda cfg: FakeLLM())
+        resp = await client.post(
+            "/api/v1/settings/llm/models",
+            json={"base_url": "https://api.example.com", "api_key": "sk-unsaved"},
+            headers=authed_headers,
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["models"] == ["m-a", "m-b"]
+    assert data["source"] == "user"
+
+
+async def test_post_models_without_key_uses_saved(monkeypatch, authed_headers: dict) -> None:
+    """未传 Key 时回退已存配置（authed_headers 默认已配）。"""
+    from app.api.routes import settings as settings_module
+
+    class FakeLLM:
+        async def list_models(self):
+            return ["saved-model"]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        monkeypatch.setattr(settings_module, "build_llm", lambda cfg: FakeLLM())
+        resp = await client.post(
+            "/api/v1/settings/llm/models",
+            json={"base_url": "https://api.example.com"},
+            headers=authed_headers,
+        )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["source"] == "user"
+
+
+async def test_post_models_without_any_config_400(
+    monkeypatch, unconfigured_headers: dict
+) -> None:
+    from app.api.routes import settings as settings_module
+
+    monkeypatch.setattr(settings_module, "admin_env_config", lambda user: None)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/settings/llm/models",
+            json={"base_url": "https://api.example.com"},
+            headers=unconfigured_headers,
+        )
+    assert resp.status_code == 400
+
+
+async def test_post_models_upstream_error_502(monkeypatch, authed_headers: dict) -> None:
+    from app.api.routes import settings as settings_module
+
+    class BadLLM:
+        async def list_models(self):
+            raise RuntimeError("401 unauthorized")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        monkeypatch.setattr(settings_module, "build_llm", lambda cfg: BadLLM())
+        resp = await client.post(
+            "/api/v1/settings/llm/models",
+            json={"base_url": "https://api.example.com", "api_key": "sk-bad"},
+            headers=authed_headers,
+        )
+    assert resp.status_code == 502
+    assert "获取模型列表失败" in resp.json()["message"]

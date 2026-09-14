@@ -424,3 +424,32 @@ async def test_user_handlers_direct(db_session, admin_headers) -> None:
             admin=admin_user,
         )
         assert empty.total == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_endpoints_do_not_leak_secrets(client, admin_headers) -> None:
+    """脱敏红线：管理接口只回元数据，泄露密码哈希/密钥/token 视为回归（§8/N1.9）。"""
+    data = await _create_user(client, admin_headers, f"mask{uuid.uuid4().hex[:6]}")
+    forbidden = {
+        "password",
+        "password_hash",
+        "api_key",
+        "api_key_encrypted",
+        "token",
+        "token_version",
+    }
+
+    r = await client.get(f"/api/v1/admin/users/{data['id']}", headers=admin_headers)
+    assert r.status_code == 200
+    assert forbidden.isdisjoint(r.json()["data"].keys())
+
+    r = await client.get("/api/v1/admin/users", headers=admin_headers)
+    assert r.status_code == 200
+    for item in r.json()["data"]["items"]:
+        assert forbidden.isdisjoint(item.keys())
+
+    # 审计查询也不回密钥
+    r = await client.get("/api/v1/admin/audit", headers=admin_headers)
+    assert r.status_code == 200
+    for item in r.json()["data"]["items"]:
+        assert forbidden.isdisjoint((item.get("meta") or {}).keys())

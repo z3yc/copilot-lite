@@ -21,6 +21,7 @@ import {
   BookOutlined,
   BulbOutlined,
   CheckSquareOutlined,
+  DashboardOutlined,
   LogoutOutlined,
   MessageOutlined,
   MoonOutlined,
@@ -31,6 +32,7 @@ import { SiderNavContext } from "./contexts/SiderNav";
 import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
 import { keyboardActivate } from "./utils/a11y";
 import ApiKeyOnboarding from "./components/ApiKeyOnboarding";
+import AdminPanel from "./components/AdminPanel";
 import ChatPanel from "./components/ChatPanel";
 import DocCategoryNav from "./components/DocCategoryNav";
 import KbPanel from "./components/KbPanel";
@@ -58,6 +60,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [activeCat, setActiveCat] = useState<string>("all");
   const [showProfile, setShowProfile] = useState(false);
+  // 管理后台（仅管理员入口可见；后端 require_admin 强制鉴权）
+  const [showAdmin, setShowAdmin] = useState(false);
   // 打开个人主页时定位的页签（未配置 Key 时直达「模型设置」）
   const [profileTab, setProfileTab] = useState("overview");
   const [me, setMe] = useState<Profile | null>(null);
@@ -155,8 +159,15 @@ export default function App() {
   };
 
   const openProfile = useCallback((tab = "overview") => {
+    setShowAdmin(false);
     setProfileTab(tab);
     setShowProfile(true);
+  }, []);
+
+  // 退出管理后台/个人主页，回到工作区（点侧栏页签时调用，避免页签成为死控件）
+  const closeOverlays = useCallback(() => {
+    setShowAdmin(false);
+    setShowProfile(false);
   }, []);
 
   const logout = () => {
@@ -164,6 +175,7 @@ export default function App() {
     setAuthed(false);
     setSessionId(null);
     setMessages([]);
+    setShowAdmin(false);
   };
 
   useEffect(() => {
@@ -223,7 +235,12 @@ export default function App() {
             <div style={{ padding: "12px 12px 0" }}>
               <Tabs
                 activeKey={tab}
-                onChange={(k) => setTab(k as "chat" | "kb" | "wiki" | "todo")}
+                onChange={(k) => {
+                  setTab(k as "chat" | "kb" | "wiki" | "todo");
+                  closeOverlays();
+                }}
+                // 覆盖视图打开时，点当前已激活的页签也应退出（onChange 不会触发）
+                onTabClick={() => closeOverlays()}
                 centered
                 items={[
                   {
@@ -261,7 +278,12 @@ export default function App() {
                 ]}
               />
             </div>
-            {tab === "chat" ? (
+            {/*
+              工作区目录仅在「工作区」模式显示：管理后台/个人主页打开时隐藏，
+              避免出现空白目录区，以及「点了没有可见反应」的假控件。
+              顶部页签始终作为全局导航可用——点击即退出覆盖视图。
+            */}
+            {showAdmin || showProfile ? null : tab === "chat" ? (
               <SessionList
                 activeId={sessionId}
                 onSelect={selectSession}
@@ -299,6 +321,20 @@ export default function App() {
                   </span>
                 </Space>
                 <Space size={4}>
+                  {me?.role === "admin" ? (
+                    <Tooltip title="管理后台">
+                      <Button
+                        type="text"
+                        size="small"
+                        aria-label="管理后台"
+                        icon={<DashboardOutlined />}
+                        onClick={() => {
+                          setShowProfile(false);
+                          setShowAdmin(true);
+                        }}
+                      />
+                    </Tooltip>
+                  ) : null}
                   <Tooltip title={dark ? "切换到亮色模式" : "切换到暗色模式"}>
                     <Button
                       type="text"
@@ -337,7 +373,9 @@ export default function App() {
             />
           )}
           <Content style={{ display: "flex", overflow: "hidden" }}>
-            {showProfile ? (
+            {showAdmin ? (
+              <AdminPanel onBack={() => setShowAdmin(false)} />
+            ) : showProfile ? (
               <ProfilePage
                 initialTab={profileTab}
                 onBack={() => setShowProfile(false)}

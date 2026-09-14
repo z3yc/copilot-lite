@@ -62,6 +62,24 @@ async def test_ingest_markdown(db_session, vector_store) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ingest_writes_source_type_to_payload(db_session, vector_store) -> None:
+    """摄取时把 source_type 写入 Qdrant payload（per-source 切片前置，N0.4）。"""
+    content = "# 标题\n\n内容。\n".encode()
+    doc = Document(user_id=DEFAULT_USER_ID, title="wiki 页面.md", source_type="wiki")
+    db_session.add(doc)
+    await db_session.commit()
+    await db_session.refresh(doc)
+
+    await ingest_document(db_session, doc, content, FakeEmbeddings(), vector_store)
+
+    points, _ = vector_store._client.scroll(
+        collection_name=vector_store.collection, limit=10, with_payload=True
+    )
+    assert points, "应有向量点"
+    assert all(p.payload.get("source_type") == "wiki" for p in points)
+
+
+@pytest.mark.asyncio
 async def test_ingest_unsupported_type(db_session, vector_store) -> None:
     """不支持的文档类型抛 IngestError。"""
     doc = Document(user_id=DEFAULT_USER_ID, title="x.xyz", source_type="xyz")

@@ -696,3 +696,26 @@ body.dark .login-wrap {
     display: none;
   }
 }
+
+/* ---- 管理后台（ADMIN_PLAN N1.8）---- */
+.admin-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+.admin-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.admin-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 20px 32px;
+}

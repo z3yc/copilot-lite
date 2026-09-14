@@ -1,4 +1,11 @@
 import type {
+  AdminAuditItem,
+  AdminEvalRun,
+  AdminKnowledge,
+  AdminOverview,
+  AdminUsagePoint,
+  AdminUser,
+  AdminUserDetail,
   Category,
   ChatMessage,
   DocDetail,
@@ -350,6 +357,123 @@ export const saveLlmSettings = (data: LLMSettingsPayload) =>
 
 export const deleteLlmSettings = () =>
   request<{ ok: boolean; message: string }>("/settings/llm", { method: "DELETE" });
+
+// ---- 管理后台（仅管理员；非管理员后端 403）----
+export const fetchAdminOverview = () => request<AdminOverview>("/admin/overview");
+
+export const fetchAdminUsage = (days = 7, userId?: string) => {
+  const params = new URLSearchParams({ days: String(days) });
+  if (userId) params.set("user_id", userId);
+  return request<AdminUsagePoint[]>(`/admin/usage?${params.toString()}`);
+};
+
+export interface AdminUserQuery {
+  q?: string;
+  role?: string;
+  status?: string;
+  include_deleted?: boolean;
+  page?: number;
+  page_size?: number;
+}
+
+export const fetchAdminUsers = (query: AdminUserQuery = {}) => {
+  const params = new URLSearchParams();
+  if (query.q) params.set("q", query.q);
+  if (query.role) params.set("role", query.role);
+  if (query.status) params.set("status", query.status);
+  if (query.include_deleted) params.set("include_deleted", "true");
+  params.set("page", String(query.page ?? 1));
+  params.set("page_size", String(query.page_size ?? 20));
+  return request<Page<AdminUser>>(`/admin/users?${params.toString()}`);
+};
+
+export const fetchAdminUser = (id: string) =>
+  request<AdminUserDetail>(`/admin/users/${id}`);
+
+export const createAdminUser = (data: {
+  username: string;
+  password: string;
+  role: string;
+}) =>
+  request<AdminUser>("/admin/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+export const updateAdminUser = (
+  id: string,
+  data: { role?: string; status?: string; password?: string }
+) =>
+  request<AdminUserDetail>(`/admin/users/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+export const deleteAdminUser = (id: string, reason?: string) =>
+  request<{ deleted: string; soft: boolean }>(`/admin/users/${id}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+
+export const restoreAdminUser = (id: string) =>
+  request<{ id: string; soft: boolean; message: string }>(
+    `/admin/users/${id}/restore`,
+    { method: "POST" }
+  );
+
+export const forceLogoutAdminUser = (id: string) =>
+  request<{ id: string; soft: boolean; message: string }>(
+    `/admin/users/${id}/force-logout`,
+    { method: "POST" }
+  );
+
+export const fetchAdminKnowledge = () =>
+  request<AdminKnowledge>("/admin/knowledge");
+
+export const fetchAdminAudit = (query: {
+  action?: string;
+  user_id?: string;
+  request_id?: string;
+  result?: string;
+  page?: number;
+  page_size?: number;
+} = {}) => {
+  const params = new URLSearchParams();
+  if (query.action) params.set("action", query.action);
+  if (query.user_id) params.set("user_id", query.user_id);
+  if (query.request_id) params.set("request_id", query.request_id);
+  if (query.result) params.set("result", query.result);
+  params.set("page", String(query.page ?? 1));
+  params.set("page_size", String(query.page_size ?? 20));
+  return request<Page<AdminAuditItem>>(`/admin/audit?${params.toString()}`);
+};
+
+export const fetchAdminEvalRuns = (query: {
+  status?: string;
+  source_scope?: string;
+  page?: number;
+  page_size?: number;
+} = {}) => {
+  const params = new URLSearchParams();
+  if (query.status) params.set("status", query.status);
+  if (query.source_scope) params.set("source_scope", query.source_scope);
+  params.set("page", String(query.page ?? 1));
+  params.set("page_size", String(query.page_size ?? 20));
+  return request<Page<AdminEvalRun>>(`/admin/eval/runs?${params.toString()}`);
+};
+
+export const createAdminEvalRun = (data: {
+  source_scope?: string;
+  trigger?: string;
+} = {}) =>
+  request<AdminEvalRun>("/admin/eval/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
 
 export const testLlmSettings = (data: {
   base_url: string;

@@ -22,6 +22,7 @@ export default defineConfig({
         manualChunks: {
           antd: ["antd", "@ant-design/icons"],
           react: ["react", "react-dom"],
+          charts: ["recharts"],
         },
       },
     },

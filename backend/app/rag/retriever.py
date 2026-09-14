@@ -49,6 +49,8 @@ class RetrievedChunk:
     score: float
     # 来源文档 id（供 Wiki 双链邻居扩展等按文档关联）
     document_id: str = ""
+    # 来源类型（md/pdf/wiki/...），per-source 切片用（ADMIN_PLAN N0.4）
+    source_type: str = ""
 
 
 def _tokenize(query: str) -> list[str]:
@@ -85,17 +87,18 @@ async def _bm25_search(
         return []
 
     conditions = [Chunk.content.ilike(f"%{term}%") for term in terms[:12]]
-    stmt = select(Chunk).where(Chunk.deleted_at.is_(None))
+    stmt = (
+        select(Chunk, Document.source_type)
+        .join(Document, Chunk.document_id == Document.id)
+        .where(Chunk.deleted_at.is_(None), Document.deleted_at.is_(None))
+    )
     if user_id:
-        stmt = stmt.join(Document, Chunk.document_id == Document.id).where(
-            Document.user_id == uuid.UUID(str(user_id)),
-            Document.deleted_at.is_(None),
-        )
+        stmt = stmt.where(Document.user_id == uuid.UUID(str(user_id)))
     stmt = stmt.where(or_(*conditions)).limit(top_k * 5)
-    rows = (await db.scalars(stmt)).all()
+    rows = (await db.execute(stmt)).all()
 
     hits: list[SearchHit] = []
-    for row in rows:
+    for row, source_type in rows:
         # 命中词数占比作为简化 BM25 分数
         hit_terms = sum(1 for t in terms if t in row.content)
         if hit_terms == 0:
@@ -107,6 +110,7 @@ async def _bm25_search(
                 content=row.content,
                 score=hit_terms / len(terms),
                 meta=row.meta,
+                source_type=source_type or "",
             )
         )
     hits.sort(key=lambda h: h.score, reverse=True)
@@ -126,15 +130,25 @@ def _rrf_fuse(
             key = h.chunk_id
             if key in scores:
                 scores[key][0] += 1.0 / (RRF_K + rank)
+                # 补充来源类型（向量/BM25 两路可能只有一路携带）
+                if not scores[key][4] and h.source_type:
+                    scores[key][4] = h.source_type
             else:
-                scores[key] = [1.0 / (RRF_K + rank), h.content, h.meta, h.document_id]
+                scores[key] = [
+                    1.0 / (RRF_K + rank), h.content, h.meta, h.document_id, h.source_type
+                ]
 
     add(vector_hits)
     add(keyword_hits)
 
     merged = [
         RetrievedChunk(
-            chunk_id=k, content=v[1], meta=v[2], score=v[0], document_id=v[3]
+            chunk_id=k,
+            content=v[1],
+            meta=v[2],
+            score=v[0],
+            document_id=v[3],
+            source_type=v[4],
         )
         for k, v in scores.items()
     ]
@@ -163,6 +177,7 @@ async def _rerank_candidates(
                 meta=c.meta,
                 score=score,
                 document_id=c.document_id,
+                source_type=c.source_type,
             )
         )
     return merged
@@ -259,6 +274,7 @@ async def multi_query_search(
             meta=h.meta,
             score=s,
             document_id=h.document_id,
+            source_type=h.source_type,
         )
         for s, h in sorted(scores.values(), key=lambda item: item[0], reverse=True)
     ]

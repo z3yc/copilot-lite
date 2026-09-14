@@ -32,6 +32,8 @@ class SearchHit:
     content: str
     score: float
     meta: dict
+    # 来源类型（md/pdf/wiki/...），供 per-source 切片（ADMIN_PLAN N0.4）
+    source_type: str = ""
 
 
 @lru_cache
@@ -125,6 +127,7 @@ class VectorStore:
                 content=h.payload.get("content", ""),
                 score=h.score,
                 meta=h.payload.get("meta", {}),
+                source_type=h.payload.get("source_type", ""),
             )
             for h in resp.points
         ]

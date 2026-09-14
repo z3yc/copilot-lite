@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     LLM_MAX_CONCURRENCY: int = 3
     # 每用户每日 token 预算（0=不限，仅统计；开启后超限返回 429）
     LLM_DAILY_TOKEN_BUDGET: int = 0
+    # 模型单价（每百万 token；0=只统计 token 不计成本）——供 usage_daily 成本看板
+    LLM_PRICE_INPUT_PER_MTOK: float = 0.0
+    LLM_PRICE_OUTPUT_PER_MTOK: float = 0.0
     # 流式请求是否请求 usage 统计（stream_options.include_usage；
     # 个别兼容网关不支持时可关闭）
     LLM_TRACK_STREAM_USAGE: bool = True
@@ -139,6 +142,16 @@ class Settings(BaseSettings):
     # 是否允许 local 空间使用**绝对文件夹路径**直接扫描：
     # 本地/自托管建议 true；云端多用户部署建议 false（仅允许受管目录/zip）
     WIKI_ALLOW_LOCAL_PATH: bool = True
+
+    # ---- 管理后台 / 评测作业（ADMIN_PLAN）----
+    # 管理后台开关：关闭后 /admin 一律 404；仅管理员（role=admin）可访问
+    ADMIN_ENABLED: bool = True
+    # 页面触发评测的后台作业开关（后台任务，测试环境默认关闭，AGENTS §8）
+    EVAL_JOB_ENABLED: bool = False
+    # 评测作业并发上限（评测跑真实嵌入 / LLM judge，必须限并发）
+    EVAL_JOB_CONCURRENCY: int = 1
+    # 单个评测作业超时（秒；超时置 failed + error，防后台无限期挂起）
+    EVAL_JOB_TIMEOUT_SECONDS: float = 600.0
 
     @model_validator(mode="after")
     def _reject_default_secret(self) -> "Settings":

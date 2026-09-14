@@ -78,6 +78,7 @@ async def ingest_document(
                     "chunk_id": str(row.id),
                     "document_id": str(document.id),
                     "user_id": str(document.user_id),
+                    "source_type": document.source_type,
                     "content": row.content,
                     "meta": row.meta,
                 },

@@ -243,11 +243,13 @@ async def _build_context(
 
 
 def _validate_llm_config() -> None:
-    """启动流式响应前校验模型配置（错误可返回 HTTP 状态码，而非 SSE 中途报错）。"""
-    if get_llm_config() is None and not settings.DEEPSEEK_API_KEY:
+    """请求前校验当前用户的有效模型配置（由 apply_user_llm_config 写入上下文）。
+
+    普通用户未自配 Key（且非管理员）→ 报错引导去前端配置；不再全局 env 兜底。
+    """
+    if get_llm_config() is None:
         raise RuntimeError(
-            "未配置模型：请在「个人中心 → 模型设置」中配置，"
-            "或在 backend/.env 设置 DEEPSEEK_API_KEY"
+            "未配置模型：请在「个人中心 → 模型设置」中配置你自己的 API Key"
         )
 
 
@@ -397,6 +399,10 @@ async def chat(
     check_token_budget(user.id)
     session = await _resolve_session(db, req.session_id, req.message, user)
     await apply_user_llm_config(db, user.id)
+    try:
+        _validate_llm_config()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     history = await _build_context(
         db, session.id, await _load_history(db, session.id), req.message, user.id,
         summary=session.summary,

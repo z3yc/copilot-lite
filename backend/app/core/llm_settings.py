@@ -1,16 +1,19 @@
 """用户模型配置的读取与应用。
 
 - `resolve_user_llm_config`：读取并解密用户配置（无配置返回 None）；
-- `apply_user_llm_config`：写入请求上下文，使 `get_llm()` 与辅助 LLM 调用
-  （查询改写/记忆提取/摘要）自动使用用户配置；None 时回退环境变量。
+- `admin_env_config`：**仅超级管理员**可用的 env Key 兜底（普通用户 None，禁止白嫖）；
+- `apply_user_llm_config`：把"用户自配优先 → 管理员 env 兜底 → 否则 None"写入请求上下文，
+  使 `get_llm()` 与辅助 LLM 调用（查询改写/记忆提取/摘要）读取到当前请求的有效配置。
 """
+
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import decrypt_secret
-from app.core.llm import LLMConfig, set_llm_config
-from app.models import LLMSetting
+from app.core.llm import LLMConfig, env_llm_config, set_llm_config
+from app.models import LLMSetting, User
 
 
 async def get_user_setting(db: AsyncSession, user_id) -> LLMSetting | None:
@@ -19,7 +22,7 @@ async def get_user_setting(db: AsyncSession, user_id) -> LLMSetting | None:
 
 
 async def resolve_user_llm_config(db: AsyncSession, user_id) -> LLMConfig | None:
-    """解析用户模型配置；未配置 / 解密失败返回 None（回退环境变量）。"""
+    """解析用户模型配置；未配置 / 解密失败返回 None。"""
     row = await get_user_setting(db, user_id)
     if row is None or not row.api_key_encrypted:
         return None
@@ -35,6 +38,28 @@ async def resolve_user_llm_config(db: AsyncSession, user_id) -> LLMConfig | None
     )
 
 
+def admin_env_config(user: User | None) -> LLMConfig | None:
+    """环境变量 Key 的兜底配置：**只有超级管理员**（role=admin）可用。
+
+    普通注册用户即使部署方在环境里配了 Key，也不得使用（禁止白嫖）。
+    """
+    if user is not None and getattr(user, "role", "") == "admin":
+        return env_llm_config()
+    return None
+
+
+def _as_uuid(value) -> uuid.UUID | None:
+    try:
+        return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+    except (ValueError, TypeError):
+        return None
+
+
 async def apply_user_llm_config(db: AsyncSession, user_id) -> None:
-    """把用户模型配置写入请求上下文（None = 回退环境变量）。"""
-    set_llm_config(await resolve_user_llm_config(db, user_id))
+    """写入当前请求的有效模型配置（用户自配优先，管理员可 env 兜底，其余 None）。"""
+    config = await resolve_user_llm_config(db, user_id)
+    if config is None:
+        uid = _as_uuid(user_id)
+        user = await db.get(User, uid) if uid else None
+        config = admin_env_config(user)
+    set_llm_config(config)

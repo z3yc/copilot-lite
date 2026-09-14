@@ -15,8 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.crypto import decrypt_secret, encrypt_secret, mask_secret
 from app.core.db import get_session
-from app.core.llm import LLMConfig, build_llm, env_llm_config
-from app.core.llm_settings import get_user_setting, resolve_user_llm_config
+from app.core.llm import LLMConfig, build_llm
+from app.core.llm_settings import (
+    admin_env_config,
+    get_user_setting,
+    resolve_user_llm_config,
+)
 from app.models import LLMSetting, User
 from app.models.llm_setting import DEFAULT_BASE_URL, DEFAULT_MODEL
 
@@ -85,7 +89,7 @@ async def get_llm_settings(
             api_key_preview=preview,
             source="user",
         )
-    env = env_llm_config()
+    env = admin_env_config(user)
     if env is not None:
         return LLMSettingsOut(
             base_url=env.base_url,
@@ -118,7 +122,7 @@ async def list_llm_models(
     上游不提供 /models 时返回 502，前端回退为当前模型。
     """
     user_config = await resolve_user_llm_config(db, user.id)
-    config = user_config or env_llm_config()
+    config = user_config or admin_env_config(user)
     if config is None:
         raise HTTPException(
             status_code=400,
@@ -172,7 +176,7 @@ async def save_llm_settings(
         max_tokens=row.max_tokens,
         api_key_set=has_key,
         api_key_preview=preview,
-        source="user" if has_key else "env",
+        source="user" if has_key else ("env" if admin_env_config(user) else "none"),
     )
 
 
@@ -206,7 +210,7 @@ async def test_llm_settings(
             max_tokens=req.max_tokens,
         )
     else:
-        config = await resolve_user_llm_config(db, user.id) or env_llm_config()
+        config = await resolve_user_llm_config(db, user.id) or admin_env_config(user)
         if config is None:
             raise HTTPException(status_code=400, detail="未提供 API Key，且无可用的已存/环境配置")
         config = LLMConfig(

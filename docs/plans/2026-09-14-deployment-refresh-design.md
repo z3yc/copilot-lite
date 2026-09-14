@@ -129,6 +129,7 @@ COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 | 构建容器不继承宿主代理 | `npm ci` 连夜失败（buildkit 不注入 HTTP(S)_PROXY） | Dockerfile.web 默认走 npmmirror 源 |
 | uv 缓存属主错误（既有） | `ENV HOME=/home/app` 先于 `useradd`，`uv sync`(root) 建了 root 属主缓存；容器以 app 用户 `uv run` 报 Permission denied 反复重启 | `chown -R app:app /app /models /home/app` |
 | 存量 pgdata 口令 | 改 `.env` 口令对已初始化卷不生效 | 文档补充排障（ALTER USER 或删 `deploy_pgdata` 卷，勿用 `down -v`） |
+| HTTPS 签发步骤不可用（既有） | `certbot --webroot` 依赖 nginx 提供 `/.well-known/acme-challenge/`，原 `nginx.conf` 无该 location、compose 也未挂载 webroot → 签发必然失败 | nginx 80 段加 `location ^~ /.well-known/acme-challenge/`（^~ 优先、不受跳转影响）+ web 常量挂载 `/var/www/certbot`；强制跳转示例从 server 级移入 `location /`；文档同步 |
 
 ## 9. 验收标准
 

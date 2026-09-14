@@ -93,6 +93,31 @@ export interface WikiPageDetail extends WikiPage {
   document_status?: string | null;
 }
 
+export interface WikiGraphNode {
+  id: string;
+  title: string;
+  slug: string;
+  space_id: string;
+  space?: string | null;
+  degree: number;
+  tags: string[];
+}
+
+export interface WikiGraphEdge {
+  source: string;
+  target: string;
+  kind: string;
+  relation?: string | null;
+}
+
+/** 知识图谱数据（节点=页面，边=已解析双链）。 */
+export interface WikiGraph {
+  nodes: WikiGraphNode[];
+  edges: WikiGraphEdge[];
+  total_nodes: number;
+  truncated: boolean;
+}
+
 // ---- 回收站（软删除）----
 export interface TrashItem {
   type: "todo" | "document" | "session" | "memory" | "wiki_page";

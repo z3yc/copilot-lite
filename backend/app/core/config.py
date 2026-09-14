@@ -123,6 +123,7 @@ class Settings(BaseSettings):
     WIKI_LINK_EXPANSION_ENABLED: bool = True
     WIKI_EXPAND_HOPS: int = 1  # 邻居扩展跳数（保留接口，当前实现 1 跳）
     WIKI_EXPAND_NEIGHBORS: int = 2  # 链接邻居最多补充的候选块数
+    WIKI_GRAPH_MAX_NODES: int = 300  # 图谱接口单次返回节点数上限（超出按度数截断）
     # 导入安全上限（防 zip 炸弹）
     WIKI_MAX_ARCHIVE_BYTES: int = 200 * 1024 * 1024  # 压缩包大小上限 200MB
     WIKI_MAX_EXTRACT_BYTES: int = 500 * 1024 * 1024  # 解压后总大小上限 500MB

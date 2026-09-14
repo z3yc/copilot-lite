@@ -26,6 +26,7 @@ from app.connectors.obsidian.importer import WikiImportError
 from app.connectors.obsidian.service import (
     WikiServiceError,
     _delete_page,
+    build_graph,
     refresh_page,
 )
 from app.core.config import settings
@@ -95,6 +96,30 @@ class SyncResult(BaseModel):
     total: int
     skipped: int = 0  # 未索引的无关文件数（不支持的扩展名）
     imported_files: int | None = None
+
+
+class GraphNode(BaseModel):
+    id: str
+    title: str
+    slug: str
+    space_id: str
+    space: str | None = None
+    degree: int = 0
+    tags: list[str] = []
+
+
+class GraphEdge(BaseModel):
+    source: str
+    target: str
+    kind: str = "link"
+    relation: str | None = None
+
+
+class GraphOut(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    total_nodes: int
+    truncated: bool = False
 
 
 # ---------------- Helpers ----------------
@@ -330,6 +355,21 @@ def _page_out(page: WikiPage, space_name: str | None = None) -> WikiPageOut:
         document_id=str(page.document_id) if page.document_id else None,
         page_type=page_type,
     )
+
+
+@router.get("/graph", response_model=GraphOut)
+async def get_wiki_graph(
+    space: str | None = None,
+    tag: str | None = None,
+    limit: int | None = None,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> GraphOut:
+    """知识图谱数据（节点=页面，边=已解析双链）；支持空间/标签过滤与节点上限。"""
+    _ensure_enabled()
+    resolved = limit if limit and limit > 0 else settings.WIKI_GRAPH_MAX_NODES
+    resolved = max(1, min(resolved, 2000))
+    return GraphOut(**await build_graph(db, user.id, space, tag, resolved))
 
 
 @router.get("/pages", response_model=PageOut[WikiPageOut])

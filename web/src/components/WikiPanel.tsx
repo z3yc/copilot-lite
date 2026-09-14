@@ -44,6 +44,7 @@ import type { WikiPage, WikiPageDetail, WikiSpace } from "../types";
 import { renderObsidian } from "../utils/obsidian";
 import { keyboardActivate } from "../utils/a11y";
 import SiderPortal from "./SiderPortal";
+import WikiGraphView from "./WikiGraph";
 
 const { Text, Title } = Typography;
 const { Dragger } = Upload;
@@ -58,6 +59,7 @@ export default function WikiPanel() {
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState("");
   const [detail, setDetail] = useState<WikiPageDetail | null>(null);
+  const [view, setView] = useState<"pages" | "graph">("pages");
   const [loading, setLoading] = useState(false);
   const [pagesError, setPagesError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -223,6 +225,7 @@ export default function WikiPanel() {
   };
 
   const openPage = async (id: string) => {
+    setView("pages");
     try {
       setDetail(await fetchWikiPage(id));
     } catch (err) {
@@ -301,6 +304,16 @@ export default function WikiPanel() {
                 </Button>
               </Popconfirm>
             )}
+            <Radio.Group
+              size="small"
+              optionType="button"
+              value={view}
+              onChange={(e) => setView(e.target.value)}
+              options={[
+                { label: "页面", value: "pages" },
+                { label: "图谱", value: "graph" },
+              ]}
+            />
           </Space>
 
           <Input.Search
@@ -425,6 +438,13 @@ export default function WikiPanel() {
       </div>
       </SiderPortal>
 
+      {view === "graph" ? (
+        <WikiGraphView
+          spaceId={activeSpace}
+          spaceName={active?.name}
+          onOpenPage={openPage}
+        />
+      ) : (
       <div className="wiki-main">
         {!detail ? (
           <Empty description="从左侧选择一个 Wiki 页面查看内容与双链" />
@@ -525,6 +545,7 @@ export default function WikiPanel() {
           </>
         )}
       </div>
+      )}
 
       <Modal
         title="新建 Wiki 空间"

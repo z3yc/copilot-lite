@@ -206,6 +206,7 @@ crontab -e
 | 上传文档失败/摄取失败 | BGE 模型下载慢 | 代码已默认 hf-mirror 镜像；网络差可预下载模型后挂载卷 |
 | SSE 打字机卡顿 | Nginx 缓冲 | 已配置 `proxy_buffering off`（deploy/nginx.conf） |
 | 后端容器重启循环 | 数据库连接失败 | 等 postgres healthcheck 通过；检查 .env 密码 |
+| 改了口令后连不上，日志报 `password authentication failed` | 已有 `pgdata` 卷只在**首次初始化**时写入 `POSTGRES_PASSWORD`，之后改 `.env` 不生效 | 保留数据：`docker compose exec postgres psql -U copilot -c "ALTER USER copilot PASSWORD '<新口令>'"`；确认可丢数据：`docker compose down` 后 `docker volume rm deploy_pgdata`（**不要用 `down -v`**，会一并删掉 models/qdrantdata） |
 | 内存不足 | 4G 跑 5 容器偏紧 | 关掉 redis（当前未实际使用）或升级 4G 以上 |
 | 迁移报错 | 表已存在 | `docker compose exec backend uv run alembic stamp head` |
 | 迁移报 relation does not exist | 0.12.1 已修复迁移链缺表（categories / memory_facts）；旧库建议重建 | `docker compose down -v && docker compose up -d --build` |

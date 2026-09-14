@@ -175,9 +175,9 @@ POST /admin/eval/runs → 建 eval_runs(status=queued) → 返回 run_id
 - [x] **N0.1** `require_admin` 依赖 + `/admin` 路由骨架（未授权 403）。
 - [x] **N0.2** `audit_logs` 统一审计表与写入口（复用 L3 审计）。
 - [x] **N0.3** 配置三件套：`ADMIN_ENABLED`、`EVAL_JOB_ENABLED`（测试默认关）、`EVAL_JOB_CONCURRENCY`。
-- [ ] **N0.4** 依赖【批次 M1】：`source_type` 写入 Qdrant payload（per-source 切片前置）。
-- [ ] **N0.5** 作业机制（`eval_runs` 状态机 + 可开关后台 worker）。
-- [ ] **N0.6** `users` 增加软删除字段 + `status` + `username` 部分唯一索引迁移（承接 L7）。
+- [x] **N0.4** 依赖【批次 M1】：`source_type` 写入 Qdrant payload（per-source 切片前置）。
+- [x] **N0.5** 作业机制（`eval_runs` 状态机 + 可开关后台 worker）。
+- [x] **N0.6** `users` 增加软删除字段 + `status` + `username` 部分唯一索引迁移（承接 L7）。
 
 ### P1 · 治理/审计/概览 + 用户管理 + 评测触发骨架
 - [ ] **N1.1** `usage_daily` 聚合表 + 采集/rollup。

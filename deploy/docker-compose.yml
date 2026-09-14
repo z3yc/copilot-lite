@@ -111,6 +111,10 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.web
     restart: unless-stopped
+    # certbot webroot：ACME 挑战文件由宿主机签发/续期写入，nginx 只读提供
+    # （nginx.conf 的 /.well-known/acme-challenge/ 指向此目录）
+    volumes:
+      - /var/www/certbot:/var/www/certbot:ro
     ports:
       - "80:80"
     depends_on:

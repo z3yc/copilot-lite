@@ -90,5 +90,12 @@ describe("ProfilePage 模型设置", () => {
         api_key: "sk-my-key",
       })
     );
+
+    // 拉到候选后下拉应自动展开，且可选择
+    const option = await screen.findByText("deepseek-reasoner");
+    fireEvent.click(option);
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("deepseek-reasoner")).toBeInTheDocument()
+    );
   });
 });

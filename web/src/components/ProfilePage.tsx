@@ -82,6 +82,7 @@ export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props
   const [testingLlm, setTestingLlm] = useState(false);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
 
   // 我的会话
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -117,6 +118,8 @@ export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props
           res.current && list.includes(res.current) ? res.current : list[0]
         );
       }
+      // 拉到候选后主动展开下拉，让用户直接选（否则还需再点输入框）
+      setModelOpen(list.length > 0);
       message.success(`已获取 ${list.length} 个可用模型`);
     } catch (err) {
       message.error(`${err}`);
@@ -597,6 +600,9 @@ export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props
                         rules={[{ required: true, message: "请输入或获取模型名称" }]}
                       >
                         <AutoComplete
+                          open={modelOpen}
+                          onOpenChange={setModelOpen}
+                          virtual={false}
                           options={modelOptions.map((m) => ({ value: m }))}
                           placeholder="deepseek-chat（可点右侧「获取模型」拉取列表）"
                           onFocus={() => {
@@ -604,11 +610,8 @@ export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props
                               void loadModelOptions();
                             }
                           }}
-                          filterOption={(input, option) =>
-                            String(option?.value ?? "")
-                              .toLowerCase()
-                              .includes(input.toLowerCase())
-                          }
+                          // 不按当前值过滤：模型名是已选值，过滤会把列表缩成一项
+                          filterOption={false}
                         />
                       </Form.Item>
                       <Button

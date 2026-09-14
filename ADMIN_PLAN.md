@@ -183,12 +183,12 @@ POST /admin/eval/runs → 建 eval_runs(status=queued) → 返回 run_id
 - [x] **N1.1** `usage_daily` 聚合表 + 采集/rollup。
 - [x] **N1.2** `GET /admin/overview`（KPI）。
 - [x] **N1.3** `/admin/users` 全套 CRUD：增 / 查 / 改（角色·启停·重置密码）/ **软删除** / 恢复 / 强制下线（写操作审计 + 护栏）。_（注：每用户配额/预算待 N1.1 用量表落地后补）_
-- [ ] **N1.3b** 前端用户管理页（列表 / 详情 / 编辑 / 软删二次确认 + 恢复入口）。
+- [x] **N1.3b** 前端用户管理页（列表 / 详情 / 编辑 / 软删二次确认 + 恢复入口）。
 - [x] **N1.4** `GET /admin/usage` 时间序列。
 - [x] **N1.5** `GET /admin/knowledge`（sync 四态/失败）。
 - [x] **N1.6** `GET /admin/audit` 查询。
 - [x] **N1.7** `POST /admin/eval/runs` + `GET .../runs`、`.../{id}`（状态/进度）。
-- [ ] **N1.8** 前端：管理后台入口（仅 admin）+ 概览/用户/知识库/审计页。
+- [x] **N1.8** 前端：管理后台入口（仅 admin）+ 概览/用户/知识库/审计页。_（实现：App 内管理员视图，仅 admin 可见；项目无 router，后端 /admin 仍为独立路由）_
 - [x] **N1.9** 管理员操作审计 + 用户数据默认脱敏。
 
 ### P2 · 质量看板（卖点）

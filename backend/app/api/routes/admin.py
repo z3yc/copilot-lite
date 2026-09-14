@@ -18,13 +18,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
 from app.core.audit import RESULT_DENIED, record_audit
+from app.core.config import settings
 from app.core.db import get_session
+from app.core.eval_jobs import schedule_eval_run
 from app.core.pagination import (
     DEFAULT_PAGE_SIZE,
     PageOut,
     normalize_page,
     page_offset,
 )
+from app.core.prompts import PROMPT_VERSION
 from app.core.security import hash_password
 from app.core.soft_delete import mark_deleted
 from app.models import (
@@ -33,6 +36,7 @@ from app.models import (
     ChatSession,
     Chunk,
     Document,
+    EvalRun,
     LLMSetting,
     User,
     WikiLink,
@@ -40,6 +44,7 @@ from app.models import (
     WikiSpace,
 )
 from app.models.category import DEFAULT_CATEGORIES
+from app.models.eval_run import STATUS_QUEUED
 from app.models.user import STATUS_ACTIVE, STATUS_DISABLED
 
 logger = logging.getLogger(__name__)
@@ -664,3 +669,146 @@ async def knowledge_overview(
             for space, page_count in space_rows
         ],
     )
+
+
+# ---------------- 评测作业接口（N1.7，机制见 §6 / N0.5） ----------------
+
+
+class EvalRunCreateRequest(BaseModel):
+    dataset_id: uuid.UUID | None = None
+    source_scope: str = Field(default="all", pattern="^(all|docs|wiki)$")
+    trigger: str = Field(default="manual", pattern="^(manual|ci)$")
+
+
+class EvalRunOut(BaseModel):
+    id: str
+    dataset_id: str | None = None
+    status: str
+    trigger: str
+    source_scope: str
+    config_fingerprint: dict = Field(default_factory=dict)
+    metrics: dict = Field(default_factory=dict)
+    total: int = 0
+    passed: int = 0
+    progress: int = 0
+    error: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+def _config_fingerprint() -> dict:
+    """当前评测配置指纹（指标可比性，ADMIN_PLAN §2.5）。"""
+    from app.rag.embeddings import DEFAULT_MODEL as _EMBED_MODEL
+
+    return {
+        "engine": settings.AGENT_ENGINE,
+        "model": settings.DEEPSEEK_MODEL,
+        "prompt_version": PROMPT_VERSION,
+        "embedding_model": _EMBED_MODEL,
+        "top_k": settings.RAG_TOP_K,
+        "rerank": settings.RAG_RERANK_ENABLED,
+        "query_rewrite": settings.RAG_QUERY_REWRITE_ENABLED,
+        "wiki_expand": settings.WIKI_LINK_EXPANSION_ENABLED,
+    }
+
+
+def _eval_out(run: EvalRun) -> EvalRunOut:
+    return EvalRunOut(
+        id=str(run.id),
+        dataset_id=str(run.dataset_id) if run.dataset_id else None,
+        status=run.status,
+        trigger=run.trigger,
+        source_scope=run.source_scope,
+        config_fingerprint=run.config_fingerprint or {},
+        metrics=run.metrics or {},
+        total=run.total,
+        passed=run.passed,
+        progress=run.progress,
+        error=run.error,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
+        created_at=run.created_at,
+    )
+
+
+async def _get_eval_run(db: AsyncSession, run_id: str) -> EvalRun:
+    try:
+        rid = uuid.UUID(str(run_id))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="评测作业不存在") from None
+    run = await db.get(EvalRun, rid)
+    if run is None:
+        raise HTTPException(status_code=404, detail="评测作业不存在")
+    return run
+
+
+@router.post("/eval/runs", response_model=EvalRunOut)
+async def create_eval_run(
+    req: EvalRunCreateRequest,
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+) -> EvalRunOut:
+    """页面触发评测：建 queued 作业并调度后台 worker（不阻塞 HTTP）。"""
+    run = EvalRun(
+        dataset_id=req.dataset_id,
+        status=STATUS_QUEUED,
+        trigger=req.trigger,
+        source_scope=req.source_scope,
+        config_fingerprint=_config_fingerprint(),
+        created_by=admin.id,
+    )
+    db.add(run)
+    await db.commit()
+    await db.refresh(run)
+    await record_audit(
+        db,
+        action="eval.run_create",
+        user_id=admin.id,
+        resource_type="eval_run",
+        resource_id=str(run.id),
+        meta={"source_scope": req.source_scope, "trigger": req.trigger},
+    )
+    await db.commit()
+    await schedule_eval_run(run.id)
+    return _eval_out(run)
+
+
+@router.get("/eval/runs", response_model=PageOut[EvalRunOut])
+async def list_eval_runs(
+    status: str | None = None,
+    source_scope: str | None = None,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+) -> PageOut[EvalRunOut]:
+    """评测运行历史（可按状态/来源切片过滤，分页）。"""
+    stmt = select(EvalRun)
+    if status:
+        stmt = stmt.where(EvalRun.status == status)
+    if source_scope:
+        stmt = stmt.where(EvalRun.source_scope == source_scope)
+    stmt = stmt.order_by(EvalRun.created_at.desc())
+
+    page, page_size = normalize_page(page, page_size)
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    offset, limit = page_offset(page, page_size)
+    runs = (await db.scalars(stmt.limit(limit).offset(offset))).all()
+    return PageOut(
+        items=[_eval_out(r) for r in runs],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/eval/runs/{run_id}", response_model=EvalRunOut)
+async def get_eval_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+) -> EvalRunOut:
+    """评测作业详情（状态/进度/指标），供前端轮询。"""
+    run = await _get_eval_run(db, run_id)
+    return _eval_out(run)

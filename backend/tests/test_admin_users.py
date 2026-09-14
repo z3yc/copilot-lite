@@ -351,3 +351,76 @@ async def test_list_filters(client, admin_headers) -> None:
     assert r.status_code == 200
     items = r.json()["data"]["items"]
     assert [i["id"] for i in items] == [data["id"]]
+
+
+@pytest.mark.asyncio
+async def test_user_handlers_direct(db_session, admin_headers) -> None:
+    """直接调用用户 CRUD handler：覆盖各变更分支与审计查询。"""
+    from app.api.routes import admin as admin_module
+    from app.models import User
+
+    async with async_session_factory() as db:
+        admin_user = await db.get(User, uuid.UUID(admin_headers["uid"]))
+        created = await admin_module.create_user(
+            admin_module.UserCreateRequest(
+                username=f"direct{uuid.uuid4().hex[:6]}",
+                password="secret123",
+                role="user",
+            ),
+            db=db,
+            admin=admin_user,
+        )
+        uid = created.id
+
+        detail = await admin_module.get_user(uid, db=db, admin=admin_user)
+        assert detail.id == uid
+
+        promoted = await admin_module.update_user(
+            uid, admin_module.UserUpdateRequest(role="admin"), db=db, admin=admin_user
+        )
+        assert promoted.role == "admin"
+        demoted = await admin_module.update_user(
+            uid, admin_module.UserUpdateRequest(role="user"), db=db, admin=admin_user
+        )
+        assert demoted.role == "user"
+
+        await admin_module.update_user(
+            uid, admin_module.UserUpdateRequest(password="newpass123"), db=db, admin=admin_user
+        )
+        disabled = await admin_module.update_user(
+            uid, admin_module.UserUpdateRequest(status="disabled"), db=db, admin=admin_user
+        )
+        assert disabled.status == "disabled"
+
+        deleted = await admin_module.delete_user(
+            uid, admin_module.UserDeleteRequest(reason="direct"), db=db, admin=admin_user
+        )
+        assert deleted.deleted == uid
+        restored = await admin_module.restore_user(uid, db=db, admin=admin_user)
+        assert restored.id == uid
+        kicked = await admin_module.force_logout_user(uid, db=db, admin=admin_user)
+        assert kicked.id == uid
+
+        audit = await admin_module.list_audit(
+            action=None,
+            user_id=admin_headers["uid"],
+            request_id=None,
+            result=None,
+            page=1,
+            page_size=20,
+            db=db,
+            admin=admin_user,
+        )
+        assert audit.total >= 1
+        # 畸形 user_id 过滤：安全返回空页
+        empty = await admin_module.list_audit(
+            action=None,
+            user_id="not-a-uuid",
+            request_id=None,
+            result=None,
+            page=1,
+            page_size=20,
+            db=db,
+            admin=admin_user,
+        )
+        assert empty.total == 0

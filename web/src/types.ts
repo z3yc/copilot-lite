@@ -192,3 +192,96 @@ export interface Category {
   name: string;
   color: string;
 }
+
+// ---- 管理后台（ADMIN_PLAN）----
+export interface AdminUser {
+  id: string;
+  username: string;
+  role: "user" | "admin" | string;
+  status: "active" | "disabled" | string;
+  has_key: boolean;
+  deleted_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface AdminUserDetail extends AdminUser {
+  session_count: number;
+  document_count: number;
+  last_active?: string | null;
+}
+
+export interface AdminEvalRun {
+  id: string;
+  dataset_id?: string | null;
+  status: "queued" | "running" | "done" | "failed" | string;
+  trigger: string;
+  source_scope: string;
+  config_fingerprint: Record<string, unknown>;
+  metrics: Record<string, number>;
+  total: number;
+  passed: number;
+  progress: number;
+  error?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface AdminOverview {
+  users_total: number;
+  users_active: number;
+  users_disabled: number;
+  admins: number;
+  requests_today: number;
+  tokens_in_today: number;
+  tokens_out_today: number;
+  cost_today: number;
+  error_rate_7d: number;
+  latest_eval?: AdminEvalRun | null;
+}
+
+export interface AdminUsagePoint {
+  day: string;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  cost: number;
+  errors: number;
+}
+
+export interface AdminSourceStat {
+  source_type: string;
+  documents: number;
+  chunks: number;
+}
+
+export interface AdminWikiSpaceStat {
+  id: string;
+  name: string;
+  owner_id?: string | null;
+  page_count: number;
+  last_synced_at?: string | null;
+}
+
+export interface AdminKnowledge {
+  documents_total: number;
+  chunks_total: number;
+  failed_documents: number;
+  by_source: AdminSourceStat[];
+  wiki_spaces: number;
+  wiki_pages: number;
+  wiki_dangling_links: number;
+  spaces: AdminWikiSpaceStat[];
+}
+
+export interface AdminAuditItem {
+  id: string;
+  request_id?: string | null;
+  user_id?: string | null;
+  action: string;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  result: string;
+  meta: Record<string, unknown>;
+  created_at?: string | null;
+}

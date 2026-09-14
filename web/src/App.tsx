@@ -21,6 +21,7 @@ import {
   BookOutlined,
   BulbOutlined,
   CheckSquareOutlined,
+  DashboardOutlined,
   LogoutOutlined,
   MessageOutlined,
   MoonOutlined,
@@ -31,6 +32,7 @@ import { SiderNavContext } from "./contexts/SiderNav";
 import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
 import { keyboardActivate } from "./utils/a11y";
 import ApiKeyOnboarding from "./components/ApiKeyOnboarding";
+import AdminPanel from "./components/AdminPanel";
 import ChatPanel from "./components/ChatPanel";
 import DocCategoryNav from "./components/DocCategoryNav";
 import KbPanel from "./components/KbPanel";
@@ -58,6 +60,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [activeCat, setActiveCat] = useState<string>("all");
   const [showProfile, setShowProfile] = useState(false);
+  // 管理后台（仅管理员入口可见；后端 require_admin 强制鉴权）
+  const [showAdmin, setShowAdmin] = useState(false);
   // 打开个人主页时定位的页签（未配置 Key 时直达「模型设置」）
   const [profileTab, setProfileTab] = useState("overview");
   const [me, setMe] = useState<Profile | null>(null);
@@ -155,6 +159,7 @@ export default function App() {
   };
 
   const openProfile = useCallback((tab = "overview") => {
+    setShowAdmin(false);
     setProfileTab(tab);
     setShowProfile(true);
   }, []);
@@ -164,6 +169,7 @@ export default function App() {
     setAuthed(false);
     setSessionId(null);
     setMessages([]);
+    setShowAdmin(false);
   };
 
   useEffect(() => {
@@ -299,6 +305,20 @@ export default function App() {
                   </span>
                 </Space>
                 <Space size={4}>
+                  {me?.role === "admin" ? (
+                    <Tooltip title="管理后台">
+                      <Button
+                        type="text"
+                        size="small"
+                        aria-label="管理后台"
+                        icon={<DashboardOutlined />}
+                        onClick={() => {
+                          setShowProfile(false);
+                          setShowAdmin(true);
+                        }}
+                      />
+                    </Tooltip>
+                  ) : null}
                   <Tooltip title={dark ? "切换到亮色模式" : "切换到暗色模式"}>
                     <Button
                       type="text"
@@ -337,7 +357,9 @@ export default function App() {
             />
           )}
           <Content style={{ display: "flex", overflow: "hidden" }}>
-            {showProfile ? (
+            {showAdmin ? (
+              <AdminPanel onBack={() => setShowAdmin(false)} />
+            ) : showProfile ? (
               <ProfilePage
                 initialTab={profileTab}
                 onBack={() => setShowProfile(false)}

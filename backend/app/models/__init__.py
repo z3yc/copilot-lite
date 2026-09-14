@@ -1,5 +1,6 @@
 """ORM 模型汇总：确保所有模型在创建表 / 迁移时被注册。"""
 
+from app.models.audit_log import AuditLog
 from app.models.category import Category
 from app.models.chat_session import ChatSession
 from app.models.chunk import Chunk
@@ -13,6 +14,7 @@ from app.models.user import User
 from app.models.wiki import WikiLink, WikiPage, WikiSpace
 
 __all__ = [
+    "AuditLog",
     "Category",
     "ChatSession",
     "Chunk",

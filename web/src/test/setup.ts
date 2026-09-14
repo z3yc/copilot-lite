@@ -36,6 +36,33 @@ if (!URL.createObjectURL) {
   URL.revokeObjectURL = vi.fn();
 }
 
+// react-force-graph-2d 依赖 canvas 渲染，jsdom 无法绘制；测试中替换为可点击节点列表。
+vi.mock("react-force-graph-2d", async () => {
+  const { createElement } = await import("react");
+  interface MockNode {
+    id?: string | number;
+    title?: string;
+  }
+  interface MockProps {
+    graphData?: { nodes?: MockNode[] };
+    onNodeClick?: (node: MockNode) => void;
+  }
+  return {
+    default: ({ graphData, onNodeClick }: MockProps) =>
+      createElement(
+        "div",
+        { "data-testid": "force-graph" },
+        (graphData?.nodes ?? []).map((node) =>
+          createElement(
+            "button",
+            { key: String(node.id), onClick: () => onNodeClick?.(node) },
+            node.title
+          )
+        )
+      ),
+  };
+});
+
 // 每个测试后自动清理 DOM 与 localStorage（RTL v16 在非 globals 模式下需手动 cleanup）
 afterEach(() => {
   cleanup();

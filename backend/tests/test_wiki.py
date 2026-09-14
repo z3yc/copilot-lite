@@ -595,3 +595,145 @@ async def test_wiki_page_trash_and_restore(authed_headers, wiki_env):
         assert restored.status_code == 200
         detail = await client.get(f"/api/v1/wiki/pages/{pid}", headers=authed_headers)
         assert detail.status_code == 200
+
+
+# ---------------- 图谱可视化（G-M3） ----------------
+
+
+async def _graph(client: AsyncClient, headers: dict, sid: str, **params) -> dict:
+    """调用图谱接口并返回 data。"""
+    query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
+    url = f"/api/v1/wiki/graph?space={sid}" + (f"&{query}" if query else "")
+    resp = await client.get(url, headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]
+
+
+async def test_wiki_graph_nodes_edges_and_degrees(authed_headers, wiki_env):
+    """图谱返回页面节点与已解析双链边，度数按出入链合计。"""
+    files = {
+        "A.md": "# A\n\n[[B]] ![[C]]",
+        "B.md": "# B\n\n[[A]]",
+        "C.md": "# C\n\n无链接",
+    }
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "graph")
+        assert (await _import(client, authed_headers, sid, files)).status_code == 200
+        data = await _graph(client, authed_headers, sid)
+
+    assert data["total_nodes"] == 3 and data["truncated"] is False
+    assert len(data["nodes"]) == 3 and len(data["edges"]) == 3
+    by_title = {n["title"]: n for n in data["nodes"]}
+    assert by_title["A"]["degree"] == 3
+    assert by_title["B"]["degree"] == 2
+    assert by_title["C"]["degree"] == 1
+    assert by_title["A"]["slug"] == "a"
+    ids = {n["id"] for n in data["nodes"]}
+    assert all(e["source"] in ids and e["target"] in ids for e in data["edges"])
+    assert {e["kind"] for e in data["edges"]} == {"link", "embed"}
+
+
+async def test_wiki_graph_tag_filter(authed_headers, wiki_env):
+    """按标签过滤：只保留带该标签的节点，并回传节点标签。"""
+    files = {
+        "T1.md": "---\ntags: [alpha]\n---\n# T1\n\n[[T2]]",
+        "T2.md": "---\ntags: [beta]\n---\n# T2",
+    }
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "tags")
+        assert (await _import(client, authed_headers, sid, files)).status_code == 200
+        data = await _graph(client, authed_headers, sid, tag="alpha")
+
+    assert [n["title"] for n in data["nodes"]] == ["T1"]
+    assert data["nodes"][0]["tags"] == ["alpha"]
+    assert data["edges"] == []  # T2 被过滤后，T1→T2 的边不再出现
+
+
+async def test_wiki_graph_limit_truncates_and_keeps_internal_edges(
+    authed_headers, wiki_env
+):
+    """超出节点上限时截断（标记 truncated），且边只保留在命中的节点之间。"""
+    files = {f"N{i}.md": f"# N{i}\n\n[[N{(i + 1) % 5}]]" for i in range(5)}
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "limit")
+        assert (await _import(client, authed_headers, sid, files)).status_code == 200
+        data = await _graph(client, authed_headers, sid, limit=2)
+
+    assert data["total_nodes"] == 5 and data["truncated"] is True
+    assert len(data["nodes"]) == 2
+    ids = {n["id"] for n in data["nodes"]}
+    assert all(e["source"] in ids and e["target"] in ids for e in data["edges"])
+
+
+async def test_wiki_graph_ignores_dangling_links(authed_headers, wiki_env):
+    """悬空链接（目标页不存在）不产生边。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "dangling")
+        await _import(client, authed_headers, sid, {"A.md": "# A\n\n[[Missing Page]]"})
+        data = await _graph(client, authed_headers, sid)
+
+    assert len(data["nodes"]) == 1
+    assert data["edges"] == []
+
+
+async def test_wiki_graph_isolates_users_and_excludes_deleted(
+    authed_headers, wiki_env
+):
+    """用户隔离：他人图谱不含本用户节点；空间软删后图谱清空。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "iso")
+        await _import(client, authed_headers, sid, {"A.md": "# A", "B.md": "# B\n[[A]]"})
+
+        other = await client.post(
+            "/api/v1/auth/register",
+            json={"username": f"o{uuid.uuid4().hex[:8]}", "password": "secret123"},
+        )
+        other_headers = {"Authorization": f"Bearer {other.json()['data']['token']}"}
+        other_graph = await _graph(client, other_headers, sid)
+        assert other_graph["nodes"] == [] and other_graph["edges"] == []
+
+        await client.delete(f"/api/v1/wiki/spaces/{sid}", headers=authed_headers)
+        after = await _graph(client, authed_headers, sid)
+        assert after["nodes"] == [] and after["edges"] == []
+
+
+async def test_wiki_graph_empty_and_invalid_space(authed_headers, wiki_env):
+    """无空间 / 空空间 / 非法空间参数：返回空图谱（不报错）。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        fresh = await client.post(
+            "/api/v1/auth/register",
+            json={"username": f"n{uuid.uuid4().hex[:8]}", "password": "secret123"},
+        )
+        fresh_headers = {"Authorization": f"Bearer {fresh.json()['data']['token']}"}
+        none = await client.get("/api/v1/wiki/graph", headers=fresh_headers)
+        assert none.status_code == 200
+        assert none.json()["data"]["nodes"] == []
+
+        sid = await _create_space(client, authed_headers, "empty")
+        empty = await _graph(client, authed_headers, sid)
+        assert empty["nodes"] == [] and empty["edges"] == []
+        assert empty["total_nodes"] == 0
+
+        bad = await client.get(
+            "/api/v1/wiki/graph?space=not-a-uuid", headers=authed_headers
+        )
+        assert bad.status_code == 200
+        assert bad.json()["data"]["nodes"] == []
+
+
+async def test_wiki_graph_tag_without_match(authed_headers, wiki_env):
+    """标签无匹配：图谱为空。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "tagmiss")
+        await _import(
+            client, authed_headers, sid, {"A.md": "---\ntags: [alpha]\n---\n# A"}
+        )
+        data = await _graph(client, authed_headers, sid, tag="nope")
+    assert data["nodes"] == [] and data["total_nodes"] == 0

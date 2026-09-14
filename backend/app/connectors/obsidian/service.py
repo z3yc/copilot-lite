@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.connectors.obsidian.importer import extract_zip, safe_join, save_uploaded_files
@@ -385,6 +385,128 @@ async def _rebuild_links(
     if rows:
         db.add_all(rows)
     await db.commit()
+
+
+async def build_graph(
+    db: AsyncSession,
+    user_id,
+    space_id=None,
+    tag: str | None = None,
+    limit: int = 300,
+) -> dict:
+    """构建 Wiki 知识图谱：节点=页面，边=已解析双链。
+
+    - 隔离：仅返回当前用户可访问（自有 + 共享）且未软删除空间下的未删除页面；
+    - 标签：来自分块元数据 `wiki_tags`（一次查询，避免 N+1）；
+    - 截断：节点数超 `limit` 时按度数降序保留，并标记 `truncated=true`。
+    """
+    empty = {"nodes": [], "edges": [], "total_nodes": 0, "truncated": False}
+
+    accessible = select(WikiSpace.id).where(
+        or_(WikiSpace.owner_id == user_id, WikiSpace.owner_id.is_(None)),
+        WikiSpace.deleted_at.is_(None),
+    )
+    space_ids = set((await db.scalars(accessible)).all())
+    if space_id is not None:
+        try:
+            space_ids &= {uuid.UUID(str(space_id))}
+        except (ValueError, TypeError, AttributeError):
+            return empty
+    if not space_ids:
+        return empty
+
+    pages = (
+        await db.scalars(
+            select(WikiPage).where(
+                WikiPage.space_id.in_(space_ids), WikiPage.deleted_at.is_(None)
+            )
+        )
+    ).all()
+    if not pages:
+        return empty
+
+    tags_by_doc: dict[uuid.UUID, list[str]] = {}
+    doc_ids = [p.document_id for p in pages if p.document_id]
+    if doc_ids:
+        rows = (
+            await db.execute(
+                select(Chunk.document_id, Chunk.meta).where(
+                    Chunk.document_id.in_(doc_ids), Chunk.deleted_at.is_(None)
+                )
+            )
+        ).all()
+        for doc_id, meta in rows:
+            if doc_id not in tags_by_doc and meta:
+                tags_by_doc[doc_id] = list(meta.get("wiki_tags") or [])
+
+    def _tags(page: WikiPage) -> list[str]:
+        return tags_by_doc.get(page.document_id, []) if page.document_id else []
+
+    if tag and tag.strip():
+        wanted = tag.strip()
+        pages = [p for p in pages if wanted in _tags(p)]
+        if not pages:
+            return {**empty, "total_nodes": 0}
+
+    page_ids = {p.id for p in pages}
+    links = (
+        await db.scalars(
+            select(WikiLink).where(
+                WikiLink.source_page_id.in_(page_ids),
+                WikiLink.target_page_id.is_not(None),
+            )
+        )
+    ).all()
+    # 两端都在可见页面集合内（目标的页面可能已软删除）
+    edges = [
+        link
+        for link in links
+        if link.source_page_id in page_ids and link.target_page_id in page_ids
+    ]
+
+    degree: dict = {pid: 0 for pid in page_ids}
+    for link in edges:
+        degree[link.source_page_id] += 1
+        degree[link.target_page_id] += 1
+
+    space_names = {
+        s.id: s.name
+        for s in (
+            await db.scalars(select(WikiSpace).where(WikiSpace.id.in_(space_ids)))
+        ).all()
+    }
+
+    total_nodes = len(pages)
+    cap = max(1, limit)
+    kept = sorted(pages, key=lambda p: (-degree.get(p.id, 0), p.title))[:cap]
+    kept_ids = {p.id for p in kept}
+
+    return {
+        "nodes": [
+            {
+                "id": str(p.id),
+                "title": p.title,
+                "slug": p.slug,
+                "space_id": str(p.space_id),
+                "space": space_names.get(p.space_id),
+                "degree": degree.get(p.id, 0),
+                "tags": _tags(p),
+            }
+            for p in kept
+        ],
+        "edges": [
+            {
+                "source": str(link.source_page_id),
+                "target": str(link.target_page_id),
+                "kind": link.kind,
+                "relation": link.relation,
+            }
+            for link in edges
+            if link.source_page_id in kept_ids and link.target_page_id in kept_ids
+        ],
+        "total_nodes": total_nodes,
+        "truncated": total_nodes > cap,
+    }
 
 
 async def sync_space(db: AsyncSession, user_id, space: WikiSpace) -> dict:

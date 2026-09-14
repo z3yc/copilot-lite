@@ -20,6 +20,7 @@ vi.mock("../api", () => ({
   resyncWikiPage: vi.fn(),
   fetchWikiPages: vi.fn(),
   fetchWikiPage: vi.fn(),
+  fetchWikiGraph: vi.fn(),
 }));
 
 const mocked = vi.mocked(api);
@@ -42,6 +43,12 @@ describe("WikiPanel", () => {
     vi.clearAllMocks();
     mocked.fetchWikiSpaces.mockResolvedValue(SPACES);
     mocked.fetchWikiPages.mockResolvedValue(PAGES);
+    mocked.fetchWikiGraph.mockResolvedValue({
+      nodes: [],
+      edges: [],
+      total_nodes: 0,
+      truncated: false,
+    });
     mocked.fetchWikiPage.mockResolvedValue({
       ...PAGES.items[0],
       content: "# A\n\n正文内容",
@@ -136,6 +143,32 @@ describe("WikiPanel", () => {
     await screen.findByText("正文内容");
     fireEvent.click(screen.getByRole("button", { name: /重新索引/ }));
     await waitFor(() => expect(mocked.resyncWikiPage).toHaveBeenCalledWith("p1"));
+  });
+
+  it("切换到图谱视图时加载图谱数据", async () => {
+    mocked.fetchWikiGraph.mockResolvedValue({
+      nodes: [
+        {
+          id: "p1",
+          title: "A",
+          slug: "a",
+          space_id: "s1",
+          space: "vault",
+          degree: 0,
+          tags: [],
+        },
+      ],
+      edges: [],
+      total_nodes: 1,
+      truncated: false,
+    });
+    render(<WikiPanel />);
+    await screen.findByText("my-vault（2 页）");
+    fireEvent.click(screen.getByRole("radio", { name: "图谱" }));
+    await waitFor(() =>
+      expect(mocked.fetchWikiGraph).toHaveBeenCalledWith("s1", undefined)
+    );
+    expect(await screen.findByTestId("force-graph")).toBeInTheDocument();
   });
 
   it("选择本地文件夹时传本地路径并自动同步", async () => {

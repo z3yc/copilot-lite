@@ -11,6 +11,7 @@ import type {
   SessionFile,
   TodoItem,
   TrashItem,
+  WikiGraph,
   WikiPage,
   WikiPageDetail,
   WikiSpace,
@@ -300,6 +301,16 @@ export const resolveWikiPage = (spaceId: string, slug: string) =>
 
 export const resyncWikiPage = (pageId: string) =>
   request<WikiPageDetail>(`/wiki/pages/${pageId}/sync`, { method: "POST" });
+
+export const fetchWikiGraph = (spaceId: string, tag?: string, limit?: number) => {
+  const params = new URLSearchParams();
+  if (tag) params.set("tag", tag);
+  if (limit) params.set("limit", String(limit));
+  const qs = params.toString();
+  return request<WikiGraph>(
+    `/wiki/graph?space=${encodeURIComponent(spaceId)}${qs ? `&${qs}` : ""}`
+  );
+};
 
 // ---- 模型设置 ----
 export const fetchLlmSettings = () => request<LLMSettings>("/settings/llm");

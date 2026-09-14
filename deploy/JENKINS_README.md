@@ -121,7 +121,7 @@ Jenkinsfile 通过**飞书开放平台应用**直接私聊通知（不依赖群�
 3. 打开 Job → **Build with Parameters**：
    - 勾选 `DEPLOY_ENABLED`
    - `DEPLOY_SERVER` 填 `root@服务器IP`
-4. 之后每次 push main，CI 通过后自动执行 `deploy/deploy_remote.sh`（拉码 → 替换前端产物 → 重建容器 → 健康检查 → 失败回滚）。
+4. 之后每次 push main，CI 通过后自动在服务器执行 `deploy/deploy.sh`（拉码 → 构建镜像 → 重建容器 → 健康检查 → 失败回滚）；**不再上传前端产物**（已进镜像 `deploy/Dockerfile.web`）。
 
 ## 8. 常见问题排查
 
@@ -150,7 +150,7 @@ copilot-lite/
 ├── .jenkins-home/              # JENKINS_HOME（gitignore，勿提交）
 ├── .jenkins/jenkins.war        # Jenkins 程序（gitignore，勿提交）
 ├── deploy/
-│   ├── deploy_remote.sh        # 服务器端部署脚本（Phase 2 使用）
+│   ├── deploy.sh               # 服务器一键部署脚本（唯一部署入口，含回滚）
 │   └── JENKINS_README.md       # 本手册
 └── docs/CICD_PLAN.md           # 方案记录与实施清单
 ```

@@ -28,7 +28,9 @@ COPY backend/alembic.ini ./
 # （命名卷首次挂载会继承镜像内目录的属主，保证 app 用户可写模型缓存）
 RUN useradd -m -u 1000 app \
     && mkdir -p /models \
-    && chown -R app:app /app /models
+    # 注意：HOME=/home/app 在 useradd 之前，uv sync（root）已在 /home/app/.cache/uv
+    # 建了属于 root 的缓存目录；必须一并 chown，否则 app 用户跑 `uv run` 报 Permission denied
+    && chown -R app:app /app /models /home/app
 USER app
 
 EXPOSE 8000

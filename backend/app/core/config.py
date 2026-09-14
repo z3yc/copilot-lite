@@ -147,6 +147,8 @@ class Settings(BaseSettings):
     EVAL_JOB_ENABLED: bool = False
     # 评测作业并发上限（评测跑真实嵌入 / LLM judge，必须限并发）
     EVAL_JOB_CONCURRENCY: int = 1
+    # 单个评测作业超时（秒；超时置 failed + error，防后台无限期挂起）
+    EVAL_JOB_TIMEOUT_SECONDS: float = 600.0
 
     @model_validator(mode="after")
     def _reject_default_secret(self) -> "Settings":

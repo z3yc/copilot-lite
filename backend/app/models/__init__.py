@@ -5,6 +5,7 @@ from app.models.category import Category
 from app.models.chat_session import ChatSession
 from app.models.chunk import Chunk
 from app.models.document import Document
+from app.models.eval_run import EvalRun
 from app.models.llm_setting import LLMSetting
 from app.models.memory_fact import MemoryFact
 from app.models.message import Message
@@ -19,6 +20,7 @@ __all__ = [
     "ChatSession",
     "Chunk",
     "Document",
+    "EvalRun",
     "LLMSetting",
     "MemoryFact",
     "Message",

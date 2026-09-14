@@ -39,7 +39,9 @@ async def _seed_super_admin() -> None:
     if not username or not password:
         return
     async with async_session_factory() as session:
-        user = await session.scalar(select(User).where(User.username == username))
+        user = await session.scalar(
+            select(User).where(User.username == username, User.deleted_at.is_(None))
+        )
         if user is None:
             session.add(
                 User(

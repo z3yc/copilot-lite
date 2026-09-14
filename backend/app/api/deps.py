@@ -11,6 +11,7 @@ from app.core.context import set_user_id
 from app.core.db import get_session
 from app.core.security import decode_token
 from app.models import User
+from app.models.user import STATUS_ACTIVE
 
 # 可选认证：未携带 token 时不报错（供公开接口用）
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -40,6 +41,9 @@ async def get_current_user(
     user = await db.get(User, uid)
     if user is None:
         raise HTTPException(status_code=401, detail="用户不存在")
+    # 软删除 / 禁用账号：一律视为未认证（AGENTS §13）
+    if user.deleted_at is not None or user.status != STATUS_ACTIVE:
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     # token 版本校验：改密/封号后旧 token 立即失效（无状态撤销）
     if user.token_version != token_version:
         raise HTTPException(status_code=401, detail="登录已过期，请重新登录")

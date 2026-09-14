@@ -112,6 +112,8 @@ docker compose up -d --build
 ### 3.5 验证
 
 ```bash
+cd /opt/copilot-lite/deploy        # 以下 compose 命令需在 deploy/ 目录下执行
+
 # 容器状态（全部 running/healthy）
 docker compose ps
 
@@ -142,10 +144,12 @@ docker compose logs -f backend
 
 ### 步骤 2：安装 certbot 并签发证书（Let's Encrypt 免费）
 
+> 80 端口已有 nginx 在跑，用 **webroot** 方式签发：宿主机 `/var/www/certbot` 已挂载进
+> web 容器（见 `docker-compose.yml`），nginx 已配置 `/.well-known/acme-challenge/` 指向该目录。
+
 ```bash
 apt-get update && apt-get install -y certbot
-# 使用 webroot 方式签发（80 端口已有 nginx 在跑）
-mkdir -p /opt/copilot-lite/certs
+mkdir -p /var/www/certbot        # 挑战目录（compose 已挂载进 web 容器）
 certbot certonly --webroot -w /var/www/certbot \
   -d 你的域名 --email 你的邮箱 --agree-tos --no-eff-email
 # 证书默认落 /etc/letsencrypt/live/你的域名/{fullchain.pem,privkey.pem}
@@ -153,7 +157,8 @@ certbot certonly --webroot -w /var/www/certbot \
 
 ### 步骤 3：挂载证书并启用 443 段
 
-编辑 `deploy/docker-compose.yml` 的 web 服务，在 `build` 之外增加证书挂载与 443 端口：
+在 `deploy/docker-compose.yml` 的 web 服务增加**证书目录挂载**与 443 端口
+（`/var/www/certbot` 已默认挂载，无需再加）：
 
 ```yaml
   web:
@@ -161,8 +166,8 @@ certbot certonly --webroot -w /var/www/certbot \
       context: ..
       dockerfile: deploy/Dockerfile.web
     volumes:
-      - /etc/letsencrypt:/etc/nginx/certs:ro      # 新增：挂载证书目录
-      - /var/www/certbot:/var/www/certbot:ro      # certbot webroot 续期用
+      - /var/www/certbot:/var/www/certbot:ro      # 已有：certbot webroot（ACME）
+      - /etc/letsencrypt:/etc/nginx/certs:ro      # 新增：证书目录
     ports:
       - "80:80"
       - "443:443"                                  # 新增：放行 443
@@ -209,7 +214,7 @@ crontab -e
 | 改了口令后连不上，日志报 `password authentication failed` | 已有 `pgdata` 卷只在**首次初始化**时写入 `POSTGRES_PASSWORD`，之后改 `.env` 不生效 | 保留数据：`docker compose exec postgres psql -U copilot -c "ALTER USER copilot PASSWORD '<新口令>'"`；确认可丢数据：`docker compose down` 后 `docker volume rm deploy_pgdata`（**不要用 `down -v`**，会一并删掉 models/qdrantdata） |
 | 内存不足 | 4G 跑 5 容器偏紧 | 关掉 redis（当前未实际使用）或升级 4G 以上 |
 | 迁移报错 | 表已存在 | `docker compose exec backend uv run alembic stamp head` |
-| 迁移报 relation does not exist | 0.12.1 已修复迁移链缺表（categories / memory_facts）；旧库建议重建 | `docker compose down -v && docker compose up -d --build` |
+| 迁移报 relation does not exist | 0.12.1 已修复迁移链缺表（categories / memory_facts）；旧库建议重建 | `docker compose down && docker volume rm deploy_pgdata && docker compose up -d --build`（只删库卷，保留 models/qdrantdata，**勿用 `down -v`**） |
 
 ---
 

@@ -69,6 +69,7 @@
 
 | 表 | 关键字段 |
 |---|---|
+| `users`（改造） | 增加**软删除** `deleted_at / deleted_by / delete_reason` + `status`(active/disabled)；`username` 唯一约束改**部分唯一索引**（`WHERE deleted_at IS NULL`）（承接 L7） |
 | `audit_logs` | request_id, user_id, action, resource_type, resource_id, result, meta(json), created_at (+tenant/workspace) |
 | `usage_daily` | user_id, day, requests, tokens_in, tokens_out, cost, errors (+tenant) |
 | `golden_datasets` | name, version, description, created_by, created_at (+tenant) |
@@ -85,8 +86,13 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/admin/overview` | KPI 汇总（用户/请求/token/成本/错误率/最新评测分） |
-| GET | `/admin/users` | 用户列表（角色/状态/是否配 Key/用量/成本，分页） |
-| PATCH | `/admin/users/{id}` | 禁用/启用/改角色（**写操作 + 审计 + 二次确认**） |
+| POST | `/admin/users` | 新建用户（用户名/密码/角色，复用注册的默认分类初始化） |
+| GET | `/admin/users` | 列表（搜索/筛选/分页） |
+| GET | `/admin/users/{id}` | 详情（用量/成本/会话/文档/Key 状态/最后活跃） |
+| PATCH | `/admin/users/{id}` | 改角色 / 启停 / 重置密码 / 配额预算（**写 + 审计**） |
+| DELETE | `/admin/users/{id}` | **软删除**（返回 `{deleted, soft: true}`） |
+| POST | `/admin/users/{id}/restore` | 恢复被软删用户 |
+| POST | `/admin/users/{id}/force-logout` | 强制下线（`token_version+1`） |
 | GET | `/admin/usage` | 用量/成本时间序列（range） |
 | GET | `/admin/knowledge` | 文档/Wiki 空间、chunk 数、sync 统计、失败 |
 | GET | `/admin/audit` | 审计查询（按 action/user/request_id 过滤） |
@@ -95,6 +101,16 @@
 | GET | `/admin/eval/runs` · `/{id}` | 运行历史 / 详情（状态/进度/指标） |
 | GET | `/admin/eval/runs/{id}/items` | 明细与**失败样本下钻** |
 | GET | `/admin/health` | 复用 `/health/ready` + 队列/资源 |
+
+### 4.1 用户管理细则（CRUD）
+- **增**：admin 建号可直接设角色；复用注册逻辑（默认分类/初始化）。
+- **查**：列表 + 详情（用量/成本/会话数/文档数/Key 是否配置/最后活跃）。
+- **改**：角色、启用/禁用、重置密码、每用户配额/预算；**任何改密/禁用/软删都 `token_version+1`**，旧 token 立即失效。
+- **删（软删除）**：`deleted_at/deleted_by/delete_reason`；软删后禁止登录，列表/统计/检索统一过滤，数据保留可恢复（AGENTS §13/§14）。
+- **恢复**：`POST .../restore` 清空 `deleted_at`。
+- **唯一约束**：`username` 改**部分唯一索引**（`WHERE deleted_at IS NULL`），允许删号后重用用户名。
+- **护栏**：不能删除/禁用自己；不能删除/降级**最后一个管理员**；删除二次确认 + `delete_reason`；全部写操作写审计。
+- **物理删除**：仅合规（GDPR）且写审计，管理后台**不提供**。
 
 **鉴权**：`require_admin`（现按 `User.role=="admin"`）；接口与依赖设计成日后可替换为 `require_permission("admin.read")`（批次 I）。
 
@@ -148,6 +164,7 @@ POST /admin/eval/runs → 建 eval_runs(status=queued) → 返回 run_id
 - **管理员自身操作也入审计**（否则后台是后门）。
 - 破坏性操作（停用/清死信/重跑）二次确认。
 - 密钥/密文永不回显；日志不含对话原文、密钥、文件内容。
+- 用户**软删除/禁用写审计**；禁止删除/禁用自己、禁止删最后一个管理员。
 - 新配置项三件套齐全（§7）。
 
 ---
@@ -160,11 +177,13 @@ POST /admin/eval/runs → 建 eval_runs(status=queued) → 返回 run_id
 - [ ] **N0.3** 配置三件套：`ADMIN_ENABLED`、`EVAL_JOB_ENABLED`（测试默认关）、`EVAL_JOB_CONCURRENCY`。
 - [ ] **N0.4** 依赖【批次 M1】：`source_type` 写入 Qdrant payload（per-source 切片前置）。
 - [ ] **N0.5** 作业机制（`eval_runs` 状态机 + 可开关后台 worker）。
+- [ ] **N0.6** `users` 增加软删除字段 + `status` + `username` 部分唯一索引迁移（承接 L7）。
 
-### P1 · 治理/审计/概览 + 评测触发骨架（只读为主）
+### P1 · 治理/审计/概览 + 用户管理 + 评测触发骨架
 - [ ] **N1.1** `usage_daily` 聚合表 + 采集/rollup。
 - [ ] **N1.2** `GET /admin/overview`（KPI）。
-- [ ] **N1.3** `GET /admin/users` + `PATCH`（禁用/角色，写操作审计）。
+- [ ] **N1.3** `/admin/users` 全套 CRUD：增 / 查 / 改（角色·启停·重置密码·配额）/ **软删除** / 恢复 / 强制下线（写操作审计 + 护栏）。
+- [ ] **N1.3b** 前端用户管理页（列表 / 详情 / 编辑 / 软删二次确认 + 恢复入口）。
 - [ ] **N1.4** `GET /admin/usage` 时间序列。
 - [ ] **N1.5** `GET /admin/knowledge`（sync 四态/失败）。
 - [ ] **N1.6** `GET /admin/audit` 查询。
@@ -194,6 +213,7 @@ POST /admin/eval/runs → 建 eval_runs(status=queued) → 返回 run_id
 - [ ] admin 接口**非管理员 403**（回归用例）；管理员写操作**必写审计**。
 - [ ] 新配置三件套齐全；后台任务可开关且测试默认关闭。
 - [ ] 无密钥/对话原文进入日志或接口响应。
+- [ ] 用户**软删除可恢复**；软删后无法登录，且列表/统计/检索已过滤；不能删最后一个管理员。
 - [ ] 指标带配置指纹，历史可比。
 
 ---
@@ -203,6 +223,7 @@ POST /admin/eval/runs → 建 eval_runs(status=queued) → 返回 run_id
 |---|---|
 | 批次 M1 | `source_type` 入 payload → per-source 切片 |
 | 批次 L | 审计表/软删除（N0.2 复用） |
+| 批次 L7 | 账号软删除（N0.6 / N1.3 承接） |
 | 批次 J1 | `jobs` 表（可选，N0.5 可自带状态机） |
 | 批次 I | 多租户（P3），接缝在 N0 |
 

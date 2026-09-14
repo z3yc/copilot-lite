@@ -9,7 +9,7 @@
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -38,6 +38,7 @@ from app.models import (
     Document,
     EvalRun,
     LLMSetting,
+    UsageDaily,
     User,
     WikiLink,
     WikiPage,
@@ -812,3 +813,142 @@ async def get_eval_run(
     """评测作业详情（状态/进度/指标），供前端轮询。"""
     run = await _get_eval_run(db, run_id)
     return _eval_out(run)
+
+
+# ---------------- 概览与用量时间序列（N1.2 / N1.4，依赖 usage_daily N1.1） ----------------
+
+
+def _today_str() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
+class OverviewOut(BaseModel):
+    users_total: int
+    users_active: int
+    users_disabled: int
+    admins: int
+    requests_today: int
+    tokens_in_today: int
+    tokens_out_today: int
+    cost_today: float
+    error_rate_7d: float
+    latest_eval: EvalRunOut | None = None
+
+
+class UsagePoint(BaseModel):
+    day: str
+    requests: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost: float = 0.0
+    errors: int = 0
+
+
+async def _sum_usage(
+    db: AsyncSession, *, since_day: str, user_id: uuid.UUID | None = None
+) -> tuple[int, int, int, float, int]:
+    """聚合某日以来的 requests/tokens_in/tokens_out/cost/errors。"""
+    stmt = select(
+        func.coalesce(func.sum(UsageDaily.requests), 0),
+        func.coalesce(func.sum(UsageDaily.tokens_in), 0),
+        func.coalesce(func.sum(UsageDaily.tokens_out), 0),
+        func.coalesce(func.sum(UsageDaily.cost), 0.0),
+        func.coalesce(func.sum(UsageDaily.errors), 0),
+    ).where(UsageDaily.day >= since_day)
+    if user_id is not None:
+        stmt = stmt.where(UsageDaily.user_id == user_id)
+    return tuple((await db.execute(stmt)).one())  # type: ignore[return-value]
+
+
+@router.get("/overview", response_model=OverviewOut)
+async def overview(
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+) -> OverviewOut:
+    """KPI 汇总：用户数、今日用量、近 7 日错误率、最新评测分。"""
+    live = User.deleted_at.is_(None)
+    users_total = await db.scalar(select(func.count()).select_from(User).where(live)) or 0
+    users_active = (
+        await db.scalar(
+            select(func.count()).select_from(User).where(live, User.status == STATUS_ACTIVE)
+        )
+        or 0
+    )
+    users_disabled = (
+        await db.scalar(
+            select(func.count()).select_from(User).where(live, User.status == STATUS_DISABLED)
+        )
+        or 0
+    )
+    admins = (
+        await db.scalar(
+            select(func.count()).select_from(User).where(live, User.role == "admin")
+        )
+        or 0
+    )
+
+    req, tin, tout, cost, _ = await _sum_usage(db, since_day=_today_str())
+    week_since = (datetime.now(UTC) - timedelta(days=6)).strftime("%Y-%m-%d")
+    w_req, _, _, _, w_err = await _sum_usage(db, since_day=week_since)
+    error_rate = round(w_err / w_req, 4) if w_req else 0.0
+
+    latest = await db.scalar(select(EvalRun).order_by(EvalRun.created_at.desc()).limit(1))
+
+    return OverviewOut(
+        users_total=users_total,
+        users_active=users_active,
+        users_disabled=users_disabled,
+        admins=admins,
+        requests_today=req,
+        tokens_in_today=tin,
+        tokens_out_today=tout,
+        cost_today=round(cost, 6),
+        error_rate_7d=error_rate,
+        latest_eval=_eval_out(latest) if latest is not None else None,
+    )
+
+
+@router.get("/usage", response_model=list[UsagePoint])
+async def usage_series(
+    days: int = 7,
+    user_id: str | None = None,
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+) -> list[UsagePoint]:
+    """用量/成本时间序列（按天聚合，days 1-90，可选用户过滤）。"""
+    days = max(1, min(90, days))
+    since = (datetime.now(UTC) - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    uid = None
+    if user_id:
+        try:
+            uid = uuid.UUID(str(user_id))
+        except (ValueError, TypeError):
+            return []
+
+    stmt = (
+        select(
+            UsageDaily.day,
+            func.coalesce(func.sum(UsageDaily.requests), 0),
+            func.coalesce(func.sum(UsageDaily.tokens_in), 0),
+            func.coalesce(func.sum(UsageDaily.tokens_out), 0),
+            func.coalesce(func.sum(UsageDaily.cost), 0.0),
+            func.coalesce(func.sum(UsageDaily.errors), 0),
+        )
+        .where(UsageDaily.day >= since)
+        .group_by(UsageDaily.day)
+        .order_by(UsageDaily.day)
+    )
+    if uid is not None:
+        stmt = stmt.where(UsageDaily.user_id == uid)
+    rows = (await db.execute(stmt)).all()
+    return [
+        UsagePoint(
+            day=day,
+            requests=req or 0,
+            tokens_in=tin or 0,
+            tokens_out=tout or 0,
+            cost=round(cost or 0.0, 6),
+            errors=err or 0,
+        )
+        for day, req, tin, tout, cost, err in rows
+    ]

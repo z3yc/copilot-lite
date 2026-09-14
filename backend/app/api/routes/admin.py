@@ -13,7 +13,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
@@ -27,7 +27,18 @@ from app.core.pagination import (
 )
 from app.core.security import hash_password
 from app.core.soft_delete import mark_deleted
-from app.models import Category, ChatSession, Document, LLMSetting, User
+from app.models import (
+    AuditLog,
+    Category,
+    ChatSession,
+    Chunk,
+    Document,
+    LLMSetting,
+    User,
+    WikiLink,
+    WikiPage,
+    WikiSpace,
+)
 from app.models.category import DEFAULT_CATEGORIES
 from app.models.user import STATUS_ACTIVE, STATUS_DISABLED
 
@@ -449,3 +460,207 @@ async def force_logout_user(
     )
     await db.commit()
     return UserActionResult(id=str(user.id), soft=False, message="已强制下线")
+
+
+# ---------------- 审计查询（N1.6） ----------------
+
+
+class AuditItem(BaseModel):
+    id: str
+    request_id: str | None = None
+    user_id: str | None = None
+    action: str
+    resource_type: str | None = None
+    resource_id: str | None = None
+    result: str
+    meta: dict = Field(default_factory=dict)
+    created_at: datetime | None = None
+
+
+@router.get("/audit", response_model=PageOut[AuditItem])
+async def list_audit(
+    action: str | None = None,
+    user_id: str | None = None,
+    request_id: str | None = None,
+    result: str | None = None,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+) -> PageOut[AuditItem]:
+    """审计日志查询（按 action / user / request_id / result 过滤，分页）。"""
+    stmt = select(AuditLog)
+    if action:
+        stmt = stmt.where(AuditLog.action == action)
+    if request_id:
+        stmt = stmt.where(AuditLog.request_id == request_id)
+    if result:
+        stmt = stmt.where(AuditLog.result == result)
+    if user_id:
+        try:
+            uid = uuid.UUID(str(user_id))
+        except (ValueError, TypeError):
+            return PageOut(items=[], total=0, page=1, page_size=page_size)
+        stmt = stmt.where(AuditLog.user_id == uid)
+    stmt = stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+
+    page, page_size = normalize_page(page, page_size)
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    offset, limit = page_offset(page, page_size)
+    rows = (await db.scalars(stmt.limit(limit).offset(offset))).all()
+    return PageOut(
+        items=[
+            AuditItem(
+                id=str(r.id),
+                request_id=r.request_id,
+                user_id=str(r.user_id) if r.user_id else None,
+                action=r.action,
+                resource_type=r.resource_type,
+                resource_id=r.resource_id,
+                result=r.result,
+                meta=r.meta or {},
+                created_at=r.created_at,
+            )
+            for r in rows
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------------- 知识库概览（N1.5） ----------------
+
+
+class SourceStat(BaseModel):
+    source_type: str
+    documents: int = 0
+    chunks: int = 0
+
+
+class WikiSpaceStat(BaseModel):
+    id: str
+    name: str
+    owner_id: str | None = None
+    page_count: int = 0
+    last_synced_at: datetime | None = None
+
+
+class KnowledgeOut(BaseModel):
+    documents_total: int
+    chunks_total: int
+    failed_documents: int
+    by_source: list[SourceStat]
+    wiki_spaces: int
+    wiki_pages: int
+    wiki_dangling_links: int
+    spaces: list[WikiSpaceStat]
+
+
+@router.get("/knowledge", response_model=KnowledgeOut)
+async def knowledge_overview(
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+) -> KnowledgeOut:
+    """知识库概览：文档/chunk 总量、按来源切片、失败数、Wiki 空间与悬空链接。
+
+    注：Wiki“sync 四态”（added/updated/moved/deleted）为同步过程的瞬时计数，
+    当前未持久化，待 sync 统计落库后补充（N2.7 图谱对账）。
+    """
+    documents_total = (
+        await db.scalar(
+            select(func.count()).select_from(Document).where(Document.deleted_at.is_(None))
+        )
+        or 0
+    )
+    chunks_total = (
+        await db.scalar(
+            select(func.count()).select_from(Chunk).where(Chunk.deleted_at.is_(None))
+        )
+        or 0
+    )
+    failed_documents = (
+        await db.scalar(
+            select(func.count())
+            .select_from(Document)
+            .where(Document.deleted_at.is_(None), Document.status == "failed")
+        )
+        or 0
+    )
+
+    doc_rows = (
+        await db.execute(
+            select(Document.source_type, func.count())
+            .where(Document.deleted_at.is_(None))
+            .group_by(Document.source_type)
+        )
+    ).all()
+    chunk_rows = (
+        await db.execute(
+            select(Document.source_type, func.count())
+            .select_from(Chunk)
+            .join(Document, Chunk.document_id == Document.id)
+            .where(Chunk.deleted_at.is_(None), Document.deleted_at.is_(None))
+            .group_by(Document.source_type)
+        )
+    ).all()
+    by_source: dict[str, SourceStat] = {}
+    for source_type, count in doc_rows:
+        by_source[source_type] = SourceStat(source_type=source_type, documents=count)
+    for source_type, count in chunk_rows:
+        entry = by_source.setdefault(source_type, SourceStat(source_type=source_type))
+        entry.chunks = count
+
+    wiki_spaces = (
+        await db.scalar(
+            select(func.count()).select_from(WikiSpace).where(WikiSpace.deleted_at.is_(None))
+        )
+        or 0
+    )
+    wiki_pages = (
+        await db.scalar(
+            select(func.count()).select_from(WikiPage).where(WikiPage.deleted_at.is_(None))
+        )
+        or 0
+    )
+    wiki_dangling = (
+        await db.scalar(
+            select(func.count())
+            .select_from(WikiLink)
+            .where(WikiLink.target_page_id.is_(None))
+        )
+        or 0
+    )
+    space_rows = (
+        await db.execute(
+            select(WikiSpace, func.count(WikiPage.id))
+            .outerjoin(
+                WikiPage,
+                and_(WikiPage.space_id == WikiSpace.id, WikiPage.deleted_at.is_(None)),
+            )
+            .where(WikiSpace.deleted_at.is_(None))
+            .group_by(WikiSpace.id)
+            .order_by(WikiSpace.created_at.desc())
+            .limit(50)
+        )
+    ).all()
+
+    return KnowledgeOut(
+        documents_total=documents_total,
+        chunks_total=chunks_total,
+        failed_documents=failed_documents,
+        by_source=sorted(by_source.values(), key=lambda s: s.source_type),
+        wiki_spaces=wiki_spaces,
+        wiki_pages=wiki_pages,
+        wiki_dangling_links=wiki_dangling,
+        spaces=[
+            WikiSpaceStat(
+                id=str(space.id),
+                name=space.name,
+                owner_id=str(space.owner_id) if space.owner_id else None,
+                page_count=page_count,
+                last_synced_at=space.last_synced_at,
+            )
+            for space, page_count in space_rows
+        ],
+    )

@@ -26,10 +26,10 @@ P2 知识库   ██████████ 100% ✅（M2 验收通过）
 P3 双前端   ██████████ 100% ✅（M3 验收通过 + 功能增强）
 P4 工程化   ██████████ 100% ✅（M4 本地验收通过）
 P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端待实测）
-P6 收敛交付 █░░░░░░░░░  14%（R0 已完成，R1 见 P5；见 OPTIMIZATION_PLAN §13）
+P6 收敛交付 ██░░░░░░░░  25%（R0、R2 已完成；R1 见 P5；见 OPTIMIZATION_PLAN §13）
 ```
 
-**Git 现状**：`develop` 基线后端 **337 用例 / 覆盖率 82.53%**、前端 **92 用例**、CLI **15 用例**（@ `5b5ce2f` J1 合并后）；CI/CD 由本机 Jenkins 承载（见 `docs/CICD_PLAN.md`）。
+**Git 现状**：`develop` 基线后端 **343 用例 / 覆盖率 82.53%**、前端 **92 用例**、CLI **15 用例**（@ `06ab3bb`）；R2 分支 `feat/agent-trajectory` tip 后端 **370 / 82.81%**、前端 **102**、CLI **15**（@ `af9ed5f`，已验收，待合并）；CI/CD 由本机 Jenkins 承载（见 `docs/CICD_PLAN.md`）。
 **范围基准**：本轮已收敛为 **R0-R7**（`OPTIMIZATION_PLAN.md` §13），冻结项见该文件 §11；需求准入规则见 `DEMO_SCRIPT.md`。
 
 ---
@@ -131,7 +131,7 @@ P6 收敛交付 █░░░░░░░░░  14%（R0 已完成，R1 见 P5�
 ### ⚪ P6 · 范围收敛与交付（进行中）
 
 - [x] **R0** 计划收敛（本批交付）：三份计划改造 + 冻结清单（带重启条件）+ `DEMO_SCRIPT.md`
-- [ ] **R2** Q1 trajectory 可观测
+- [x] **R2** Q1 trajectory 可观测
 - [ ] **R3** M5 引用来源标注
 - [ ] **R4** P-F1 MCP 地基 + `fund_tool`
 - [ ] **R5** J3 评测门槛进 Jenkins + Q5 双引擎对照报告
@@ -140,7 +140,7 @@ P6 收敛交付 █░░░░░░░░░  14%（R0 已完成，R1 见 P5�
 
 > 明细与预估见 `OPTIMIZATION_PLAN.md` §13；冻结与重启条件见同文件 §11。
 > **进度以 `OPTIMIZATION_PLAN.md` §13 为准**；本页 P5/P6 为镜像视图，改动时先改 §13。
-> **当前执行顺序**：R2 → R3 → R4 → R5 → R6 → R7 → **R1（P5，最后）**。
+> **当前执行顺序**：R2 ✅ → **R3** → R4 → R5 → R6 → R7 → **R1（P5，最后）**。
 
 ---
 
@@ -185,6 +185,7 @@ START → Supervisor（LLM 意图判断）→ 条件路由
 | 工具复用 | 现有 ToolRegistry 适配为 LangGraph 工具（bind_tools，执行仍走 registry） | ✅ |
 | 流式 | `graph.astream_events` 过滤叶子节点输出，SSE 接口不变 | ✅ |
 | 实现 | `backend/app/agent/langgraph_engine.py`（StateGraph + Supervisor JSON 路由 + 关键词兜底） | ✅ |
+| 轨迹可观测 | 回答轨迹（路由来源/节点/工具/耗时）落 `Message.extra.trajectory`，前端可展开回放；两个引擎同形状（R2） | ✅ |
 | 测试 | 15 用例（图结构/路由/工具/兜底/最大轮数/流式/引擎切换/API），共 75 用例，覆盖率 81.48% | ✅ |
 
 ### 实施顺序与预估

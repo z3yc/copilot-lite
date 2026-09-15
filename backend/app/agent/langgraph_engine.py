@@ -18,6 +18,7 @@
 import json
 import logging
 import re
+import time
 from functools import lru_cache
 from typing import TypedDict
 
@@ -26,6 +27,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
 from app.agent.base import BaseAgent, confirmation_reply, split_system_context
+from app.agent.trajectory import TrajectoryRecorder, elapsed_ms
 from app.core.config import settings
 from app.core.json_parse import parse_json_object
 from app.core.llm import LLMError, get_llm_config
@@ -164,6 +166,10 @@ class LangGraphEngine(BaseAgent):
         # 是否流式运行（run_stream 置 True）：决定子 Agent 用 astream 还是 ainvoke
         self._streaming = False
         self._ctx: ToolContext | None = None  # 每次 run 注入（引擎按请求新建，无并发问题）
+        # 本轮轨迹（route/node/tool/answer）：run 后由上层写入 Message.extra
+        self.trace = TrajectoryRecorder("langgraph", enabled=settings.AGENT_TRACE_ENABLED)
+        # 轨迹规范化结果（run/run_stream 收尾时写入；开关关闭时为空 dict）
+        self.last_trajectory: dict = {}
         self.graph = self._build_graph().compile()
 
     @staticmethod
@@ -182,14 +188,19 @@ class LangGraphEngine(BaseAgent):
             messages = [SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT)]
             messages.extend(_to_langchain_messages(convo))
             messages.append(HumanMessage(content=state["user_message"]))
+            started = time.perf_counter()
             route = ""
+            source = "keyword"  # 兜底口径：只有模型给出合法路由才算 llm
             try:
                 resp = await self.llm.ainvoke(messages)
                 route = _parse_route(getattr(resp, "content", None) or "") or ""
+                if route in ROUTES:
+                    source = "llm"
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Supervisor 意图判断失败，走关键词兜底: %s", exc)
             if route not in ROUTES:
                 route = _keyword_route(state["user_message"])
+            self.trace.route(route, source, elapsed_ms(started))
             logger.info("路由: %s <- %s", route, state["user_message"][:20])
             return {"route": route}
 
@@ -205,6 +216,7 @@ class LangGraphEngine(BaseAgent):
         schemas = self._tool_schemas(AGENT_TOOLS[node_name])
 
         async def node(state: AgentState) -> dict:
+            self.trace.node(node_name)
             # system 上下文（附件/记忆）常驻 + 对话历史滚动窗口（与手写引擎同策略）
             system_msgs, convo = split_system_context(
                 state["history"], settings.HISTORY_WINDOW
@@ -238,23 +250,33 @@ class LangGraphEngine(BaseAgent):
                     name = tc.get("name", "")
                     args = tc.get("args") or {}
                     logger.info("调用工具: %s(%s)", name, args)
+                    args_json = json.dumps(args, ensure_ascii=False)
+                    started = time.perf_counter()
                     if self.registry.is_confirmation_required(name):
                         self.pending_confirmation.append(
                             {
                                 "name": name,
-                                "arguments": json.dumps(args, ensure_ascii=False),
+                                "arguments": args_json,
                                 "tool_call_id": tc.get("id", ""),
                             }
                         )
                         result = "（该操作需用户确认，已挂起，尚未执行）"
+                        self.trace.tool(
+                            name,
+                            args_json,
+                            result,
+                            status="pending_confirmation",
+                            ms=elapsed_ms(started),
+                        )
                     else:
-                        result = await self.registry.execute(
-                            name, json.dumps(args, ensure_ascii=False), self._ctx
+                        result = await self.registry.execute(name, args_json, self._ctx)
+                        self.trace.tool(
+                            name, args_json, str(result), status="ok", ms=elapsed_ms(started)
                         )
                         self.last_tool_calls.append(
                             {
                                 "name": name,
-                                "arguments": json.dumps(args, ensure_ascii=False),
+                                "arguments": args_json,
                                 "result": str(result)[:500],
                             }
                         )
@@ -306,6 +328,7 @@ class LangGraphEngine(BaseAgent):
     ) -> str:
         """执行一次对话（图完整运行），返回最终回复。"""
         self._ctx = ToolContext(session=session, user_id=user_id)
+        self.trace.reset()
         self.last_tool_calls = []
         self.pending_confirmation = []
         self.last_citations = []
@@ -318,11 +341,15 @@ class LangGraphEngine(BaseAgent):
         }
         result = await self.graph.ainvoke(state)
         self.last_citations = list(self._ctx.citations)
-        return result.get("reply") or ""
+        reply = result.get("reply") or ""
+        self.trace.answer(len(reply))
+        self.last_trajectory = self.trace.build()
+        return reply
 
     async def run_stream(self, session, user_id, history: list[dict], user_message: str):
         """流式执行：token 级产出最终回复（仅叶子 Agent 的模型输出）。"""
         self._ctx = ToolContext(session=session, user_id=user_id)
+        self.trace.reset()
         self.last_tool_calls = []
         self.pending_confirmation = []
         self.last_citations = []
@@ -335,6 +362,7 @@ class LangGraphEngine(BaseAgent):
         }
         leaf_nodes = ("kb_agent", "tools_agent", "chat_agent")
         yielded = False
+        chars = 0
         async for event in self.graph.astream_events(state, version="v2"):
             if event["event"] != "on_chat_model_stream":
                 continue
@@ -345,12 +373,17 @@ class LangGraphEngine(BaseAgent):
             content = getattr(chunk, "content", None)
             if isinstance(content, str) and content:
                 yielded = True
+                chars += len(content)
                 yield content
         if self._ctx is not None:
             self.last_citations = list(self._ctx.citations)
         # 挂起等确认的操作由引擎生成回复，不经过模型流，需单独产出
         if self.pending_confirmation and not yielded:
-            yield confirmation_reply(self.pending_confirmation)
+            text = confirmation_reply(self.pending_confirmation)
+            chars += len(text)
+            yield text
+        self.trace.answer(chars)
+        self.last_trajectory = self.trace.build()
 
     async def close(self) -> None:
         """释放引擎资源。

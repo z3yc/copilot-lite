@@ -194,4 +194,65 @@ describe("ChatPanel", () => {
     expect(screen.getByRole("button", { name: /停止/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /发送/ })).not.toBeInTheDocument();
   });
+
+  it("done 事件带 trajectory 时在气泡内渲染轨迹面板", async () => {
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      handlers.onChunk("回答");
+      handlers.onDone({
+        trajectory: {
+          engine: "langgraph",
+          total_ms: 88,
+          truncated: false,
+          steps: [{ type: "route", route: "tools", source: "keyword", ms: 5 }],
+        },
+      });
+    });
+
+    renderPanel();
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "测试问题" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+
+    expect(await screen.findByText(/本次回答轨迹/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/本次回答轨迹/));
+    expect(screen.getByText(/关键词兜底/)).toBeInTheDocument();
+  });
+
+  it("历史消息自带 trajectory 时也能渲染（刷新后回放）", () => {
+    renderPanel({
+      initialMessages: [
+        {
+          role: "assistant",
+          content: "答案",
+          extra: {
+            trajectory: {
+              engine: "handwritten",
+              total_ms: 30,
+              truncated: false,
+              steps: [{ type: "node", node: "orchestrator" }],
+            },
+          },
+        },
+      ],
+    });
+    expect(screen.getByText(/本次回答轨迹/)).toBeInTheDocument();
+  });
+
+  it("done 无 trajectory 时仍复位 busy 且不渲染面板", async () => {
+    const setBusy = vi.fn();
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      handlers.onChunk("回答");
+      handlers.onDone();
+    });
+
+    renderPanel({ setBusy });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "hi" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+
+    await waitFor(() => expect(setBusy).toHaveBeenCalledWith(false));
+    expect(screen.queryByText(/本次回答轨迹/)).not.toBeInTheDocument();
+  });
 });

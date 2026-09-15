@@ -187,6 +187,32 @@ describe("streamChat SSE 解析", () => {
     expect(h.onError).not.toHaveBeenCalled();
   });
 
+  it("done 事件携带的 trajectory 透传给 onDone", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode('event: session\ndata: {"session_id": "s1"}\n\n'));
+        controller.enqueue(encoder.encode('event: chunk\ndata: {"text": "你好"}\n\n'));
+        controller.enqueue(
+          encoder.encode(
+            'event: done\ndata: {"trajectory":{"engine":"langgraph","total_ms":1,"truncated":false,"steps":[{"type":"answer","chars":2}]}}\n\n'
+          )
+        );
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(stream, { status: 200 })));
+
+    const h = handlers();
+    await streamChat("你好", null, h);
+
+    expect(h.onDone).toHaveBeenCalledWith(
+      expect.objectContaining({
+        trajectory: expect.objectContaining({ engine: "langgraph" }),
+      })
+    );
+  });
+
   it("HTTP 非 2xx 时回调 onError 并附状态码", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("内部错误", { status: 500 })));
 

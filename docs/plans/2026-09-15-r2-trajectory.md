@@ -85,7 +85,7 @@ AGENT_TRACE_ENABLED=true
 os.environ["AGENT_TRACE_ENABLED"] = "false"
 ```
 
-验证：`.venv\Scripts\python.exe -c "from app.core.config import Settings; print(Settings().AGENT_TRACE_ENABLED)"` → `False`（conftest 未加载时不生效；此处直接跑会打印 `True`，都算通过——以 `tests` 下断言为准）。
+（三件套是否真生效由 Step 2 的 `test_trace_disabled_in_test_env` 断言，不靠肉眼看命令输出。）
 
 提交：`chore(config): 新增 AGENT_TRACE_ENABLED 三件套——轨迹可观测开关，测试环境默认关`
 
@@ -106,6 +106,13 @@ from app.agent.trajectory import (
     TrajectoryRecorder,
     redact_json_args,
 )
+
+
+def test_trace_disabled_in_test_env() -> None:
+    """conftest 把轨迹开关默认关掉（AGENTS §8：后台/可选能力测试环境默认关）。"""
+    from app.core.config import settings
+
+    assert settings.AGENT_TRACE_ENABLED is False
 
 
 def test_disabled_recorder_returns_empty() -> None:
@@ -370,7 +377,7 @@ class TrajectoryRecorder:
 **Step 5: 跑测试确认通过**
 
 Run: `cd backend && .venv\Scripts\python.exe -m pytest tests/test_trajectory.py -q`
-Expected: `9 passed`
+Expected: `10 passed`
 
 **Step 6: lint + 提交**
 
@@ -498,7 +505,10 @@ async def test_stream_records_trajectory(monkeypatch, db_session) -> None:
     assert traj["steps"][2]["chars"] == len("".join(parts))
 ```
 
-> 注：`FakeToolChatModel` 是 `GenericFakeChatModel`，`tool_calls` 需用 `AIMessage(..., tool_calls=[...])` 构造；若现有文件里已有构造工具调用的写法，**照抄现有写法**，不要新造一套。
+> 注：工具调用的构造**照抄本文件既有写法**（约 136-143 行），不要新造一套：
+> ```python
+> AIMessage(content="", tool_calls=[{"name": "kb_search", "args": {"query": "x"}, "id": "c1"}])
+> ```
 
 **Step 2: 跑测试确认失败**
 
@@ -664,35 +674,83 @@ git commit -m "feat(agent): LangGraph 引擎产出轨迹——路由来源/节�
 
 追加到 `backend/tests/test_orchestrator.py`（照该文件既有 fake LLM 用法）：
 
+顶部补 `from app.core.config import settings`。追加：
+
 ```python
 # ---------- 轨迹（trajectory） ----------
 
 
-async def test_trajectory_records_node_and_answer(monkeypatch) -> None:
-    """手写引擎：节点=orchestrator，无 route step（它没有路由能力）。"""
+def _enable_trace(monkeypatch) -> None:
+    """conftest 默认关闭轨迹，需要轨迹的用例自行打开。"""
     monkeypatch.setattr(settings, "AGENT_TRACE_ENABLED", True)
-    ...  # 照本文件既有 fake LLM 构造一次纯文本回复
-    await agent.run(session=None, user_id="u1", history=[], user_message="你好")
 
-    traj = agent.last_trajectory
+
+@pytest.mark.asyncio
+async def test_trajectory_records_node_and_answer(monkeypatch, db_session) -> None:
+    """手写引擎：节点=orchestrator，无 route step（它没有路由能力）。"""
+    _enable_trace(monkeypatch)
+    fake = FakeLLM([ChatResult(content="你好！有什么可以帮你？")])
+    orch = Orchestrator(llm=fake, registry=registry, max_turns=3)
+    await orch.run(db_session, DEFAULT_USER_ID, [], "你好")
+
+    traj = orch.last_trajectory
     assert traj["engine"] == "handwritten"
+    assert traj["truncated"] is False
     assert [s["type"] for s in traj["steps"]] == ["node", "answer"]
     assert traj["steps"][0]["node"] == "orchestrator"
+    assert traj["steps"][1]["chars"] == len("你好！有什么可以帮你？")
 
 
-async def test_trajectory_records_tool_step(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "AGENT_TRACE_ENABLED", True)
-    ...  # fake LLM 先返回 tool_calls，再返回文本
-    tool = next(s for s in agent.last_trajectory["steps"] if s["type"] == "tool")
-    assert tool["name"] == "kb_search"
+@pytest.mark.asyncio
+async def test_trajectory_records_tool_step(monkeypatch, db_session) -> None:
+    """工具调用与结果进轨迹（含耗时与状态）。"""
+    _enable_trace(monkeypatch)
+    fake = FakeLLM(
+        [
+            ChatResult(tool_calls=[ToolCall(id="call_1", name="todo_list", arguments="{}")]),
+            ChatResult(content="这是你的待办"),
+        ]
+    )
+    orch = Orchestrator(llm=fake, registry=registry, max_turns=3)
+    await orch.run(db_session, DEFAULT_USER_ID, [], "看看我的待办")
+
+    tool = next(s for s in orch.last_trajectory["steps"] if s["type"] == "tool")
+    assert tool["name"] == "todo_list"
     assert tool["status"] == "ok"
+    assert tool["ms"] >= 0
+    assert [s["type"] for s in orch.last_trajectory["steps"]] == [
+        "node",
+        "tool",
+        "answer",
+    ]
 
 
-async def test_trajectory_disabled_returns_empty(monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_trajectory_disabled_returns_empty(monkeypatch, db_session) -> None:
+    """开关关闭：不记录（AGENTS §8）。"""
     monkeypatch.setattr(settings, "AGENT_TRACE_ENABLED", False)
-    ...  # 一次纯文本回复
-    assert agent.last_trajectory == {}
+    fake = FakeLLM([ChatResult(content="你好")])
+    orch = Orchestrator(llm=fake, registry=registry, max_turns=3)
+    await orch.run(db_session, DEFAULT_USER_ID, [], "你好")
+    assert orch.last_trajectory == {}
+
+
+@pytest.mark.asyncio
+async def test_stream_records_trajectory(monkeypatch, db_session) -> None:
+    """run_stream 的每个出口都收尾轨迹（防某个 return 分支漏记）。"""
+    _enable_trace(monkeypatch)
+    ...  # 见下方 `run_stream` 说明：需 fake LLM 同时实现 stream_raw
+    parts = [p async for p in orch.run_stream(db_session, DEFAULT_USER_ID, [], "你好")]
+    traj = orch.last_trajectory
+    assert [s["type"] for s in traj["steps"]] == ["node", "answer"]
+    assert traj["steps"][1]["chars"] == len("".join(parts))
 ```
+
+> `run_stream` 用例：本文件的 `FakeLLM` 只实现了 `chat()`；本任务需为它补一个 `stream_raw()`
+> （形参见 `app/core/llm.py` 的 `LLMClient.stream_raw`，返回 OpenAI 风格 chunk 的异步迭代器），
+> 或在用例内定义小的 `FakeStreamLLM(FakeLLM)` 子类。**若补 `stream_raw` 会牵动现有用例，
+> 就改用子类**——不要改坏现有用例。若 15 分钟内无法构造可用的流式 fake，
+> 就删掉本用例并在报告里写明原因（`run_stream` 的收尾靠 Task 6 的端到端 SSE 用例兜底）。
 
 **Step 2: 跑测试确认失败**
 

@@ -3,7 +3,8 @@
 设计（Q0.7：多智能体不可观测 = 不可调试 / 不可评测）：
 - 两个引擎产出**同形状**轨迹（同一 step 词汇表），前端与落库契约不随引擎分叉；
 - 落库前**规范化**：步数上限、单步参数/结果截断、总字节上限，超限置 `truncated`；
-- **禁落密钥**（AGENTS §6/§15 红线）：工具参数按 key 脱敏，结果按截断口径；
+- **禁落密钥**（AGENTS §6/§15 红线）：工具参数**与工具结果**均按 key 脱敏
+  （结果回显 JSON 里的 token/password 同样是泄露面）；
 - 可开关（AGENTS §8）：`AGENT_TRACE_ENABLED=false` 时零开销早退，`build()` 返回 `{}`。
 
 规范化只发生在这里：引擎只管记录，落库口径由本模块统一决定。
@@ -12,12 +13,9 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 import time
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 # ---- 规范化上限（落库体积口径；超限置 truncated=true）----
 TRAJECTORY_MAX_STEPS = 20
@@ -25,12 +23,15 @@ TRAJECTORY_ARG_MAX = 300
 TRAJECTORY_RESULT_MAX = 500
 TRAJECTORY_MAX_BYTES = 16 * 1024
 
-# 敏感 key（密钥类）：命中即把值替换为掩码。用前后视断言避免误伤
-# `max_tokens`（`token` 后跟 `s`）、`tokens_total` 这类普通字段。
+# 敏感 key（密钥类）：命中即把值替换为掩码。
+# 前置 lookbehind 故意不写：它会让 accessToken / clientSecret / myApiKey
+# 这类驼峰（或带前缀）key 从词中间起匹配失败，从而整条漏网。
+# 尾随断言用 (?-i:...) 局部关闭 IGNORECASE，使 `[a-z0-9]` 只匹配小写字母/数字：
+# 于是 `max_tokens` / `tokens_total`（`token` 后跟小写 `s`）仍不误伤，
+# 而 `secretKey` / `secretValue` 这类驼峰续词（后跟大写字母）能正确命中。
 _SENSITIVE_KEY_RE = re.compile(
-    r"(?<![a-z0-9])"
     r"(api[_-]?key|apikey|secret|token|password|passwd|credential|authorization)"
-    r"(?![a-z0-9])",
+    r"(?-i:(?![a-z0-9]))",
     re.IGNORECASE,
 )
 _MASK = "***"
@@ -53,21 +54,22 @@ def redact(value: Any) -> Any:
     return value
 
 
-def redact_json_args(arguments: str) -> str:
-    """工具参数（JSON 字符串）脱敏。
+def redact_json_text(text: str) -> str:
+    """工具参数**与工具结果**（均为 JSON 字符串）脱敏。
 
     解析成功且确有敏感 key 时才改写（避免无谓地改变原始格式）；
-    解析失败则原样返回（非法 JSON 由上层工具层兜底处理，不在此报错）。
+    解析失败（非 JSON 文本）则原样返回——不猜测、不改写自由文本，
+    非法 JSON 由上层工具层兜底处理，不在此报错。
     """
-    if not arguments:
-        return arguments
+    if not text:
+        return text
     try:
-        parsed = json.loads(arguments)
+        parsed = json.loads(text)
     except (ValueError, TypeError):
-        return arguments
+        return text
     redacted = redact(parsed)
     if redacted == parsed:
-        return arguments
+        return text
     return json.dumps(redacted, ensure_ascii=False)
 
 
@@ -123,8 +125,8 @@ class TrajectoryRecorder:
             {
                 "type": "tool",
                 "name": name,
-                "arguments": _clip(redact_json_args(arguments), TRAJECTORY_ARG_MAX),
-                "result": _clip(result, TRAJECTORY_RESULT_MAX),
+                "arguments": _clip(redact_json_text(arguments), TRAJECTORY_ARG_MAX),
+                "result": _clip(redact_json_text(result), TRAJECTORY_RESULT_MAX),
                 "status": status,
                 "ms": int(ms),
             }

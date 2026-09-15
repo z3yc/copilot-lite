@@ -8,7 +8,7 @@ from app.agent.trajectory import (
     TRAJECTORY_MAX_STEPS,
     TRAJECTORY_RESULT_MAX,
     TrajectoryRecorder,
-    redact_json_args,
+    redact_json_text,
 )
 
 
@@ -76,15 +76,15 @@ def test_sensitive_keys_are_masked() -> None:
     assert "ok" in args
 
 
-def test_redact_json_args_keeps_non_sensitive_untouched() -> None:
+def test_redact_json_text_keeps_non_sensitive_untouched() -> None:
     """无敏感 key 时原样返回（不改写格式）。"""
     raw = '{ "query" : "x" }'
-    assert redact_json_args(raw) == raw
+    assert redact_json_text(raw) == raw
 
 
 def test_redact_does_not_touch_token_lookalike() -> None:
     """max_tokens 不是密钥（防误伤）；refresh_token 是。"""
-    out = redact_json_args('{"max_tokens": 128, "refresh_token": "abc"}')
+    out = redact_json_text('{"max_tokens": 128, "refresh_token": "abc"}')
     assert '"max_tokens": 128' in out
     assert "abc" not in out
 
@@ -105,3 +105,37 @@ def test_reset_clears_steps() -> None:
     rec.node("kb_agent")
     rec.reset()
     assert rec.build() == {}
+
+
+def test_redact_catches_camel_case_keys() -> None:
+    """驼峰命名的密钥 key 同样要脱敏（accessToken / clientSecret / secretKey）。"""
+    out = redact_json_text(
+        '{"accessToken": "abc", "clientSecret": "def", "secretKey": "ghi", "query": "ok"}'
+    )
+    assert "abc" not in out
+    assert "def" not in out
+    assert "ghi" not in out
+    assert "ok" in out
+
+
+def test_result_with_secret_is_masked() -> None:
+    """工具结果里的密钥同样脱敏（防结果回显泄露）。"""
+    rec = TrajectoryRecorder("langgraph")
+    rec.tool("t", "{}", '{"token": "leak-me", "ok": true}')
+    result = rec.build()["steps"][0]["result"]
+    assert "leak-me" not in result
+    assert "***" in result
+
+
+def test_non_json_result_kept_verbatim() -> None:
+    """非 JSON 结果原样保留（不猜测、不改写）。"""
+    rec = TrajectoryRecorder("langgraph")
+    rec.tool("t", "{}", "普通文本结果")
+    assert rec.build()["steps"][0]["result"] == "普通文本结果"
+
+
+def test_dropping_lookbehind_keeps_token_lookalikes_safe() -> None:
+    """回归：去掉 lookbehind 后 max_tokens / tokens_total 仍不误伤。"""
+    out = redact_json_text('{"max_tokens": 128, "tokens_total": 9}')
+    assert '"max_tokens": 128' in out
+    assert '"tokens_total": 9' in out

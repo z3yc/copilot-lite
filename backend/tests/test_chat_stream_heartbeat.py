@@ -6,6 +6,7 @@
 
 import asyncio
 import json
+import uuid
 from typing import ClassVar
 
 from httpx import ASGITransport, AsyncClient
@@ -120,3 +121,46 @@ async def test_stream_cap_emits_error_not_done(monkeypatch, authed_headers):
     assert "error" in events and "done" not in events
     assert texts == []
     assert errors
+
+
+async def test_disconnect_closes_engine_generator(monkeypatch, authed_headers, db_session):
+    """客户端断开后必须关掉引擎生成器（否则悬挂任务持有引擎）。"""
+    from app.api.routes import chat as chat_mod
+    from app.api.routes.chat import ChatRequest
+    from app.models import User
+
+    closed = asyncio.Event()
+
+    class _StuckAgent:
+        last_tool_calls: ClassVar[list] = []
+        pending_confirmation: ClassVar[list] = []
+        last_citations: ClassVar[list] = []
+        last_trajectory: ClassVar[dict] = {}
+
+        async def run_stream(self, **kwargs):
+            try:
+                yield "第一段"
+                await asyncio.sleep(30)  # 长静默：等客户端断开
+                yield "第二段"
+            finally:
+                closed.set()  # 生成器被关闭时才置位
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(chat_mod, "_build_agent", lambda: _StuckAgent())
+
+    # 直接驱动事件生成器，绕开 ASGI 传输对断开语义的依赖
+    user = await db_session.get(User, uuid.UUID(authed_headers["uid"]))
+    response = await chat_mod.chat_stream(
+        ChatRequest(message="断开测试"), db=db_session, user=user, _quota=None
+    )
+    gen = response.body_iterator
+    while True:  # 消费到首个 chunk，确保引擎的 anext 已在飞（挂在 sleep 上）
+        event = await anext(gen)
+        if "event: chunk" in event:
+            break
+    await gen.aclose()  # 客户端断开
+
+    await asyncio.wait_for(closed.wait(), timeout=5)
+    assert closed.is_set(), "断开后引擎生成器未被关闭（悬挂任务）"

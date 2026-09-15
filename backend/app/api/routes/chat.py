@@ -12,6 +12,7 @@ SSE 事件序列：
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -489,6 +490,7 @@ async def chat_stream(
         # 4. token 级流式运行引擎（逐 chunk 转发；长等待期间发心跳保活）
         reply_parts: list[str] = []
         saved = False  # 标记回复是否已落库（防 finally 重复保存）
+        pending_chunk: asyncio.Task | None = None  # 进行中的 anext（断开时需显式取消）
         tokens_before = _total_llm_tokens()
         usage_before = snapshot_usage()
         try:
@@ -499,20 +501,20 @@ async def chat_stream(
             # 必须把 anext 挂成一个 Task 并跨超时复用——不能用 asyncio.wait_for，
             # 它超时会取消被包裹的 anext，把生成器就地终止（回答被静默截断却仍发 done）。
             stream_started = asyncio.get_running_loop().time()
-            pending = asyncio.ensure_future(anext(agent_stream))
+            pending_chunk = asyncio.ensure_future(anext(agent_stream))
             while True:
-                done_set, _ = await asyncio.wait({pending}, timeout=_HEARTBEAT_SECONDS)
+                done_set, _ = await asyncio.wait({pending_chunk}, timeout=_HEARTBEAT_SECONDS)
                 if not done_set:
                     if asyncio.get_running_loop().time() - stream_started > _STREAM_MAX_SECONDS:
-                        pending.cancel()
+                        pending_chunk.cancel()
                         raise HTTPException(status_code=504, detail="生成超时，请重试")
                     yield ": ping\n\n"
                     continue
                 try:
-                    text = pending.result()
+                    text = pending_chunk.result()
                 except StopAsyncIteration:
                     break
-                pending = asyncio.ensure_future(anext(agent_stream))
+                pending_chunk = asyncio.ensure_future(anext(agent_stream))
                 reply_parts.append(text)
                 yield _sse("chunk", {"text": text})
         except HTTPException as exc:
@@ -559,6 +561,12 @@ async def chat_stream(
             # 客户端断开/任务取消（CancelledError）时兜底保存已生成部分
             if not saved:
                 await _persist_partial(db, session.id, reply_parts)
+            # 取消仍在等待的分片任务：它不在 wait 的取消链上，不显式取消会留下
+            # 一个持有引擎的悬挂任务（旧实现由 asyncio.wait_for 代劳了这一步）。
+            if pending_chunk is not None and not pending_chunk.done():
+                pending_chunk.cancel()
+                with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+                    await pending_chunk
             # 本轮用量计入用户每日预算（成功/失败/中断路径都累计）
             add_token_usage(user.id, _total_llm_tokens() - tokens_before)
             await record_usage_silently(db, user.id, usage_before)

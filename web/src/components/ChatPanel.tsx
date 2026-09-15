@@ -44,17 +44,17 @@ const nextMessageId = () => `m-${Date.now().toString(36)}-${messageSeq++}`;
  * 不可变更新「最后一条助手消息」（不存在则原样返回）。
  *
  * 统一的理由是 StrictMode 会双调用 updater：任何一处改成原地修改都会出重复内容，
- * 机制集中在这里，三处调用不可能各自写歪（AGENTS §5 异步 UI 铁律）。
+ * 机制集中在这里，调用点不可能各自写歪（AGENTS §5 异步 UI 铁律）。
  */
 function updateLastAssistant(
   prev: ChatMessage[],
-  patch: Partial<ChatMessage>
+  patch: (last: ChatMessage) => Partial<ChatMessage>
 ): ChatMessage[] {
   const next = [...prev];
   const lastIdx = next.length - 1;
   const last = next[lastIdx];
   if (last && last.role === "assistant") {
-    next[lastIdx] = { ...last, ...patch };
+    next[lastIdx] = { ...last, ...patch(last) };
   }
   return next;
 }
@@ -176,31 +176,25 @@ export default function ChatPanel({
         onChunk: (chunk) => {
           // 不可变更新：复制最后一条 assistant 消息再追加，
           // 避免 StrictMode 双调用 updater 时对同一对象重复追加
-          setMessages((prev) => {
-            const next = [...prev];
-            const lastIdx = next.length - 1;
-            const last = next[lastIdx];
-            if (last && last.role === "assistant") {
-              next[lastIdx] = { ...last, content: last.content + chunk };
-            }
-            return next;
-          });
+          setMessages((prev) =>
+            updateLastAssistant(prev, (last) => ({ content: last.content + chunk }))
+          );
         },
         onPending: (actions) => {
           // 高风险操作挂起：给最后一条助手消息附加确认信息
           setMessages((prev) =>
-            updateLastAssistant(prev, {
-              extra: { ...(prev[prev.length - 1]?.extra || {}), pending_confirmation: actions },
-            })
+            updateLastAssistant(prev, (last) => ({
+              extra: { ...(last.extra || {}), pending_confirmation: actions },
+            }))
           );
         },
         onDone: (payload) => {
           // 轨迹落库随 done 一并到达（旧后端不带）：合并到最后一条助手消息
           if (payload?.trajectory) {
             setMessages((prev) =>
-              updateLastAssistant(prev, {
-                extra: { ...(prev[prev.length - 1]?.extra || {}), trajectory: payload.trajectory },
-              })
+              updateLastAssistant(prev, (last) => ({
+                extra: { ...(last.extra || {}), trajectory: payload.trajectory },
+              }))
             );
           }
           setBusy(false);
@@ -209,7 +203,9 @@ export default function ChatPanel({
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last && last.role === "assistant" && !last.content) {
-              return updateLastAssistant(prev, { content: `生成出错：${msg}` });
+              return updateLastAssistant(prev, () => ({
+                content: `生成出错：${msg}`,
+              }));
             }
             return [...prev, { role: "assistant", content: `生成出错：${msg}` }];
           });

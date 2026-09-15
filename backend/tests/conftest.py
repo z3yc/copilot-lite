@@ -1,12 +1,22 @@
-"""pytest 全局配置：测试使用独立 SQLite 库，不污染开发数据库。
+"""pytest 全局配置：测试使用独立 PostgreSQL 库（与生产同构）。
 
 环境变量必须在导入 app 之前设置（settings 为模块级缓存）。
+
+- 测试库：`TEST_DATABASE_URL`（默认 `postgresql+asyncpg://postgres:root@localhost:5432/copilot_test`）；
+- 库不存在时自动创建（连维护库 `postgres` 执行 CREATE DATABASE）；
+- 每个用例前 TRUNCATE 全部表，用例间互不影响；
+- 统一 PG 的原因：SQLite 与 PG 的时区/级联/部分索引语义不同，曾出现
+  "SQLite 测试通过、生产 PG 报错"的方言差异问题（AGENTS：本地只用 PG）。
 """
 
 import os
 import uuid as _uuid
 
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_copilot.db"
+_TEST_DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL",
+    "postgresql+asyncpg://postgres:root@localhost:5432/copilot_test",
+)
+os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
 # 测试环境关闭后台记忆提取（避免后台任务占用测试库句柄）
 os.environ["MEMORY_EXTRACT_ENABLED"] = "false"
 # 测试环境关闭后台摘要压缩（同上）
@@ -21,18 +31,105 @@ os.environ["EMBEDDING_PREWARM"] = "false"
 # 测试全程用 FakeLLM mock，不会真实调用 DeepSeek——避免 CI 无 .env 时误报 503）
 os.environ.setdefault("DEEPSEEK_API_KEY", "test-key-not-real")
 
+import asyncpg
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import delete, text
+from sqlalchemy.engine import make_url
 
 import app.models
+from app.core.constants import DEFAULT_USER_ID, DEFAULT_USERNAME
 from app.core.crypto import encrypt_secret
 from app.core.db import Base, async_session_factory, engine
+from app.core.security import hash_password
 from app.main import app
 from app.models import LLMSetting, User
 
-_TEST_DB = "test_copilot.db"
+_schema_ready = False
+
+
+async def _ensure_database() -> None:
+    """测试库不存在则创建（连维护库 postgres，PG 无 CREATE DATABASE IF NOT EXISTS）。"""
+    url = make_url(_TEST_DATABASE_URL)
+    db_name = url.database or "copilot_test"
+    try:
+        conn = await asyncpg.connect(
+            user=url.username,
+            password=url.password,
+            host=url.host,
+            port=url.port or 5432,
+            database="postgres",
+        )
+    except OSError as exc:  # 服务没起/端口不通——给出可操作的提示
+        raise RuntimeError(
+            f"连接测试库失败（{url.render_as_string(hide_password=True)}）："
+            "请先启动 PostgreSQL（本地默认 localhost:5432）"
+        ) from exc
+    try:
+        exists = await conn.fetchval("select 1 from pg_database where datname = $1", db_name)
+        if not exists:
+            await conn.execute(f'CREATE DATABASE "{db_name}"')
+    finally:
+        await conn.close()
+
+
+async def _ensure_schema() -> None:
+    """建表（幂等；整个测试会话只需一次）。"""
+    global _schema_ready
+    if _schema_ready:
+        return
+    await _ensure_database()
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    _schema_ready = True
+
+
+async def _truncate_all() -> None:
+    """清空所有表（CASCADE 兼容外键；RESTART IDENTITY 重置自增序列）。"""
+    names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
+    async with engine.begin() as conn:
+        await conn.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
+
+
+async def _seed_default_user() -> None:
+    """预置单用户模式的默认用户（`DEFAULT_USER_ID`）。
+
+    大量单测直接用该固定 id 作为数据归属：SQLite 默认不强制外键所以过去能过，
+    PostgreSQL 强制外键——测试库里必须先存在这条用户记录。
+    """
+    async with async_session_factory() as db:
+        db.add(
+            User(
+                id=DEFAULT_USER_ID,
+                username=DEFAULT_USERNAME,
+                password_hash=hash_password("test-not-real"),
+                role="user",
+            )
+        )
+        await db.commit()
+
+
+@pytest.fixture
+async def make_user():
+    """创建真实用户并返回其 id（需要多个用户做隔离验证时用）。
+
+    PostgreSQL 强制外键（SQLite 默认不强制），凡是用"临时造 UUID"归属数据的
+    测试都必须先建出真实用户；单用户场景直接用已预置的 `DEFAULT_USER_ID`。
+    """
+
+    async def _make(username: str | None = None) -> _uuid.UUID:
+        async with async_session_factory() as db:
+            user = User(
+                id=_uuid.uuid4(),
+                username=username or f"u{_uuid.uuid4().hex[:8]}",
+                password_hash=hash_password("test-not-real"),
+                role="user",
+            )
+            db.add(user)
+            await db.commit()
+            return user.id
+
+    return _make
 
 
 @pytest.fixture
@@ -43,8 +140,7 @@ async def authed_headers() -> dict:
     （env Key 仅超级管理员可用），所以绝大多数用例需要一个“已配置”的用户。
     需要“新账号未配置”语义时改用 `unconfigured_headers`。
     """
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await _ensure_schema()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
@@ -99,19 +195,14 @@ async def unconfigured_headers(authed_headers: dict) -> dict:
 
 @pytest.fixture(autouse=True)
 async def _clean_test_db():
-    """每个测试开始前清理残留文件，结束后释放引擎并删除测试库。"""
-    # 测试前：清除上次运行可能残留的测试库
-    if os.path.exists(_TEST_DB):
-        try:
-            os.remove(_TEST_DB)
-        except PermissionError:
-            pass
+    """每个用例前清空全部表；结束后释放引擎（避免连接池跨事件循环复用）。"""
+    await _ensure_schema()
+    await _truncate_all()
+    await _seed_default_user()
     yield
     from app.core.db import engine as app_engine
 
     await app_engine.dispose()
-    if os.path.exists(_TEST_DB):
-        os.remove(_TEST_DB)
 
 
 @pytest.fixture(autouse=True)
@@ -180,11 +271,7 @@ def _isolated_qdrant(tmp_path, monkeypatch):
 
 @pytest.fixture
 async def db_session():
-    """提供独立的测试数据库会话（自动建表 + 用后清理）。"""
-    engine = create_async_engine(f"sqlite+aiosqlite:///./{_TEST_DB}")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
+    """提供独立的测试数据库会话（表已就绪，用后清理）。"""
+    await _ensure_schema()
+    async with async_session_factory() as session:
         yield session
-    await engine.dispose()

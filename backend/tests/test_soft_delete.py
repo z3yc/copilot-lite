@@ -58,11 +58,11 @@ async def test_bm25_excludes_soft_deleted(db_session):
     assert hits == []
 
 
-async def test_memory_soft_delete_excluded_and_trash(db_session):
+async def test_memory_soft_delete_excluded_and_trash(db_session, make_user):
     from app.core.soft_delete import soft_delete
     from app.models import MemoryFact
 
-    uid = uuid.uuid4()
+    uid = await make_user()
     row = MemoryFact(user_id=uid, fact="软删除记忆", category="fact")
     db_session.add(row)
     await db_session.commit()
@@ -144,11 +144,11 @@ async def test_trash_error_cases(authed_headers):
         assert missing.status_code == 404
 
 
-async def test_soft_delete_restore_helper(db_session):
+async def test_soft_delete_restore_helper(db_session, make_user):
     from app.core.soft_delete import restore, soft_delete
     from app.models import Todo
 
-    uid = uuid.uuid4()
+    uid = await make_user()
     todo = Todo(user_id=uid, title="helper")
     db_session.add(todo)
     await db_session.commit()

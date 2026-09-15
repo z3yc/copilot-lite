@@ -145,9 +145,9 @@ async def test_hybrid_search_rrf_fusion(db_session, vector_store, doc_with_chunk
 
 
 @pytest.mark.asyncio
-async def test_hybrid_search_user_isolation(db_session, vector_store) -> None:
+async def test_hybrid_search_user_isolation(db_session, vector_store, make_user) -> None:
     """用户隔离：传 user_id 后只召回该用户的分块（回归：跨用户数据泄露）。"""
-    user_a, user_b = uuid.uuid4(), uuid.uuid4()
+    user_a, user_b = await make_user(), await make_user()
     emb = FakeEmbeddings()
 
     async def add_doc(uid, title, text):

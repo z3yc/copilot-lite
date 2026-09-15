@@ -5,8 +5,7 @@
 
 | 文件 | 方言 | 用途 |
 |---|---|---|
-| [`init_postgres.sql`](init_postgres.sql) | PostgreSQL | 云端 / Docker / 本地 PG |
-| [`init_sqlite.sql`](init_sqlite.sql) | SQLite | 本地开发库（`backend/copilot.db`） |
+| [`init_postgres.sql`](init_postgres.sql) | PostgreSQL | 本地 / Docker / 云端（本仓库统一使用 PG，不再支持 SQLite） |
 
 ## 导入
 
@@ -26,16 +25,6 @@ docker compose exec -T postgres psql -U copilot -d copilot < sql/init_postgres.s
 
 > 容器启动命令本身会跑 `alembic upgrade head`；只有绕过容器、或要重建库时才需要手工导入。
 
-### SQLite（本地开发）
-
-```bash
-# 有 sqlite3 命令时
-sqlite3 backend/copilot.db < deploy/sql/init_sqlite.sql
-
-# 没有时用 Python 标准库（Windows 友好）
-python -c "import sqlite3,pathlib;sqlite3.connect('backend/copilot.db').executescript(pathlib.Path('deploy/sql/init_sqlite.sql').read_text(encoding='utf-8'))"
-```
-
 ## 特性
 
 - **幂等**：所有 DDL（含索引）带 `IF NOT EXISTS`，可重复导入，已存在对象自动跳过；
@@ -47,7 +36,7 @@ python -c "import sqlite3,pathlib;sqlite3.connect('backend/copilot.db').executes
 
 ```bash
 cd backend
-uv run python scripts/db_init_sql.py          # 重新生成两个方言的文件
+uv run python scripts/db_init_sql.py          # 重新生成
 uv run python scripts/db_init_sql.py --check  # 校验产物与当前模型是否一致（不一致 exit 1）
 ```
 
@@ -55,7 +44,8 @@ uv run python scripts/db_init_sql.py --check  # 校验产物与当前模型是�
 `create_all` 同源；已实测与 Alembic 迁移链结果**等价**：
 
 - PG：迁移链建库 vs SQL 导入建库，各自与 ORM 元数据 `compare_metadata` 差异均为 **0**；
-- 两个文件均已实测导入成功（PG 18 表 / SQLite 18 表 66 索引），重复导入不报错。
+- 已实测导入成功（18 表含 `alembic_version`），重复导入不报错；
+- CI 在 `ruff` 之后跑 `--check`（防产物漂移），并在干净 PG 上跑一遍 `alembic upgrade head`。
 
 > 为什么不用 `alembic upgrade head --sql` 生成：历史迁移中有 6 个用 `op.get_bind()` + `sa.inspect()`
 > 做方言条件 DDL，离线模式（MockConnection）不支持 introspection，会中途报错并产出残缺 SQL。

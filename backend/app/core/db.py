@@ -1,6 +1,7 @@
 """数据库层：异步 engine / session 工厂 / ORM 基类。
 
-开发模式默认 SQLite（aiosqlite），生产通过 DATABASE_URL 切换 PostgreSQL（asyncpg）。
+统一 PostgreSQL（asyncpg）：本地开发、测试、生产同一方言，
+避免"测试用 SQLite 通过、生产 PG 报错"的方言差异。
 """
 
 import uuid

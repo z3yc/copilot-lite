@@ -192,13 +192,13 @@ async def test_todo_list_by_category(db_session) -> None:
 
 
 @pytest.mark.asyncio
-async def test_todo_tools_reject_foreign_user(db_session) -> None:
+async def test_todo_tools_reject_foreign_user(db_session, make_user) -> None:
     """工具层归属校验：用户 B 不能改/完成/删除用户 A 的待办（回归：授权不对称）。"""
     from sqlalchemy import select
 
     from app.models import Todo
 
-    user_a, user_b = uuid.uuid4(), uuid.uuid4()
+    user_a, user_b = await make_user(), await make_user()
     ctx_a = ToolContext(session=db_session, user_id=user_a)
     created = await registry.execute("todo_create", '{"title": "A的私密待办"}', ctx_a)
     todo_id = created.split('"id": "')[1].split('"')[0]

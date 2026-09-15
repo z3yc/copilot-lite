@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
 
-    # 运行模式：local（本地开发，SQLite 零依赖）/ cloud（云端，PostgreSQL）
+    # 运行模式：local（本地开发，create_all 建表）/ cloud（云端，Alembic 迁移）
     RUN_MODE: str = "local"
 
     # JWT 签名密钥（生产必须通过 .env 覆盖为强随机值）
@@ -41,9 +41,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
     # ---- 存储 ----
-    # 本地默认 SQLite；云端设置为 PostgreSQL，例如：
-    # postgresql+asyncpg://user:pass@localhost:5432/copilot
-    DATABASE_URL: str = "sqlite+aiosqlite:///./copilot.db"
+    # 统一 PostgreSQL（本地 / 测试 / 生产同构，不引入其它数据库）
+    # 本地示例：postgresql+asyncpg://postgres:root@localhost:5432/copilot
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:root@localhost:5432/copilot"
 
     # ---- 日志 ----
     LOG_LEVEL: str = "INFO"
@@ -163,6 +163,20 @@ class Settings(BaseSettings):
     JOBS_TIMEOUT_SECONDS: float = 1800.0
     # 单作业最大尝试次数（耗尽后置 dead 死信，等待人工重试）
     JOBS_MAX_ATTEMPTS: int = 2
+
+    @model_validator(mode="after")
+    def _require_postgres(self) -> "Settings":
+        """只支持 PostgreSQL：误配其它方言直接拒绝启动。
+
+        本地 / 测试 / 生产同构，避免"测试用 SQLite 通过、生产 PG 报错"
+        的方言差异（时区、级联、部分索引语义均不同）。
+        """
+        if not self.DATABASE_URL.startswith("postgresql"):
+            raise ValueError(
+                "仅支持 PostgreSQL（DATABASE_URL 需以 postgresql+asyncpg:// 开头），"
+                "本仓库不使用 SQLite / MySQL"
+            )
+        return self
 
     @model_validator(mode="after")
     def _reject_default_secret(self) -> "Settings":

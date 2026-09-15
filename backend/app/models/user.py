@@ -28,7 +28,6 @@ class User(SoftDeleteMixin, Base):
             "uq_users_username_active",
             "username",
             unique=True,
-            sqlite_where=text("deleted_at IS NULL"),
             postgresql_where=text("deleted_at IS NULL"),
         ),
     )

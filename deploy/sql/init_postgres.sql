@@ -2,9 +2,9 @@
 -- 生成命令：cd backend && uv run python scripts/db_init_sql.py
 -- 单一源：app/models 的 ORM 元数据（与 RUN_MODE=local 的 create_all 同源，勿手写 DDL）
 -- 幂等：所有 DDL 带 IF NOT EXISTS，可重复导入
--- 内容：仅表结构 + alembic 版本标记；业务数据由应用启动时/接口负责
+-- 内容：仅表结构（PostgreSQL） + alembic 版本标记；业务数据由应用启动时/接口负责
 
--- 方言：postgres
+-- 方言：postgresql
 
 BEGIN;
 

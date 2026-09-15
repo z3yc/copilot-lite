@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.core import usage as usage_module
+from app.core.constants import DEFAULT_USER_ID
 from app.core.usage import compute_cost, record_from_snapshot, record_usage, snapshot_usage
 from app.models import UsageDaily
 
@@ -16,7 +17,7 @@ from app.models import UsageDaily
 @pytest.mark.asyncio
 async def test_record_usage_accumulates(db_session) -> None:
     """同一用户同一天多次记录：requests/tokens/cost 累加（upsert 语义）。"""
-    uid = "11111111-1111-1111-1111-111111111111"
+    uid = DEFAULT_USER_ID
     await record_usage(db_session, uid, tokens_in=100, tokens_out=50)
     row = await record_usage(db_session, uid, tokens_in=10, tokens_out=5, errors=1)
 
@@ -38,7 +39,7 @@ def usage_select():
 @pytest.mark.asyncio
 async def test_record_usage_separate_days(db_session) -> None:
     """不同日期分桶为两行。"""
-    uid = "22222222-2222-2222-2222-222222222222"
+    uid = DEFAULT_USER_ID
     await record_usage(db_session, uid, tokens_in=1, day="2026-01-01")
     await record_usage(db_session, uid, tokens_in=2, day="2026-01-02")
     rows = (await db_session.scalars(usage_select())).all()
@@ -62,7 +63,7 @@ async def test_record_from_snapshot_deltas(db_session, monkeypatch) -> None:
     after = {"prompt_tokens": 30, "completion_tokens": 15, "total_tokens": 45}
     monkeypatch.setattr(usage_module, "get_usage_stats", lambda: after)
 
-    row = await record_from_snapshot(db_session, "33333333-3333-3333-3333-333333333333", before)
+    row = await record_from_snapshot(db_session, DEFAULT_USER_ID, before)
     assert row is not None
     assert row.tokens_in == 20
     assert row.tokens_out == 10

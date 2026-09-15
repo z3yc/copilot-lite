@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.constants import DEFAULT_USER_ID
 from app.main import app
 from app.memory.service import MemoryService
-from app.models import MemoryFact
+from app.models import ChatSession, MemoryFact
 
 
 class FakeEmbeddings512:
@@ -42,6 +42,14 @@ class FakeExtractLLM:
         pass
 
 
+async def _new_session(db, user_id) -> uuid.UUID:
+    """建一条真实会话（PG 强制外键：memory_facts.source_session_id 指向 chat_sessions）。"""
+    session = ChatSession(user_id=user_id)
+    db.add(session)
+    await db.commit()
+    return session.id
+
+
 @pytest.mark.asyncio
 async def test_extract_from_session(monkeypatch, db_session) -> None:
     """会话结束提取：LLM 输出事实 → 入库。"""
@@ -61,7 +69,7 @@ async def test_extract_from_session(monkeypatch, db_session) -> None:
     monkeypatch.setattr(MemoryService, "_is_duplicate", _no_dup)
 
     svc = MemoryService(embeddings=FakeEmbeddings512())
-    sid = uuid.uuid4()
+    sid = await _new_session(db_session, DEFAULT_USER_ID)
     added = await svc.extract_from_session(
         db_session,
         DEFAULT_USER_ID,
@@ -119,7 +127,7 @@ async def test_recall(db_session) -> None:
     await svc._store(
         db_session,
         DEFAULT_USER_ID,
-        uuid.uuid4(),
+        None,  # 无来源会话（列可空；测试不关心来源）
         "用户喜欢简洁回答",
         {"category": "preference", "confidence": 0.9},
     )
@@ -129,15 +137,15 @@ async def test_recall(db_session) -> None:
 
 
 @pytest.mark.asyncio
-async def test_recall_user_isolation(db_session) -> None:
+async def test_recall_user_isolation(db_session, make_user) -> None:
     """记忆召回按用户隔离：只召回自己的记忆（回归：跨用户记忆泄露）。"""
-    user_a, user_b = uuid.uuid4(), uuid.uuid4()
+    user_a, user_b = await make_user(), await make_user()
     svc = MemoryService(embeddings=FakeEmbeddings512())
     await svc._store(
-        db_session, user_a, uuid.uuid4(), "用户喜欢简洁回答", {"category": "preference"}
+        db_session, user_a, None, "用户喜欢简洁回答", {"category": "preference"}
     )
     await svc._store(
-        db_session, user_b, uuid.uuid4(), "用户喜欢详细回答", {"category": "preference"}
+        db_session, user_b, None, "用户喜欢详细回答", {"category": "preference"}
     )
 
     results_a = await svc.recall(db_session, user_a, "用户喜欢简洁回答")
@@ -153,7 +161,7 @@ async def test_delete_removes(db_session) -> None:
 
     svc = MemoryService(embeddings=FakeEmbeddings512())
     await svc._store(
-        db_session, DEFAULT_USER_ID, uuid.uuid4(), "待删除的记忆", {"category": "fact"}
+        db_session, DEFAULT_USER_ID, None, "待删除的记忆", {"category": "fact"}
     )
     row = (await db_session.scalars(select(MemoryFact))).all()[0]
 
@@ -178,7 +186,7 @@ async def test_update_memory(db_session) -> None:
     await svc._store(
         db_session,
         DEFAULT_USER_ID,
-        uuid.uuid4(),
+        None,
         "我在准备后端面试",
         {"category": "background"},
     )

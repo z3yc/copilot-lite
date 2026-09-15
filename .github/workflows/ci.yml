@@ -20,6 +20,26 @@ jobs:
   backend:
     name: Backend (lint + test + coverage)
     runs-on: ubuntu-latest
+    # 测试/迁移均跑在真实 PostgreSQL 上（本地与生产同构，不再用 SQLite）
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: root
+          POSTGRES_DB: copilot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # conftest 按 TEST_DATABASE_URL 连库（不存在自动建）
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:root@localhost:5432/copilot_test
+      # alembic 迁移读 DATABASE_URL
+      DATABASE_URL: postgresql+asyncpg://postgres:root@localhost:5432/copilot_test
     defaults:
       run:
         working-directory: backend
@@ -43,6 +63,10 @@ jobs:
       # 防止改了模型/迁移却忘了重新生成初始化 SQL（产物漂移 -> 导入的库与迁移链不一致）
       - name: DB init SQL up-to-date
         run: uv run python scripts/db_init_sql.py --check
+
+      # 迁移链在干净 PG 上从零跑通（此前只能在本地手动验证；SQLite 时代跑不动）
+      - name: Migrations apply on fresh PG
+        run: uv run alembic upgrade head
 
       - name: Test + coverage (>=80%)
         run: uv run pytest

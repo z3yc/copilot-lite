@@ -63,12 +63,19 @@ pipeline {
         }
 
         stage('Backend CI') {
+            // 测试/迁移跑在真实 PostgreSQL 上（与生产同构）：需本机 5432 有 PG 服务；
+            // 库不用预先建——conftest 会按 TEST_DATABASE_URL 自动建 copilot_test
+            environment {
+                TEST_DATABASE_URL = 'postgresql+asyncpg://postgres:root@localhost:5432/copilot_test'
+                DATABASE_URL = 'postgresql+asyncpg://postgres:root@localhost:5432/copilot_test'
+            }
             steps {
                 dir('backend') {
                     bat 'if not exist reports mkdir reports'
                     bat 'uv sync --frozen'
                     bat 'uv run ruff check .'
                     bat 'uv run python scripts/db_init_sql.py --check'
+                    bat 'uv run alembic upgrade head'
                     bat 'uv run pytest --junitxml=reports\\junit.xml'
                 }
             }

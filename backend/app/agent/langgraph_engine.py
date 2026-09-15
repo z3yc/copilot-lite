@@ -11,8 +11,8 @@
 - **工具复用**：ToolRegistry 条目转换为 langchain 工具定义（bind_tools），
   执行仍走 registry.execute（统一参数解析与错误兜底），不重复实现工具逻辑；
 - **引擎并存**：与手写 ReAct 引擎（Orchestrator）通过 `AGENT_ENGINE` 配置切换，互不干扰；
-- **流式**：graph.astream_events 过滤叶子节点的 on_chat_model_stream 事件，
-  token 级输出，Supervisor 内部输出不泄漏给用户。
+- **流式**：graph.astream_events 过滤叶子节点的 on_chat_model_stream 事件；
+  文本按模型轮缓冲（工具轮的 content 是独白，丢弃），Supervisor 内部输出不泄漏给用户。
 """
 
 import json
@@ -51,6 +51,16 @@ AGENT_TOOLS: dict[str, list[str] | None] = {
     "tools_agent": None,
     "chat_agent": [],
 }
+
+
+def _binds_no_tools(node_name: str) -> bool:
+    """该子 Agent 是否**显式不挂任何工具**。
+
+    只有显式空列表（`chat_agent`）才算无工具：`tools_agent` 的 `None` 语义是
+    「全部工具」（见 `_tool_schemas`），绝不能用 falsy 判定把它误当成无工具。
+    """
+    return AGENT_TOOLS.get(node_name) == []
+
 
 # 宽松匹配 LLM 输出中的 route 字段（容忍 ```json 围栏 / 多余文本）
 _ROUTE_RE = re.compile(r'"route"\s*:\s*"(kb|tools|chat)"')
@@ -347,7 +357,13 @@ class LangGraphEngine(BaseAgent):
         return reply
 
     async def run_stream(self, session, user_id, history: list[dict], user_message: str):
-        """流式执行：token 级产出最终回复（仅叶子 Agent 的模型输出）。"""
+        """流式执行：产出最终回复（仅叶子 Agent 的模型输出）。
+
+        文本按**模型轮**缓冲：带 tool_calls 的轮次其 content 是模型独白
+        （如 "I'll check your todo list for you."），一律丢弃；只有本轮
+        没有任何 tool_calls 时才把缓冲文本作为回答产出。显式不挂工具的
+        节点（chat_agent）不可能出现工具调用，仍逐 token 产出保住流式体验。
+        """
         self._ctx = ToolContext(session=session, user_id=user_id)
         self.trace.reset()
         self.last_tool_calls = []
@@ -363,18 +379,35 @@ class LangGraphEngine(BaseAgent):
         leaf_nodes = ("kb_agent", "tools_agent", "chat_agent")
         yielded = False
         chars = 0
+        round_parts: list[str] = []
         async for event in self.graph.astream_events(state, version="v2"):
-            if event["event"] != "on_chat_model_stream":
-                continue
             node = (event.get("metadata") or {}).get("langgraph_node")
             if node not in leaf_nodes:
                 continue  # Supervisor 等内部输出不泄漏给用户
-            chunk = event["data"].get("chunk")
-            content = getattr(chunk, "content", None)
-            if isinstance(content, str) and content:
-                yielded = True
-                chars += len(content)
-                yield content
+            kind = event["event"]
+            if kind == "on_chat_model_stream":
+                content = getattr(event["data"].get("chunk"), "content", None)
+                if not isinstance(content, str) or not content:
+                    continue
+                if _binds_no_tools(node):
+                    # 该类节点不可能有工具调用 → 直接逐字产出（保住流式体验）
+                    yielded = True
+                    chars += len(content)
+                    yield content
+                else:
+                    round_parts.append(content)
+            elif kind == "on_chat_model_end":
+                if _binds_no_tools(node):
+                    continue
+                text = ""
+                if not (getattr(event["data"].get("output"), "tool_calls", None) or []):
+                    # 无工具调用 = 该轮就是回答轮 → 产出
+                    text = "".join(round_parts)
+                round_parts = []
+                if text:
+                    yielded = True
+                    chars += len(text)
+                    yield text
         if self._ctx is not None:
             self.last_citations = list(self._ctx.citations)
         # 挂起等确认的操作由引擎生成回复，不经过模型流，需单独产出

@@ -173,6 +173,8 @@ class LangGraphEngine(BaseAgent):
         self.pending_confirmation: list[dict] = []
         # 本轮检索引用（供上层落 Message.extra.citations）
         self.last_citations: list[dict] = []
+        # 叶子节点本轮收尾文本（供 run_stream 在没有任何流式产出时兜底）
+        self._reply_text: str = ""
         # 是否流式运行（run_stream 置 True）：决定子 Agent 用 astream 还是 ainvoke
         self._streaming = False
         self._ctx: ToolContext | None = None  # 每次 run 注入（引擎按请求新建，无并发问题）
@@ -225,6 +227,11 @@ class LangGraphEngine(BaseAgent):
         }[node_name]
         schemas = self._tool_schemas(AGENT_TOOLS[node_name])
 
+        def _reply(text: str) -> dict:
+            """记录收尾文本（供 run_stream 在没有任何流式产出时兜底）并构造节点返回值。"""
+            self._reply_text = text
+            return {"reply": text}
+
         async def node(state: AgentState) -> dict:
             self.trace.node(node_name)
             # system 上下文（附件/记忆）常驻 + 对话历史滚动窗口（与手写引擎同策略）
@@ -251,9 +258,9 @@ class LangGraphEngine(BaseAgent):
                     logger.exception("子 Agent LLM 调用失败")
                     raise LLMError("模型服务暂时不可用") from exc
                 if resp is None:
-                    return {"reply": "（模型未返回内容）"}
+                    return _reply("（模型未返回内容）")
                 if not resp.tool_calls:
-                    return {"reply": resp.content or "（模型未返回内容）"}
+                    return _reply(resp.content or "（模型未返回内容）")
                 # 追加 assistant 工具调用声明，逐个执行并回填 ToolMessage
                 messages.append(resp)
                 for tc in resp.tool_calls:
@@ -292,8 +299,8 @@ class LangGraphEngine(BaseAgent):
                         )
                     messages.append(ToolMessage(content=result, tool_call_id=tc.get("id", "")))
                 if self.pending_confirmation:
-                    return {"reply": confirmation_reply(self.pending_confirmation)}
-            return {"reply": "（已达到最大工具调用轮数，请简化请求后重试）"}
+                    return _reply(confirmation_reply(self.pending_confirmation))
+            return _reply("（已达到最大工具调用轮数，请简化请求后重试）")
 
         return node
 
@@ -342,6 +349,7 @@ class LangGraphEngine(BaseAgent):
         self.last_tool_calls = []
         self.pending_confirmation = []
         self.last_citations = []
+        self._reply_text = ""
         self._streaming = False
         state: AgentState = {
             "history": history,
@@ -369,6 +377,7 @@ class LangGraphEngine(BaseAgent):
         self.last_tool_calls = []
         self.pending_confirmation = []
         self.last_citations = []
+        self._reply_text = ""
         self._streaming = True
         state: AgentState = {
             "history": history,
@@ -399,8 +408,22 @@ class LangGraphEngine(BaseAgent):
             elif kind == "on_chat_model_end":
                 if _binds_no_tools(node):
                     continue
+                # on_chat_model_end 的 output 是该轮流式输出的聚合消息，其 tool_calls 与节点内
+                # `full`（分片相加）同源。若该字段将来缺失/为空，本判断会把工具轮误当回答轮
+                # （独白重新泄漏）——故缺失时按「工具轮」处理（fail-closed：宁可丢独白，也不泄漏
+                # 独白），并告警以便及时发现。
+                output = event["data"].get("output")
+                tool_calls = getattr(output, "tool_calls", None)
+                if output is None or tool_calls is None:
+                    logger.warning(
+                        "on_chat_model_end 的 output 缺少 tool_calls（output=%s），"
+                        "本轮按工具轮丢弃文本；若模型确实调用了工具，请检查 langchain 版本",
+                        type(output).__name__,
+                    )
+                    round_parts = []
+                    continue
                 text = ""
-                if not (getattr(event["data"].get("output"), "tool_calls", None) or []):
+                if not tool_calls:
                     # 无工具调用 = 该轮就是回答轮 → 产出
                     text = "".join(round_parts)
                 round_parts = []
@@ -410,11 +433,16 @@ class LangGraphEngine(BaseAgent):
                     yield text
         if self._ctx is not None:
             self.last_citations = list(self._ctx.citations)
-        # 挂起等确认的操作由引擎生成回复，不经过模型流，需单独产出
-        if self.pending_confirmation and not yielded:
-            text = confirmation_reply(self.pending_confirmation)
-            chars += len(text)
-            yield text
+        if not yielded:
+            # 本轮没有任何流式文本产出（例如工具轮耗尽 max_turns）→ 用叶子节点的收尾文本兜底。
+            # 绝不让用户拿到空回复（AGENTS §10：失败回退优先可用性）。
+            fallback = self._reply_text
+            if not fallback and self.pending_confirmation:
+                fallback = confirmation_reply(self.pending_confirmation)
+            if fallback:
+                yielded = True
+                chars += len(fallback)
+                yield fallback
         self.trace.answer(chars)
         self.last_trajectory = self.trace.build()
 

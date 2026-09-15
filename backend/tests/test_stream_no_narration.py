@@ -5,6 +5,7 @@
 """
 
 import json
+import logging
 import re
 from types import SimpleNamespace
 
@@ -110,6 +111,70 @@ async def test_langgraph_stream_keeps_plain_chat_progressive(db_session) -> None
 
     assert "".join(parts) == "你好 呀 你好"
     assert len(parts) > 1, f"chat_agent 丢了 token 级流式：{parts!r}"
+
+
+@pytest.mark.asyncio
+async def test_stream_yields_fallback_when_no_text_round(db_session, monkeypatch) -> None:
+    """工具轮耗尽 max_turns：不得让用户拿到空回复（收尾文本必须产出）。"""
+    monkeypatch.setattr(settings, "AGENT_TRACE_ENABLED", True)
+    # 模型每轮都回「独白 + tool_calls」，永远不给纯文本轮；max_turns=2 → 两轮都调工具。
+    llm = _FakeToolChatModel(
+        messages=iter(
+            [
+                _route_msg("tools"),
+                AIMessage(
+                    content="I'll check your todo list for you.",
+                    tool_calls=[{"name": "todo_list", "args": {}, "id": "c1"}],
+                ),
+                AIMessage(
+                    content="Let me look again.",
+                    tool_calls=[{"name": "todo_list", "args": {}, "id": "c2"}],
+                ),
+            ]
+        )
+    )
+    engine = LangGraphEngine(llm=llm, registry=registry, max_turns=2)
+    parts = [p async for p in engine.run_stream(db_session, DEFAULT_USER_ID, [], "看下待办")]
+
+    text = "".join(parts)
+    assert text, "工具轮耗尽后用户拿到空回复"
+    assert "最大工具调用轮数" in text
+    assert engine.last_trajectory["steps"][-1]["chars"] == len(text)
+
+
+@pytest.mark.asyncio
+async def test_stream_fails_closed_when_tool_calls_field_missing(
+    db_session, caplog
+) -> None:
+    """Item A：`on_chat_model_end` 的 output 缺 `tool_calls` → 按工具轮丢弃并告警。
+
+    真实模型未覆盖此分支（聚合消息总有 tool_calls 字段，哪怕是空列表），
+    因此用桩图直接构造「缺字段」事件，覆盖 fail-closed 路径。
+    """
+    engine = LangGraphEngine(
+        llm=_FakeToolChatModel(messages=iter([])), registry=registry, max_turns=3
+    )
+
+    async def _events(state, version="v2"):
+        yield {
+            "event": "on_chat_model_stream",
+            "metadata": {"langgraph_node": "tools_agent"},
+            "data": {"chunk": AIMessageChunk(content="I'll check your todo list.")},
+        }
+        yield {
+            "event": "on_chat_model_end",
+            "metadata": {"langgraph_node": "tools_agent"},
+            "data": {"output": None},
+        }
+
+    engine.graph = SimpleNamespace(astream_events=_events)
+    with caplog.at_level(logging.WARNING):
+        parts = [p async for p in engine.run_stream(db_session, DEFAULT_USER_ID, [], "看下待办")]
+
+    assert parts == [], f"缺少 tool_calls 时仍产出文本（独白泄漏）：{parts!r}"
+    assert any("缺少 tool_calls" in r.message for r in caplog.records), (
+        "fail-closed 分支未告警"
+    )
 
 
 # ---------- 手写 Orchestrator ----------

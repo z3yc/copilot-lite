@@ -26,16 +26,24 @@ vi.mock("../api", () => ({
 
 const mocked = vi.mocked(api);
 
-function renderPanel(overrides?: Partial<React.ComponentProps<typeof ChatPanel>>) {
+/** 共享空数组：模拟父组件 messages state 在「建会话」过程中引用不变（App.tsx 只 setSessionId）。 */
+const EMPTY_MESSAGES: ChatMessage[] = [];
+
+function panelProps(overrides?: Partial<React.ComponentProps<typeof ChatPanel>>) {
   const props = {
     sessionId: null,
-    initialMessages: [] as ChatMessage[],
+    initialMessages: EMPTY_MESSAGES,
     onSessionCreated: vi.fn(),
     onNewSession: vi.fn(),
     busy: false,
     setBusy: vi.fn(),
     ...overrides,
   };
+  return props;
+}
+
+function renderPanel(overrides?: Partial<React.ComponentProps<typeof ChatPanel>>) {
+  const props = panelProps(overrides);
   return { ...render(<ChatPanel {...props} />), props };
 }
 
@@ -254,5 +262,47 @@ describe("ChatPanel", () => {
 
     await waitFor(() => expect(setBusy).toHaveBeenCalledWith(false));
     expect(screen.queryByText(/本次回答轨迹/)).not.toBeInTheDocument();
+  });
+
+  it("新会话首条消息不被自身的会话创建取消（防「已停止生成」）", async () => {
+    let signal: AbortSignal | undefined;
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      signal = handlers.signal;
+      handlers.onSession("s-new");
+      handlers.onChunk("回答");
+      await new Promise(() => {}); // 流保持进行中，rerender 时 abortRef 仍有效
+    });
+
+    const { rerender } = renderPanel({ sessionId: null });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "第一条" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+
+    await waitFor(() => expect(mocked.streamChat).toHaveBeenCalled());
+    // 模拟父组件收到 onSessionCreated 后把 sessionId 传下来
+    rerender(<ChatPanel {...panelProps({ sessionId: "s-new" })} />);
+
+    expect(signal?.aborted).toBe(false);
+    await waitFor(() => expect(screen.getByText("回答")).toBeInTheDocument());
+  });
+
+  it("真正切换会话时仍会取消进行中的流（保住原意图）", async () => {
+    let signal: AbortSignal | undefined;
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      signal = handlers.signal;
+      handlers.onSession("s-1");
+      await new Promise(() => {}); // 永不结束，模拟进行中
+    });
+
+    const { rerender } = renderPanel({ sessionId: "s-1" });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "hi" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+    await waitFor(() => expect(mocked.streamChat).toHaveBeenCalled());
+
+    rerender(<ChatPanel {...panelProps({ sessionId: "s-2" })} />);
+    await waitFor(() => expect(signal?.aborted).toBe(true));
   });
 });

@@ -89,12 +89,19 @@ export default function ChatPanel({
   const [atBottom, setAtBottom] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // 进行中的流属于哪个会话：用于区分「新建会话（null→id）」与「真的切走了」
+  const streamSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     setMessages(initialMessages);
-    // 切换会话时取消进行中的流式请求（防旧会话响应写入新会话）
-    abortRef.current?.abort();
-  }, [initialMessages, sessionId]);
+  }, [initialMessages]);
+
+  useEffect(() => {
+    // 仅在真正切换到别的会话时取消进行中的流（防旧会话响应写入新会话）；
+    // 新会话首条消息会经历 null→新 id，那不算切换，取消它 = 自己杀自己。
+    const controller = abortRef.current;
+    if (controller && sessionId !== streamSessionRef.current) controller.abort();
+  }, [sessionId]);
 
   useEffect(() => {
     if (sessionId) {
@@ -165,12 +172,14 @@ export default function ChatPanel({
 
     const controller = new AbortController();
     abortRef.current = controller;
+    streamSessionRef.current = sessionId;   // 本轮流属于哪个会话
     let currentSid = sessionId;
     try {
       await streamChat(text, currentSid, {
         signal: controller.signal,
         onSession: (sid) => {
           currentSid = sid;
+          streamSessionRef.current = sid;   // 新会话建出来了，归属随之更新
           onSessionCreated(sid);
         },
         onChunk: (chunk) => {
@@ -219,6 +228,7 @@ export default function ChatPanel({
       // 无论成功/失败/中断，busy 都必须复位（防 UI 永久卡死）
       setBusy(false);
       abortRef.current = null;
+      streamSessionRef.current = null;
     }
   };
 

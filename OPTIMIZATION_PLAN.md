@@ -57,7 +57,7 @@
 | `fix(rag)` 嵌入离线缓存 | `EMBEDDING_CACHE_DIR` + `local_files_only` + 启动预热（51s→0.13s） | +2 |
 | `refactor(connectors)` 连接器化 | `app/wiki` → `app/connectors/obsidian` + `SourceConnector` 抽象 | — |
 
-### 在分支上完成，**待批准合并**（`feat/wiki-import-files` → `...` → `fix/wiki-delete-safety`）
+### 已完成的分支工作（`feat/wiki-import-files` → … → `fix/wiki-delete-safety`，均已合入 `develop`）
 
 | 提交粒度 | 内容 | 测试 |
 |---|---|---|
@@ -171,8 +171,9 @@
 
 > 按约定：合并 / 推送前需维护者确认。
 
-- [ ] **合并 `feat/jobs-async-ingest`**（J1 异步摄取/同步：jobs 表 + 状态机 + Wiki 接入 + 前端轮询）→ `develop` → `main`。
-- [ ] **合并修复分支**：`fix/wiki-delete-safety`（tip，含 M2 + 引用 + 认知修复 + 嵌入/LangGraph/重排修复 + P1–P3 + 编码修复 + 删除护栏）→ `develop` → `main`。
+- [x] **合并 `feat/jobs-async-ingest`**（J1 异步摄取/同步：jobs 表 + 状态机 + Wiki 接入 + 前端轮询）→ `develop`（`5b5ce2f`）；`main` 待发布时合并。
+- [x] **合并修复分支**：`fix/wiki-delete-safety`（tip，含 M2 + 引用 + 认知修复 + 嵌入/LangGraph/重排修复 + P1–P3 + 编码修复 + 删除护栏）→ `develop`——**已完成**（分支已删除，早前合并，此行属陈旧记录）。
+- [ ] **推送**：GitHub + Gitee 的 `develop` / `main`（J1 合并后新增待推）。
 - [ ] **推送**：GitHub + Gitee 的 `develop` / `main`。
 - [ ] **推送 `private-docs`**：含本轮记录（`docs/优化落地记录.md`、`FIX_LOG_*`）。
 

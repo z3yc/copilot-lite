@@ -274,8 +274,8 @@ def _build_agent():
 
 async def _run_agent(
     db: AsyncSession, history: list[dict], message: str, user_id
-) -> tuple[str, list[dict], list[dict], list[dict]]:
-    """执行一轮对话，返回 (回复, 工具审计, 待确认操作, 检索引用)。"""
+) -> tuple[str, list[dict], list[dict], list[dict], dict]:
+    """执行一轮对话，返回 (回复, 工具审计, 待确认操作, 检索引用, 轨迹)。"""
     try:
         agent = _build_agent()
     except RuntimeError as exc:
@@ -289,6 +289,7 @@ async def _run_agent(
             list(getattr(agent, "last_tool_calls", [])),
             list(getattr(agent, "pending_confirmation", [])),
             list(getattr(agent, "last_citations", [])),
+            dict(getattr(agent, "last_trajectory", None) or {}),
         )
     except LLMError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -303,8 +304,9 @@ def _build_extra(
     audit: list[dict] | None = None,
     pending: list[dict] | None = None,
     citations: list[dict] | None = None,
+    trajectory: dict | None = None,
 ) -> dict:
-    """组装助手消息的 Message.extra（工具审计 / 待确认 / 引用）。"""
+    """组装助手消息的 Message.extra（工具审计 / 待确认 / 引用 / 轨迹）。"""
     extra: dict = {}
     if audit:
         extra["tool_calls"] = audit
@@ -312,6 +314,8 @@ def _build_extra(
         extra["pending_confirmation"] = pending
     if citations:
         extra["citations"] = citations
+    if trajectory:
+        extra["trajectory"] = trajectory
     return extra
 
 
@@ -323,9 +327,10 @@ async def _persist(
     audit: list[dict] | None = None,
     pending: list[dict] | None = None,
     citations: list[dict] | None = None,
+    trajectory: dict | None = None,
 ) -> None:
     db.add(Message(session_id=session_id, role="user", content=user_msg))
-    extra = _build_extra(audit, pending, citations)
+    extra = _build_extra(audit, pending, citations, trajectory)
     db.add(
         Message(
             session_id=session_id,
@@ -420,10 +425,14 @@ async def chat(
     )
     tokens_before = _total_llm_tokens()
     usage_before = snapshot_usage()
-    reply, audit, pending, citations = await _run_agent(db, history, req.message, user.id)
+    reply, audit, pending, citations, trajectory = await _run_agent(
+        db, history, req.message, user.id
+    )
     add_token_usage(user.id, _total_llm_tokens() - tokens_before)
     await record_usage_silently(db, user.id, usage_before)
-    await _persist(db, session.id, req.message, reply, audit, pending, citations)
+    await _persist(
+        db, session.id, req.message, reply, audit, pending, citations, trajectory
+    )
     _schedule_memory_extract(session.id, user.id)
     _schedule_summary_compress(session.id)
     return ChatResponse(session_id=str(session.id), reply=reply)
@@ -514,7 +523,8 @@ async def chat_stream(
             audit = list(getattr(agent, "last_tool_calls", []))
             pending = list(getattr(agent, "pending_confirmation", []))
             citations = list(getattr(agent, "last_citations", []))
-            extra = _build_extra(audit, pending, citations)
+            trajectory = dict(getattr(agent, "last_trajectory", None) or {})
+            extra = _build_extra(audit, pending, citations, trajectory)
             db.add(
                 Message(
                     session_id=session.id,
@@ -528,7 +538,7 @@ async def chat_stream(
             if pending:
                 # 挂起确认事件（human-in-the-loop）：前端据此展示确认按钮
                 yield _sse("pending", {"actions": pending})
-            yield _sse("done", {})
+            yield _sse("done", {"trajectory": trajectory} if trajectory else {})
             _schedule_memory_extract(session.id, user.id)
             _schedule_summary_compress(session.id)
         finally:

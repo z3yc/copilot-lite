@@ -26,8 +26,9 @@ vi.mock("../api", () => ({
 
 const mocked = vi.mocked(api);
 
-/** 共享空数组：模拟父组件 messages state 在「建会话」过程中引用不变（App.tsx 只 setSessionId）。 */
-const EMPTY_MESSAGES: ChatMessage[] = [];
+/** 共享空数组：模拟父组件 messages state 在「建会话」过程中引用不变（App.tsx 只 setSessionId）。
+ *  冻结以在测试间意外原地修改时尽早报错。 */
+const EMPTY_MESSAGES = Object.freeze([]) as unknown as ChatMessage[];
 
 function panelProps(overrides?: Partial<React.ComponentProps<typeof ChatPanel>>) {
   const props = {
@@ -285,6 +286,27 @@ describe("ChatPanel", () => {
 
     expect(signal?.aborted).toBe(false);
     await waitFor(() => expect(screen.getByText("回答")).toBeInTheDocument());
+  });
+
+  it("新会话建出来前点「新建会话」会取消进行中的流（sessionId 仍为 null）", async () => {
+    let signal: AbortSignal | undefined;
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      signal = handlers.signal;
+      // 不发 onSession：模拟 SSE session 帧尚未到达，归属仍为 null
+      await new Promise(() => {});
+    });
+
+    const { rerender } = renderPanel({ sessionId: null });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "第一条" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+    await waitFor(() => expect(mocked.streamChat).toHaveBeenCalled());
+
+    // 模拟 App.newSession：sessionId 仍为 null（切换 effect 不触发），messages 换成新空数组
+    rerender(<ChatPanel {...panelProps({ sessionId: null, initialMessages: [] })} />);
+
+    await waitFor(() => expect(signal?.aborted).toBe(true));
   });
 
   it("真正切换会话时仍会取消进行中的流（保住原意图）", async () => {

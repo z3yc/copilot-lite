@@ -12,7 +12,6 @@ SSE 事件序列：
 """
 
 import asyncio
-import contextlib
 import json
 import logging
 import uuid
@@ -72,8 +71,9 @@ def _sse(event: str, data: dict) -> str:
 # SSE 心跳间隔（秒）：长工具轮期间无文本输出，靠注释帧保活连接
 _HEARTBEAT_SECONDS = 15.0
 
-# 单次流式请求的总时长上限（秒）：心跳只负责保活，不负责兜底；
-# 没有总量上限时，一个真正挂死的生成器会无限发心跳、长期占用连接与 DB 会话。
+# 静默预算（秒）：只在心跳超时（即一个 _HEARTBEAT_SECONDS 窗口内没有任何分片）时检查，
+# 是「静默上限」而非「墙钟总时长上限」——持续有产出、总时长很长的流不会被它封顶。
+# 存在的作用是防止一个真正挂死的生成器无限发心跳、长期占用连接与 DB 会话。
 _STREAM_MAX_SECONDS = 600.0
 
 
@@ -452,11 +452,14 @@ async def chat_stream(
     user: User = Depends(get_current_user),
     _quota: None = Depends(require_chat_quota),
 ):
-    """SSE 流式对话（token 级流式，打字机效果）。
+    """SSE 流式对话。
 
     引擎按配置选择（LangGraph 多 Agent 默认 / 手写 ReAct）：
-    模型文本轮逐 token 实时转发（chunk 事件），工具调用轮在后台执行
-    （不阻塞、不产生用户可见文本）。
+    - 不挂工具的 Agent（如 LangGraph 的 chat_agent）仍逐 token 产出（chunk 事件）；
+    - 挂工具的叶子 Agent 按**模型轮**缓冲：该轮带 tool_calls 时其 content 是模型独白，
+      一律丢弃、不产生任何用户可见文本；只有该轮无 tool_calls 才把整段缓冲作为回答产出。
+
+    `run_stream` 只产出用户可见文本；`done` 事件表示整轮回答已完整产出并落库。
     """
     session = await _resolve_session(db, req.session_id, req.message, user)
     check_token_budget(user.id)
@@ -558,15 +561,20 @@ async def chat_stream(
             _schedule_memory_extract(session.id, user.id)
             _schedule_summary_compress(session.id)
         finally:
+            # 先取消并等待仍在等待的分片任务：它可能在 registry.execute 里持有同一个 AsyncSession，
+            # 必须等它真正结束再动 db，否则会与 _persist_partial/用量写入并发使用同一 session
+            # （SQLAlchemy 异步 session 禁止并发使用，失败还会被兜底 except 吞掉）。
+            if pending_chunk is not None and not pending_chunk.done():
+                pending_chunk.cancel()
+                try:
+                    await pending_chunk
+                except (asyncio.CancelledError, StopAsyncIteration):
+                    pass
+                except Exception:
+                    logger.warning("流分片任务清理异常", exc_info=True)
             # 客户端断开/任务取消（CancelledError）时兜底保存已生成部分
             if not saved:
                 await _persist_partial(db, session.id, reply_parts)
-            # 取消仍在等待的分片任务：它不在 wait 的取消链上，不显式取消会留下
-            # 一个持有引擎的悬挂任务（旧实现由 asyncio.wait_for 代劳了这一步）。
-            if pending_chunk is not None and not pending_chunk.done():
-                pending_chunk.cancel()
-                with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
-                    await pending_chunk
             # 本轮用量计入用户每日预算（成功/失败/中断路径都累计）
             add_token_usage(user.id, _total_llm_tokens() - tokens_before)
             await record_usage_silently(db, user.id, usage_before)

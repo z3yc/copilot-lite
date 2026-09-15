@@ -183,12 +183,13 @@ class Orchestrator(BaseAgent):
         history: list[dict],
         user_message: str,
     ):
-        """流式执行一次对话：逐 token 产出最终回复文本。
+        """流式执行一次对话：产出最终回复文本（**按模型轮**，不是逐 token）。
 
-        与 run() 行为一致（ReAct + 工具调用），但最终文本轮使用模型流式接口。
-        文本按**模型轮**缓冲：带 tool_calls 的轮次其 content 是模型独白
-        （如 "I'll check your todo list for you."），一律丢弃；只有本轮
-        没有任何 tool_calls 时才把缓冲的文本作为回答产出。
+        与 run() 行为一致（ReAct + 工具调用）。因每一轮都可能调用工具、无法预判
+        当前轮是否已是回答轮，所以文本按**模型轮**缓冲：带 tool_calls 的轮次其
+        content 是模型独白（如 "I'll check your todo list for you."），一律丢弃；
+        只有本轮没有任何 tool_calls 时才把缓冲的文本作为回答产出——用户看到的是
+        逐轮（整段）产出，而非逐 token 流式。
         """
         messages = _assemble_messages(ORCHESTRATOR_SYSTEM_PROMPT, history, user_message)
         self.last_tool_calls = []

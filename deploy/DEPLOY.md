@@ -67,6 +67,9 @@ vim .env   # 必填：DEEPSEEK_API_KEY / SECRET_KEY / POSTGRES_PASSWORD / QDRANT
 ```
 DEEPSEEK_API_KEY=sk-xxx          # 必填
 SECRET_KEY=<强随机值>             # 必填（云模式默认值会被启动自检拒绝）
+# 超级管理员账号（可选，建议配置，见下方「超级管理员账号」说明）：
+SUPER_ADMIN_USERNAME=demo         # 默认 demo
+SUPER_ADMIN_PASSWORD=<强口令>      # 非空才会在启动时创建/提升该超管
 POSTGRES_PASSWORD=<强随机口令>    # 必填（compose 缺省拒绝启动，须与 DATABASE_URL 一致）
 DATABASE_URL=postgresql+asyncpg://copilot:<口令>@postgres:5432/copilot
 QDRANT_URL=http://qdrant:6333
@@ -76,6 +79,13 @@ REDIS_URL=redis://:<口令>@redis:6379/0
 # 云端前端与后端同域部署（nginx 反代），无需配置 CORS_ORIGINS；
 # 如前后端不同域，需在 .env 配置 CORS_ORIGINS=["https://你的前端域名"]
 ```
+
+> 🔑 **超级管理员账号（demo）**：`SUPER_ADMIN_PASSWORD` 设为非空后，后端启动时会自动创建
+> （或把同名已存在账号提升为）`role=admin` 的超管，默认用户名 `demo`；**未配置密码则不创建**。
+> 超管有两个额外能力：① 是唯一可走环境变量 `DEEPSEEK_API_KEY` 兜底调用模型的账号
+> （普通注册用户必须在「个人中心 → 模型设置」各自配置 Key，禁止白嫖部署方 Key）；
+> ② 可访问管理后台 `/admin`（`ADMIN_ENABLED=true` 时）。登录入口与普通用户相同
+> （前端「登录」页，用户名 `demo` + 你设置的密码）。
 
 ### 3.3 一键部署（推荐）
 

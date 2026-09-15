@@ -92,6 +92,7 @@ cd backend && cp .env.example .env   # 按需修改；不建也能跑
 | `DATABASE_URL` | `postgresql+asyncpg://postgres:root@localhost:5432/copilot` | **非 PG 方言会在启动自检被直接拒绝**（`config.py`） |
 | `SECRET_KEY` | 内置开发值 | **仅 `local` 可用**；`RUN_MODE=cloud` 时不改会拒绝启动（安全自检） |
 | `DEEPSEEK_API_KEY` | 空 | 不影响启动：普通用户在前端各自配置模型（见 [§5](#5-首次使用注册--配模型--问答)） |
+| `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` | `demo` / 空 | 密码非空才会在启动时创建/提升超管（`role=admin`），见 [§5](#5-首次使用注册--配模型--问答) |
 
 `.env` 已被 gitignore，`.env.example` 是入库模板。
 
@@ -184,6 +185,12 @@ uv run copilot logout
    （Base URL / 模型 / API Key / 温度 / max_tokens）。Key 加密入库，接口只回掩码；
    > 环境变量 `DEEPSEEK_API_KEY` **只作为超级管理员账号的兜底**，普通用户不配置就调不通模型；
 3. 上传一篇 Markdown / PDF 到知识库 → 等状态 `ready` → 提问并核对引用来源。
+
+> 🔑 **超级管理员（demo）**：在 `backend/.env` 设置 `SUPER_ADMIN_USERNAME=demo` 与
+> `SUPER_ADMIN_PASSWORD=<非空密码>` 后，后端启动时会自动创建（或提升同名账号为）
+> `role=admin` 的超管，默认用户名 `demo`；**未配置密码则不创建**。超管是唯一能走环境变量
+> `DEEPSEEK_API_KEY` 兜底调用模型的账号（普通用户须自配 Key），也可访问管理后台 `/admin`；
+> 登录入口与普通用户相同（用户名 `demo` + 你设置的密码）。
 
 ---
 

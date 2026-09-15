@@ -20,7 +20,7 @@
 | H | 连接器化收口（Obsidian → connectors） | ✅ 完成 |
 | **L** | **软删除与审计（强制红线）** | ✅ 完成（后端+回收站前端） |
 | I | 企业化：租户与权限（混合模式） | ⬜ 待做 |
-| J | 可靠性与治理（企业可运营） | ⬜ 待做（J5 并入 L） |
+| J | 可靠性与治理（企业可运营） | 🟡 **J1 完成**；J2–J7 待做（J5 并入 L） |
 | K | 连接器生态与直连能力 | ⬜ 待做 |
 | M | 知识来源范围（RAG / Wiki 检索分流） | ⏸ 已设计（方案 C），待排期 |
 | N | 管理后台与质量看板（作品集为主，企业留口） | ⏸ 已设计，见 [ADMIN_PLAN.md](ADMIN_PLAN.md) |
@@ -116,7 +116,10 @@
 
 ## 6. 批次 J · 可靠性与治理
 
-- [ ] **J1 异步摄取/同步**：`jobs` 表 + 后台执行 + 进度查询 + 重试/死信；import/sync 不再阻塞 HTTP。
+- [x] **J1 异步摄取/同步**：`jobs` 表 + 后台执行 + 进度查询 + 重试/死信；import/sync 不再阻塞 HTTP。
+      _实现：`app/core/jobs.py` 通用状态机（handler 注册表 + 限并发/超时 + 自动重试→dead）+ `Job` 模型与迁移
+      + `/jobs` 列表/详情/重试（按 `user_id` 隔离）+ Wiki 导入/同步接入（`JOBS_ENABLED` 开→202+job_id，关→内联回退旧行为）
+      + 前端轮询进度（可取消）。_
 - [ ] **J2 可观测性**：OpenTelemetry（检索/LLM/工具 span）+ 指标 + 按 tenant 的 token/成本统计。
 - [ ] **J3 评测进 CI**：`rag_eval.py` / `rag_eval_ragas.py` 阈值门槛。
 - [ ] **J4 审计日志**：与 L3 联动，统一审计表（敏感操作）。
@@ -142,7 +145,8 @@
 > 背景：Wiki 页面已与上传文档同走 `documents/chunks/Qdrant` 一条摄取/检索链路，差异在**增强策略**（Wiki 有双链邻居扩展/图谱）而非检索主干，故拆工具只会增加路由犯错面。
 > 现状缺口：`document.source_type` **未写入 Qdrant payload**（payload 仅有 `document_id/chunk_id/user_id/meta/deleted`），故当前无法做**检索级**来源过滤。
 
-- [ ] **M1 来源元数据入检索层**：`document.source_type` 写入 Qdrant payload（与 BM25 的 Document JOIN 对齐），使 scope 过滤在**向量 + BM25 同一条过滤链**生效；需一次性重建/回填索引。
+- [x] **M1 来源元数据入检索层**：`document.source_type` 写入 Qdrant payload（与 BM25 的 Document JOIN 对齐），使 scope 过滤在**向量 + BM25 同一条过滤链**生效；需一次性重建/回填索引。
+      _已完成（实测 `rag/pipeline.py` 写 payload `source_type`，`rag/retriever.py` 向量/BM25 双路读取；对应 ADMIN_PLAN §9 N0.4 已勾选）。_
 - [ ] **M2 `kb_search` 增加可选 `scope`**：枚举 `all | docs | wiki`，**默认 all**；仅当用户**显式表达**范围（“只在我的 wiki 里”/“根据我上传的文档”）才收窄；无法判断一律 all。
 - [ ] **M3 空结果自动回退**：收窄检索为空时**自动放宽到 all**，并如实告知用户已放宽范围——杜绝“猜错范围即漏答”。
 - [ ] **M4 策略随 scope 联动**：`scope=wiki` 强制开双链邻居扩展；`scope=docs` 关闭该扩展（将现有 `WIKI_LINK_EXPANSION_ENABLED` 从全局开关细化为按 scope）。
@@ -167,6 +171,7 @@
 
 > 按约定：合并 / 推送前需维护者确认。
 
+- [ ] **合并 `feat/jobs-async-ingest`**（J1 异步摄取/同步：jobs 表 + 状态机 + Wiki 接入 + 前端轮询）→ `develop` → `main`。
 - [ ] **合并修复分支**：`fix/wiki-delete-safety`（tip，含 M2 + 引用 + 认知修复 + 嵌入/LangGraph/重排修复 + P1–P3 + 编码修复 + 删除护栏）→ `develop` → `main`。
 - [ ] **推送**：GitHub + Gitee 的 `develop` / `main`。
 - [ ] **推送 `private-docs`**：含本轮记录（`docs/优化落地记录.md`、`FIX_LOG_*`）。
@@ -180,7 +185,7 @@
 | 0 | **合并待批准分支 + 推送**（§10） | 消除已知 bug/数据风险 | 需批准 |
 | 1 | **批次 L 软删除与审计** | 数据安全红线、可溯源 | 事故驱动，优先 |
 | 2 | **G-M3 图谱可视化** | 作品亮点、演示效果 | `react-force-graph-2d` |
-| 3 | **J1 异步摄取/同步** | 可靠性、解锁大 vault | 当前 import/sync 阻塞 |
+| 3 | **J1 异步摄取/同步** | 可靠性、解锁大 vault | ✅ 已完成（`feat/jobs-async-ingest`） |
 | 4 | **I1–I4 租户 + workspace + ACL** | 企业落地硬门槛 | 检索三路统一过滤 |
 | 5 | **J2 可观测 + J3 评测进 CI** | 企业可运营/质量门槛 | 复用 request_id / golden set |
 | 6 | **K 连接器生态 + 直读/MCP 写回** | 多来源、体验闭环 | 基于 H 的接缝 |

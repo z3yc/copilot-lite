@@ -316,11 +316,12 @@
 - [x] **合并 `feat/jobs-async-ingest`**（J1 异步摄取/同步：jobs 表 + 状态机 + Wiki 接入 + 前端轮询）→ `develop`（`5b5ce2f`）；`main` 待发布时合并。
 - [x] **合并修复分支**：`fix/wiki-delete-safety`（tip，含 M2 + 引用 + 认知修复 + 嵌入/LangGraph/重排修复 + P1–P3 + 编码修复 + 删除护栏）→ `develop`——**已完成**（分支已删除，早前合并，此行属陈旧记录）。
 - [x] **合并 `feat/agent-trajectory`**（R2 / Q1 trajectory：`TrajectoryRecorder` + 双引擎同形状接线 + `Message.extra.trajectory` + SSE `done` 增量字段 + 前端轨迹面板 + `AGENT_TRACE_ENABLED` 三件套）→ `develop`（合并提交 `a430ecc`；已过逐任务评审、全分支评审与真实模型实测）；分支已删除。
-  - ⚠️ **一次性例外（维护者 2026-09-15 批准）**：本次**本地 `--no-ff` 合并后直推 `develop`**，未走 PR/MR。原因：AGENTS §11「禁止直接 push `develop`」与 `GIT_WORKFLOW.md`「代码：正常推两个远端 —— `git push github develop && git push origin develop`」**互相矛盾**，维护者选择遵循 `GIT_WORKFLOW.md`。**遗留待办：二者措辞取齐**（改 §11 或改 GIT_WORKFLOW，勿再依赖口头例外）。
+  - ⚠️ **一次性例外（维护者 2026-09-15 批准）**：本次**本地 `--no-ff` 合并后直推 `develop`**，未走 PR/MR。原因：当时 AGENTS §11「禁止直接 push `develop`」与 `GIT_WORKFLOW.md`「代码：正常推两个远端」**互相矛盾**。→ **已解决（同日）**：AGENTS §11 合并规则改为「`develop`/`main` 推送需维护者明确批准；是否走 PR/MR 由维护者按改动规模决定（CI 全量检查仍为合并前置条件）」，与 `GIT_WORKFLOW.md` 取齐。
+    - ⚠️ 遗留风险：`AGENTS.md` 被 `.gitignore` 忽略（本机文件），该规则**不进版本库、仅本机生效**。建议后续把分支/合并规则搬进受版本管理的 `GIT_WORKFLOW.md`，AGENTS 只留指针。
   - 合并前发现 `github/develop` 领先本地/Gitee **1 个提交**（`20353db` 部署/开发文档补超管说明），已先 `--ff-only` 并入再合并，避免非快进被拒。
   - 合并后的树上复跑实测：后端 370 / 82.81%、`ruff` 全过；前端 102、`build` 零错误。
 - [x] **合并修复分支 `fix/stream-truncation`**（真实使用暴露的流式三修，`8d79c11..dd7e493`，共 **8** 个提交）→ `develop`（合并提交 `ed78b4d`；已过逐任务评审、全分支评审、残留修复复审与真机 21.15s 静默复验）；分支已删除。
-  - ⚠️ **一次性例外（第二次，维护者 2026-09-15 批准）**：同样**本地 `--no-ff` 合并后直推 `develop`**，未走 PR/MR。§11 与 `GIT_WORKFLOW.md` 的矛盾仍未取齐（见上一行遗留待办），本轮又是靠人工批准绕过的——**建议尽快择一改措辞，否则下一次还会撞上**。
+  - ⚠️ **一次性例外（第二次，维护者 2026-09-15 批准）**：同样**本地 `--no-ff` 合并后直推 `develop`**，未走 PR/MR。此矛盾已于同日取齐（见 R2 条目：AGENTS §11 措辞已改）——**此后直推 `develop` 属规则内行为，前提是维护者明确批准**。
   1. **心跳不再截断回答**（`743cdae`/`41d0880`）：旧实现用 `asyncio.wait_for(anext(gen), timeout=_HEARTBEAT_SECONDS)` 取下一分片，超时会**取消**被包裹的 `anext`、把异步生成器就地终止；流循环随后把 `StopAsyncIteration` 当正常结束 → 落库并发 `done`，表现为「回答被静默截断却显示成功」，且 `citations`/`trajectory` 一并丢失（它们只在 `run_stream` 收尾代码里拷贝）。改为把 `anext` 挂成 Task、跨心跳超时复用，并在断开时显式取消悬挂的分片任务。
   2. **工具轮独白不再当作回答**（`6c74471`/`0e52eca`）：双引擎按「模型轮」缓冲，只有该轮**无** `tool_calls` 才把缓冲文本作为回答产出；`tool_calls` 字段缺失时 fail-closed（按工具轮丢弃并 WARNING）。旧假设「工具轮 content 为空、纯文本轮 tool_calls 为空，二者互斥」被真实模型打破（实测落库正文 = `"I'll check your todo list for you.你的待办列表如下：…"`）。另：工具轮耗尽 `max_turns` 时用节点收尾文本兜底，不再给空回复。
   3. **新会话首条消息不再自杀**（`19c12a8`）：`onSessionCreated={setSessionId}` 让 `sessionId` 从 `null` 变为新 id，触发了依赖 `[initialMessages, sessionId]` 的 effect，把刚发起的请求 abort 掉。

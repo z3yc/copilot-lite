@@ -10,10 +10,12 @@
 """
 
 import logging
+import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.base import BaseAgent, confirmation_reply, split_system_context
+from app.agent.trajectory import TrajectoryRecorder, elapsed_ms
 from app.core.config import settings
 from app.core.llm import LLMClient, LLMError, ToolCall
 from app.core.prompts import ORCHESTRATOR_SYSTEM_PROMPT
@@ -60,6 +62,20 @@ class Orchestrator(BaseAgent):
         self.pending_confirmation: list[dict] = []
         # 本轮检索引用（供上层落 Message.extra.citations）
         self.last_citations: list[dict] = []
+        # 本轮轨迹（node/tool/answer）：run 后由上层写入 Message.extra
+        self.trace = TrajectoryRecorder("handwritten", enabled=settings.AGENT_TRACE_ENABLED)
+        # 轨迹规范化结果（run/run_stream 收尾时写入；开关关闭时为空 dict）
+        self.last_trajectory: dict = {}
+
+    def _seal_trajectory(self, chars: int) -> None:
+        """轨迹收尾：记录回复长度并规范化（run/run_stream 的每个出口都要调用）。"""
+        self.trace.answer(chars)
+        self.last_trajectory = self.trace.build()
+
+    def _start_trajectory(self) -> None:
+        """轨迹开场：重置并记录节点（手写引擎只有一个执行节点，无路由）。"""
+        self.trace.reset()
+        self.trace.node("orchestrator")
 
     async def run(
         self,
@@ -76,6 +92,7 @@ class Orchestrator(BaseAgent):
         self.last_tool_calls = []
         self.pending_confirmation = []
         self.last_citations = []
+        self._start_trajectory()
 
         ctx = ToolContext(session=session, user_id=user_id)
 
@@ -88,7 +105,9 @@ class Orchestrator(BaseAgent):
 
             if not result.has_tool_calls:
                 self.last_citations = list(ctx.citations)
-                return result.content or "（模型未返回内容）"
+                reply = result.content or "（模型未返回内容）"
+                self._seal_trajectory(len(reply))
+                return reply
 
             # 追加 assistant 的工具调用声明（OpenAI 协议要求）
             messages.append(
@@ -108,14 +127,29 @@ class Orchestrator(BaseAgent):
             # 逐个执行工具并把结果回填
             for tc in result.tool_calls:
                 logger.info("调用工具: %s(%s)", tc.name, tc.arguments)
+                started = time.perf_counter()
                 if self.registry.is_confirmation_required(tc.name):
                     # 高风险副作用：不执行，挂起等用户确认
                     self.pending_confirmation.append(
                         {"name": tc.name, "arguments": tc.arguments, "tool_call_id": tc.id}
                     )
                     tool_result = "（该操作需用户确认，已挂起，尚未执行）"
+                    self.trace.tool(
+                        tc.name,
+                        tc.arguments,
+                        tool_result,
+                        status="pending_confirmation",
+                        ms=elapsed_ms(started),
+                    )
                 else:
                     tool_result = await self.registry.execute(tc.name, tc.arguments, ctx)
+                    self.trace.tool(
+                        tc.name,
+                        tc.arguments,
+                        tool_result,
+                        status="ok",
+                        ms=elapsed_ms(started),
+                    )
                     self.last_tool_calls.append(
                         {
                             "name": tc.name,
@@ -133,10 +167,14 @@ class Orchestrator(BaseAgent):
                 )
             if self.pending_confirmation:
                 self.last_citations = list(ctx.citations)
-                return confirmation_reply(self.pending_confirmation)
+                reply = confirmation_reply(self.pending_confirmation)
+                self._seal_trajectory(len(reply))
+                return reply
 
         self.last_citations = list(ctx.citations)
-        return "（已达到最大工具调用轮数，请简化请求后重试）"
+        reply = "（已达到最大工具调用轮数，请简化请求后重试）"
+        self._seal_trajectory(len(reply))
+        return reply
 
     async def run_stream(
         self,
@@ -155,9 +193,11 @@ class Orchestrator(BaseAgent):
         self.last_tool_calls = []
         self.pending_confirmation = []
         self.last_citations = []
+        self._start_trajectory()
 
         ctx = ToolContext(session=session, user_id=user_id)
 
+        chars = 0
         for _ in range(self.max_turns):
             tool_calls: dict[int, dict] = {}
             try:
@@ -169,6 +209,7 @@ class Orchestrator(BaseAgent):
                         continue
                     delta = chunk.choices[0].delta
                     if delta and delta.content:
+                        chars += len(delta.content)
                         yield delta.content
                     if delta and delta.tool_calls:
                         for tc in delta.tool_calls:
@@ -188,6 +229,7 @@ class Orchestrator(BaseAgent):
 
             if not tool_calls:
                 self.last_citations = list(ctx.citations)
+                self._seal_trajectory(chars)
                 return  # 纯文本轮完成
 
             # 工具轮：追加 assistant tool_calls 声明并执行
@@ -211,13 +253,28 @@ class Orchestrator(BaseAgent):
             )
             for c in calls:
                 logger.info("调用工具: %s(%s)", c.name, c.arguments)
+                started = time.perf_counter()
                 if self.registry.is_confirmation_required(c.name):
                     self.pending_confirmation.append(
                         {"name": c.name, "arguments": c.arguments, "tool_call_id": c.id}
                     )
                     tool_result = "（该操作需用户确认，已挂起，尚未执行）"
+                    self.trace.tool(
+                        c.name,
+                        c.arguments,
+                        tool_result,
+                        status="pending_confirmation",
+                        ms=elapsed_ms(started),
+                    )
                 else:
                     tool_result = await self.registry.execute(c.name, c.arguments, ctx)
+                    self.trace.tool(
+                        c.name,
+                        c.arguments,
+                        tool_result,
+                        status="ok",
+                        ms=elapsed_ms(started),
+                    )
                     self.last_tool_calls.append(
                         {
                             "name": c.name,
@@ -235,11 +292,17 @@ class Orchestrator(BaseAgent):
                 )
             if self.pending_confirmation:
                 self.last_citations = list(ctx.citations)
-                yield confirmation_reply(self.pending_confirmation)
+                text = confirmation_reply(self.pending_confirmation)
+                chars += len(text)
+                self._seal_trajectory(chars)
+                yield text
                 return
 
         self.last_citations = list(ctx.citations)
-        yield "（已达到最大工具调用轮数，请简化请求后重试）"
+        text = "（已达到最大工具调用轮数，请简化请求后重试）"
+        chars += len(text)
+        self._seal_trajectory(chars)
+        yield text
 
     async def close(self) -> None:
         """释放引擎资源。

@@ -3,6 +3,7 @@
 import pytest
 
 from app.agent.orchestrator import Orchestrator
+from app.core.config import settings
 from app.core.constants import DEFAULT_USER_ID
 from app.core.llm import ChatResult, ToolCall
 from app.tools import registry
@@ -201,3 +202,74 @@ async def test_run_stream_pure_text(db_session) -> None:
         parts.append(text)
 
     assert "".join(parts) == "你好，我是青木"
+
+
+# ---------------- 轨迹（trajectory） ----------------
+
+
+def _enable_trace(monkeypatch) -> None:
+    """conftest 默认关闭轨迹，需要轨迹的用例自行打开。"""
+    monkeypatch.setattr(settings, "AGENT_TRACE_ENABLED", True)
+
+
+@pytest.mark.asyncio
+async def test_trajectory_records_node_and_answer(monkeypatch, db_session) -> None:
+    """手写引擎：节点=orchestrator，无 route step（它没有路由能力）。"""
+    _enable_trace(monkeypatch)
+    fake = FakeLLM([ChatResult(content="你好！有什么可以帮你？")])
+    orch = Orchestrator(llm=fake, registry=registry, max_turns=3)
+    await orch.run(db_session, DEFAULT_USER_ID, [], "你好")
+
+    traj = orch.last_trajectory
+    assert traj["engine"] == "handwritten"
+    assert traj["truncated"] is False
+    assert [s["type"] for s in traj["steps"]] == ["node", "answer"]
+    assert traj["steps"][0]["node"] == "orchestrator"
+    assert traj["steps"][1]["chars"] == len("你好！有什么可以帮你？")
+
+
+@pytest.mark.asyncio
+async def test_trajectory_records_tool_step(monkeypatch, db_session) -> None:
+    """工具调用与结果进轨迹（含耗时与状态）。"""
+    _enable_trace(monkeypatch)
+    fake = FakeLLM(
+        [
+            ChatResult(tool_calls=[ToolCall(id="call_1", name="todo_list", arguments="{}")]),
+            ChatResult(content="这是你的待办"),
+        ]
+    )
+    orch = Orchestrator(llm=fake, registry=registry, max_turns=3)
+    await orch.run(db_session, DEFAULT_USER_ID, [], "看看我的待办")
+
+    tool = next(s for s in orch.last_trajectory["steps"] if s["type"] == "tool")
+    assert tool["name"] == "todo_list"
+    assert tool["status"] == "ok"
+    assert tool["ms"] >= 0
+    assert [s["type"] for s in orch.last_trajectory["steps"]] == [
+        "node",
+        "tool",
+        "answer",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_trajectory_disabled_returns_empty(monkeypatch, db_session) -> None:
+    """开关关闭：不记录（AGENTS §8）。"""
+    monkeypatch.setattr(settings, "AGENT_TRACE_ENABLED", False)
+    fake = FakeLLM([ChatResult(content="你好")])
+    orch = Orchestrator(llm=fake, registry=registry, max_turns=3)
+    await orch.run(db_session, DEFAULT_USER_ID, [], "你好")
+    assert orch.last_trajectory == {}
+
+
+@pytest.mark.asyncio
+async def test_stream_records_trajectory(monkeypatch, db_session) -> None:
+    """run_stream 的每个出口都收尾轨迹（防某个 return 分支漏记）。"""
+    _enable_trace(monkeypatch)
+    fake = StreamFakeLLM([("text", "你好！有什么可以帮你？")])
+    orch = Orchestrator(llm=fake, registry=registry, max_turns=3)
+
+    parts = [p async for p in orch.run_stream(db_session, DEFAULT_USER_ID, [], "你好")]
+    traj = orch.last_trajectory
+    assert [s["type"] for s in traj["steps"]] == ["node", "answer"]
+    assert traj["steps"][1]["chars"] == len("".join(parts))

@@ -21,6 +21,7 @@ vi.mock("../api", () => ({
   fetchWikiPages: vi.fn(),
   fetchWikiPage: vi.fn(),
   fetchWikiGraph: vi.fn(),
+  waitForJob: vi.fn(),
 }));
 
 const mocked = vi.mocked(api);
@@ -86,6 +87,44 @@ describe("WikiPanel", () => {
     await screen.findByText("my-vault（2 页）");
     fireEvent.click(screen.getByRole("button", { name: /同步/ }));
     await waitFor(() => expect(mocked.syncWikiSpace).toHaveBeenCalledWith("s1"));
+  });
+
+  it("同步返回后台作业时轮询至完成并展示结果", async () => {
+    mocked.syncWikiSpace.mockResolvedValue({ job_id: "j1", status: "queued" });
+    mocked.waitForJob.mockResolvedValue({
+      id: "j1",
+      kind: "wiki_sync",
+      status: "done",
+      progress: 100,
+      attempts: 1,
+      max_attempts: 2,
+      result: { added: 3, updated: 0, moved: 0, deleted: 0, failed: 0, total: 3 },
+    });
+    render(<WikiPanel />);
+    await screen.findByText("my-vault（2 页）");
+    fireEvent.click(screen.getByRole("button", { name: /同步/ }));
+    await waitFor(() =>
+      expect(mocked.waitForJob).toHaveBeenCalledWith("j1", expect.anything())
+    );
+    expect(await screen.findByText(/同步完成：新增 3/)).toBeInTheDocument();
+  });
+
+  it("后台作业失败时提示错误", async () => {
+    mocked.syncWikiSpace.mockResolvedValue({ job_id: "j2", status: "queued" });
+    mocked.waitForJob.mockResolvedValue({
+      id: "j2",
+      kind: "wiki_sync",
+      status: "dead",
+      progress: 0,
+      attempts: 2,
+      max_attempts: 2,
+      error: "磁盘已满",
+      result: {},
+    });
+    render(<WikiPanel />);
+    await screen.findByText("my-vault（2 页）");
+    fireEvent.click(screen.getByRole("button", { name: /同步/ }));
+    expect(await screen.findByText(/磁盘已满/)).toBeInTheDocument();
   });
 
   it("新建空间调用创建接口", async () => {

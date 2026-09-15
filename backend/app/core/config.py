@@ -153,6 +153,17 @@ class Settings(BaseSettings):
     # 单个评测作业超时（秒；超时置 failed + error，防后台无限期挂起）
     EVAL_JOB_TIMEOUT_SECONDS: float = 600.0
 
+    # ---- 通用后台作业（J1：异步摄取/同步）----
+    # 作业开关：关闭时 import/sync 走内联执行（保持旧行为，便于演示/排障）；
+    # 打开后 HTTP 只建作业返回 job_id，后台执行，前端轮询进度
+    JOBS_ENABLED: bool = True
+    # 后台作业并发上限（摄取/同步跑真实嵌入，必须限并发）
+    JOBS_CONCURRENCY: int = 2
+    # 单次尝试超时（秒；超时按失败处理并进入重试计数，防后台无限期挂起）
+    JOBS_TIMEOUT_SECONDS: float = 1800.0
+    # 单作业最大尝试次数（耗尽后置 dead 死信，等待人工重试）
+    JOBS_MAX_ATTEMPTS: int = 2
+
     @model_validator(mode="after")
     def _reject_default_secret(self) -> "Settings":
         """安全自检：云模式禁止使用代码内置的默认 JWT 密钥。

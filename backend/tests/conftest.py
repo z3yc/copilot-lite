@@ -27,6 +27,8 @@ os.environ["EVAL_JOB_ENABLED"] = "false"
 os.environ["JOBS_ENABLED"] = "false"
 # 测试环境关闭嵌入模型预热（避免下载模型）
 os.environ["EMBEDDING_PREWARM"] = "false"
+# 测试环境默认关闭 Agent 轨迹（需要轨迹的用例自行 monkeypatch 打开）
+os.environ["AGENT_TRACE_ENABLED"] = "false"
 # 测试环境注入假 LLM Key（chat.py 的 _validate_llm_config 会校验 key 非空；
 # 测试全程用 FakeLLM mock，不会真实调用 DeepSeek——避免 CI 无 .env 时误报 503）
 os.environ.setdefault("DEEPSEEK_API_KEY", "test-key-not-real")

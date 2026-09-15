@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     HISTORY_MAX_TOKENS: int = 4000
     # Agent 引擎：langgraph（多 Agent 路由，默认）/ handwritten（手写 ReAct，可对比）
     AGENT_ENGINE: str = "langgraph"
+    # Agent 轨迹（trajectory）落库开关：记录 路由/节点/工具/结果 到 Message.extra
+    # （可观测性；关闭时轨迹为空 dict，前端不显示轨迹面板）
+    AGENT_TRACE_ENABLED: bool = True
 
     # ---- 预留（后续里程碑启用）----
     REDIS_URL: str = "redis://localhost:6379/0"

@@ -496,6 +496,23 @@ async def chat_stream(
         pending_chunk: asyncio.Task | None = None  # 进行中的 anext（断开时需显式取消）
         tokens_before = _total_llm_tokens()
         usage_before = snapshot_usage()
+
+        async def _cancel_pending_chunk() -> None:
+            """取消并等待仍在等待的分片任务。
+
+            它可能在 registry.execute 里持有同一个 AsyncSession，必须等它真正结束再动 db，
+            否则会与落库/用量写入并发使用同一 session（SQLAlchemy 异步 session 禁止并发使用，
+            而且失败还会被兜底 except 吞掉）。done() 守卫使其可重复调用。
+            """
+            if pending_chunk is not None and not pending_chunk.done():
+                pending_chunk.cancel()
+                try:
+                    await pending_chunk
+                except (asyncio.CancelledError, StopAsyncIteration):
+                    pass
+                except Exception:
+                    logger.warning("流分片任务清理异常", exc_info=True)
+
         try:
             agent_stream = agent.run_stream(
                 session=db, user_id=user.id, history=history, user_message=req.message
@@ -509,7 +526,7 @@ async def chat_stream(
                 done_set, _ = await asyncio.wait({pending_chunk}, timeout=_HEARTBEAT_SECONDS)
                 if not done_set:
                     if asyncio.get_running_loop().time() - stream_started > _STREAM_MAX_SECONDS:
-                        pending_chunk.cancel()
+                        await _cancel_pending_chunk()
                         raise HTTPException(status_code=504, detail="生成超时，请重试")
                     yield ": ping\n\n"
                     continue
@@ -564,14 +581,7 @@ async def chat_stream(
             # 先取消并等待仍在等待的分片任务：它可能在 registry.execute 里持有同一个 AsyncSession，
             # 必须等它真正结束再动 db，否则会与 _persist_partial/用量写入并发使用同一 session
             # （SQLAlchemy 异步 session 禁止并发使用，失败还会被兜底 except 吞掉）。
-            if pending_chunk is not None and not pending_chunk.done():
-                pending_chunk.cancel()
-                try:
-                    await pending_chunk
-                except (asyncio.CancelledError, StopAsyncIteration):
-                    pass
-                except Exception:
-                    logger.warning("流分片任务清理异常", exc_info=True)
+            await _cancel_pending_chunk()
             # 客户端断开/任务取消（CancelledError）时兜底保存已生成部分
             if not saved:
                 await _persist_partial(db, session.id, reply_parts)

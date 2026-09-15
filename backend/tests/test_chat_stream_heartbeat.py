@@ -164,3 +164,53 @@ async def test_disconnect_closes_engine_generator(monkeypatch, authed_headers, d
 
     await asyncio.wait_for(closed.wait(), timeout=5)
     assert closed.is_set(), "断开后引擎生成器未被关闭（悬挂任务）"
+
+
+async def test_cap_path_closes_producer_before_persist(monkeypatch, authed_headers):
+    """静默上限路径：必须先取消并等待生产者，再落库部分回复。
+
+    生产者可能仍挂在 registry.execute（持有同一个 AsyncSession）上；若不等它真正结束
+    就落库，两者会并发使用同一 session（SQLAlchemy 异步 session 禁止并发使用，
+    失败还会被兜底 except 吞掉）。
+    观测点：生产者 finally 是否先置位，再调用 _persist_partial（顺序敏感）。
+    """
+    from app.api.routes import chat as chat_mod
+
+    closed = asyncio.Event()
+    captured: list[bool] = []
+
+    class _StuckAfterFirstAgent:
+        last_tool_calls: ClassVar[list] = []
+        pending_confirmation: ClassVar[list] = []
+        last_citations: ClassVar[list] = []
+        last_trajectory: ClassVar[dict] = {}
+
+        async def run_stream(self, **kwargs):
+            try:
+                yield "部分"
+                await asyncio.sleep(30)  # 卡在 await（模拟 registry.execute 持 session）
+                yield "永不产出"
+            finally:
+                closed.set()  # 生产者真正结束才置位
+
+        async def close(self) -> None:
+            pass
+
+    async def _capture_persist(db, session_id, reply_parts):
+        # 同步捕获（函数体首个 await 之前），记录落库时刻生产者是否已关闭
+        captured.append(closed.is_set())
+
+    monkeypatch.setattr(chat_mod, "_build_agent", lambda: _StuckAfterFirstAgent())
+    monkeypatch.setattr(chat_mod, "_persist_partial", _capture_persist)
+    monkeypatch.setattr(chat_mod, "_HEARTBEAT_SECONDS", 0.02)
+    monkeypatch.setattr(chat_mod, "_STREAM_MAX_SECONDS", 0.05)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        events, _, texts, _errors = await _drain(client, authed_headers)
+
+    assert "error" in events and "done" not in events
+    assert texts == ["部分"], f"部分回复应已在落库前产出：{texts!r}"
+    assert captured == [True], (
+        f"落库时生产者尚未真正结束：captured={captured}，closed={closed.is_set()}"
+    )

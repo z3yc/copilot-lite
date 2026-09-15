@@ -327,4 +327,69 @@ describe("ChatPanel", () => {
     rerender(<ChatPanel {...panelProps({ sessionId: "s-2" })} />);
     await waitFor(() => expect(signal?.aborted).toBe(true));
   });
+
+  it("新建/切换会话中止流时不残留「生成出错」气泡（busy 仍复位）", async () => {
+    const setBusy = vi.fn();
+    let deliveredError = false;
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      const signal = handlers.signal!;
+      await new Promise<void>((resolve) => {
+        const onAbort = () => {
+          // 真实 fetch 的 abort 拒绝是异步投递的：让「清空列表」的 state 更新先生效
+          queueMicrotask(() => {
+            deliveredError = true;
+            handlers.onError("已停止生成");
+            resolve();
+          });
+        };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      });
+    });
+
+    const { rerender } = renderPanel({ sessionId: null, setBusy });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "第一条" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+    await waitFor(() => expect(mocked.streamChat).toHaveBeenCalled());
+
+    // 模拟 App.newSession：sessionId 仍为 null，messages 换成新空数组（触发中止）
+    rerender(<ChatPanel {...panelProps({ sessionId: null, initialMessages: [] })} />);
+
+    await waitFor(() => expect(deliveredError).toBe(true));
+    expect(screen.queryByText(/生成出错/)).not.toBeInTheDocument();
+    expect(setBusy).toHaveBeenCalledWith(false);
+  });
+
+  it("点「停止」中止流时仍展示「生成出错：已停止生成」", async () => {
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      const signal = handlers.signal!;
+      await new Promise<void>((resolve) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            queueMicrotask(() => {
+              handlers.onError("已停止生成");
+              resolve();
+            });
+          },
+          { once: true }
+        );
+      });
+    });
+
+    const { rerender } = renderPanel({ sessionId: "s1" });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "hi" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+    await waitFor(() => expect(mocked.streamChat).toHaveBeenCalled());
+
+    // 父组件把 busy 置真 → 停止按钮出现（复用内置的 EMPTY_MESSAGES，避免误触清空 effect）
+    rerender(<ChatPanel {...panelProps({ sessionId: "s1", busy: true })} />);
+    fireEvent.click(screen.getByRole("button", { name: /停止/ }));
+
+    expect(await screen.findByText(/生成出错：已停止生成/)).toBeInTheDocument();
+  });
 });

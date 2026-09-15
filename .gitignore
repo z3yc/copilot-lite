@@ -71,3 +71,6 @@ AGENTS.md
 # ===== 本地文档（仅本地保留，不推送远程；2026-08-27 由 6bc1abd 清理 docs/ 与 知识点/） =====
 docs/
 知识点/
+# 面试准备：私有资料，只存在于 private-docs 分支（GIT_WORKFLOW §11）——
+# 加入忽略防“git add -A”把私有资料带进 develop/main（2026-09-15）
+面试准备/

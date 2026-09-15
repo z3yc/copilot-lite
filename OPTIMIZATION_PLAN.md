@@ -315,10 +315,12 @@
 
 - [x] **合并 `feat/jobs-async-ingest`**（J1 异步摄取/同步：jobs 表 + 状态机 + Wiki 接入 + 前端轮询）→ `develop`（`5b5ce2f`）；`main` 待发布时合并。
 - [x] **合并修复分支**：`fix/wiki-delete-safety`（tip，含 M2 + 引用 + 认知修复 + 嵌入/LangGraph/重排修复 + P1–P3 + 编码修复 + 删除护栏）→ `develop`——**已完成**（分支已删除，早前合并，此行属陈旧记录）。
-- [ ] **合并 `feat/agent-trajectory`**（R2 / Q1 trajectory：`TrajectoryRecorder` + 双引擎同形状接线 + `Message.extra.trajectory` + SSE `done` 增量字段 + 前端轨迹面板 + `AGENT_TRACE_ENABLED` 三件套）→ `develop`（tip `af9ed5f`，14 提交；已过逐任务评审、全分支评审与真实模型实测）——**待批准**。
-  - 待决冲突：AGENTS §11「禁止直接 push `main`/`develop`，合并须经 PR/MR」 vs 本地合并后直推，需维护者定路径。
-- [ ] **推送**：GitHub + Gitee 的 `develop` / `main`（J1 合并后新增待推）。
-- [ ] **推送 `private-docs`**：含本轮记录（`docs/优化落地记录.md`、`FIX_LOG_*`）。
+- [x] **合并 `feat/agent-trajectory`**（R2 / Q1 trajectory：`TrajectoryRecorder` + 双引擎同形状接线 + `Message.extra.trajectory` + SSE `done` 增量字段 + 前端轨迹面板 + `AGENT_TRACE_ENABLED` 三件套）→ `develop`（合并提交 `a430ecc`；已过逐任务评审、全分支评审与真实模型实测）；分支已删除。
+  - ⚠️ **一次性例外（维护者 2026-09-15 批准）**：本次**本地 `--no-ff` 合并后直推 `develop`**，未走 PR/MR。原因：AGENTS §11「禁止直接 push `develop`」与 `GIT_WORKFLOW.md`「代码：正常推两个远端 —— `git push github develop && git push origin develop`」**互相矛盾**，维护者选择遵循 `GIT_WORKFLOW.md`。**遗留待办：二者措辞取齐**（改 §11 或改 GIT_WORKFLOW，勿再依赖口头例外）。
+  - 合并前发现 `github/develop` 领先本地/Gitee **1 个提交**（`20353db` 部署/开发文档补超管说明），已先 `--ff-only` 并入再合并，避免非快进被拒。
+  - 合并后的树上复跑实测：后端 370 / 82.81%、`ruff` 全过；前端 102、`build` 零错误。
+- [x] **推送**：R2 合并后 `develop` 已推 GitHub + Gitee（顺带补推 `20353db`）；`main` 待发布时合并（§13 R1）。
+- [ ] **推送 `private-docs`**：含本轮记录（`docs/优化落地记录.md` R2 节、`docs/plans/2026-09-15-r2-trajectory.md` 实施计划与预检修订）——**待维护者确认**（按 §11 只推 GitHub）。
 
 ---
 

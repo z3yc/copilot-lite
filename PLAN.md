@@ -29,7 +29,7 @@ P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端�
 P6 收敛交付 ██░░░░░░░░  25%（R0、R2 已完成；R1 见 P5；见 OPTIMIZATION_PLAN §13）
 ```
 
-**Git 现状**：`develop` 基线后端 **343 用例 / 覆盖率 82.53%**、前端 **92 用例**、CLI **15 用例**（@ `06ab3bb`）；R2 分支 `feat/agent-trajectory` tip 后端 **370 / 82.81%**、前端 **102**、CLI **15**（@ `af9ed5f`，已验收，待合并）；CI/CD 由本机 Jenkins 承载（见 `docs/CICD_PLAN.md`）。
+**Git 现状**：`develop` 后端 **370 用例 / 覆盖率 82.81%**、前端 **102 用例**、CLI **15 用例**（@ `a430ecc` R2 合并后实测）；CI/CD 由本机 Jenkins 承载（见 `docs/CICD_PLAN.md`）。
 **范围基准**：本轮已收敛为 **R0-R7**（`OPTIMIZATION_PLAN.md` §13），冻结项见该文件 §11；需求准入规则见 `DEMO_SCRIPT.md`。
 
 ---

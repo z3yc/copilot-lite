@@ -3,7 +3,7 @@
 > 定位：**作品集/演示为主（可看、可讲），架构为未来企业多租户留接缝**。
 > 原则：只读优先、一次一个改动、企业能力"留口不实现"。
 > 关联：[AGENTS.md](AGENTS.md)、[OPTIMIZATION_PLAN.md](OPTIMIZATION_PLAN.md)（批次 I/J3/M/L/F）、`docs/知识库Wiki技术方案.md`。
-> 状态：**已设计，待排期**。
+> 状态：**N0/N1 已完成；N2 已排入 R6（见 `OPTIMIZATION_PLAN.md` §13）**；N2.7/N2.9/N3 已冻结（同文件 §11）。
 
 ---
 
@@ -198,13 +198,11 @@ POST /admin/eval/runs → 建 eval_runs(status=queued) → 返回 run_id
 - [ ] **N2.4** 指标：Recall/MRR/nDCG/Hit/空结果率 + Faithfulness/Relevancy/**引用支撑率**/**拒答率**。
 - [ ] **N2.5** **per-source 切片**（wiki/docs）。
 - [ ] **N2.6** 趋势 + **baseline 对比**（配置指纹 + 数据集版本）。
-- [ ] **N2.7** Wiki 图谱对账（解析正确率/悬空率/backlink parity）。
-- [ ] **N2.8** 前端质量看板（图表库选型见 §12）。
-- [ ] **N2.9**（可选）A/B 开关 lift：rerank / query-rewrite / 双链扩展。
+- [ ] **N2.8** 前端质量看板（图表库：`recharts`）。
+- ❄️ **N2.7** Wiki 图谱对账、**N2.9** A/B 开关 lift → 已移入 `OPTIMIZATION_PLAN.md` §11 冻结清单。
 
 ### P3 · 可观测与多租户
-- [ ] **N3.1** OTel + Grafana + 告警（J2）。
-- [ ] **N3.2** 多租户/workspace/角色（批次 I，与 N0 接缝对接）。
+- ❄️ **N3.1** OTel + Grafana + 告警（J2）、**N3.2** 多租户/workspace/角色（批次 I）→ 已移入 `OPTIMIZATION_PLAN.md` §11 冻结清单。
 
 ---
 

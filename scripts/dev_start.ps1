@@ -25,11 +25,22 @@ Push-Location $backend
 uv sync 2>&1 | Out-Null
 Pop-Location
 
-# 2. DB migration (idempotent)
-Write-Host "[2/4] Applying database migrations..." -ForegroundColor Cyan
-Push-Location $backend
-uv run alembic upgrade head 2>&1 | Out-Null
-Pop-Location
+# 2. Schema: local mode creates tables on startup (create_all) - no alembic needed
+#    (also the migration chain cannot run on SQLite); only cloud mode needs alembic.
+$runMode = "local"
+$envFile = Join-Path $backend ".env"
+if (Test-Path $envFile) {
+    $m = Select-String -Path $envFile -Pattern '^\s*RUN_MODE\s*=\s*(\w+)' | Select-Object -First 1
+    if ($m) { $runMode = $m.Matches[0].Groups[1].Value.ToLower() }
+}
+if ($runMode -eq "cloud") {
+    Write-Host "[2/4] RUN_MODE=cloud: applying alembic migrations..." -ForegroundColor Cyan
+    Push-Location $backend
+    uv run alembic upgrade head 2>&1 | Out-Null
+    Pop-Location
+} else {
+    Write-Host "[2/4] Local mode: tables created on startup (no alembic needed)" -ForegroundColor Cyan
+}
 
 # 3. Start backend in a new window
 Write-Host "[3/4] Starting backend on :8000 (new window)..." -ForegroundColor Cyan

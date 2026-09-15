@@ -299,6 +299,22 @@ async def _run_agent(
         await agent.close()
 
 
+def _build_extra(
+    audit: list[dict] | None = None,
+    pending: list[dict] | None = None,
+    citations: list[dict] | None = None,
+) -> dict:
+    """组装助手消息的 Message.extra（工具审计 / 待确认 / 引用）。"""
+    extra: dict = {}
+    if audit:
+        extra["tool_calls"] = audit
+    if pending:
+        extra["pending_confirmation"] = pending
+    if citations:
+        extra["citations"] = citations
+    return extra
+
+
 async def _persist(
     db: AsyncSession,
     session_id,
@@ -309,13 +325,7 @@ async def _persist(
     citations: list[dict] | None = None,
 ) -> None:
     db.add(Message(session_id=session_id, role="user", content=user_msg))
-    extra: dict = {}
-    if audit:
-        extra["tool_calls"] = audit
-    if pending:
-        extra["pending_confirmation"] = pending
-    if citations:
-        extra["citations"] = citations
+    extra = _build_extra(audit, pending, citations)
     db.add(
         Message(
             session_id=session_id,
@@ -504,13 +514,7 @@ async def chat_stream(
             audit = list(getattr(agent, "last_tool_calls", []))
             pending = list(getattr(agent, "pending_confirmation", []))
             citations = list(getattr(agent, "last_citations", []))
-            extra: dict = {}
-            if audit:
-                extra["tool_calls"] = audit
-            if pending:
-                extra["pending_confirmation"] = pending
-            if citations:
-                extra["citations"] = citations
+            extra = _build_extra(audit, pending, citations)
             db.add(
                 Message(
                     session_id=session.id,

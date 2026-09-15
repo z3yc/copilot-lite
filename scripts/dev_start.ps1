@@ -25,8 +25,8 @@ Push-Location $backend
 uv sync 2>&1 | Out-Null
 Pop-Location
 
-# 2. Schema: local mode creates tables on startup (create_all) - no alembic needed
-#    (also the migration chain cannot run on SQLite); only cloud mode needs alembic.
+# 2. Schema: local mode creates tables on startup (create_all) - no alembic needed;
+#    only cloud mode runs alembic migrations.
 $runMode = "local"
 $envFile = Join-Path $backend ".env"
 if (Test-Path $envFile) {

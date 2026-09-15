@@ -30,6 +30,7 @@ from app.core.llm import LLMError, get_llm, get_llm_config, get_usage_stats
 from app.core.llm_settings import apply_user_llm_config
 from app.core.prompts.chat import SUMMARY_PROMPT
 from app.core.rate_limit import SlidingWindowLimiter
+from app.core.usage import record_usage_silently, snapshot_usage
 from app.memory import get_memory_service
 from app.models import ChatSession, Message, User
 from app.tools import registry
@@ -243,11 +244,13 @@ async def _build_context(
 
 
 def _validate_llm_config() -> None:
-    """启动流式响应前校验模型配置（错误可返回 HTTP 状态码，而非 SSE 中途报错）。"""
-    if get_llm_config() is None and not settings.DEEPSEEK_API_KEY:
+    """请求前校验当前用户的有效模型配置（由 apply_user_llm_config 写入上下文）。
+
+    普通用户未自配 Key（且非管理员）→ 报错引导去前端配置；不再全局 env 兜底。
+    """
+    if get_llm_config() is None:
         raise RuntimeError(
-            "未配置模型：请在「个人中心 → 模型设置」中配置，"
-            "或在 backend/.env 设置 DEEPSEEK_API_KEY"
+            "未配置模型：请在「个人中心 → 模型设置」中配置你自己的 API Key"
         )
 
 
@@ -271,8 +274,8 @@ def _build_agent():
 
 async def _run_agent(
     db: AsyncSession, history: list[dict], message: str, user_id
-) -> tuple[str, list[dict], list[dict]]:
-    """执行一轮对话，返回 (回复, 工具调用审计列表, 待确认操作列表)。"""
+) -> tuple[str, list[dict], list[dict], list[dict]]:
+    """执行一轮对话，返回 (回复, 工具审计, 待确认操作, 检索引用)。"""
     try:
         agent = _build_agent()
     except RuntimeError as exc:
@@ -285,6 +288,7 @@ async def _run_agent(
             reply,
             list(getattr(agent, "last_tool_calls", [])),
             list(getattr(agent, "pending_confirmation", [])),
+            list(getattr(agent, "last_citations", [])),
         )
     except LLMError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -302,6 +306,7 @@ async def _persist(
     reply: str,
     audit: list[dict] | None = None,
     pending: list[dict] | None = None,
+    citations: list[dict] | None = None,
 ) -> None:
     db.add(Message(session_id=session_id, role="user", content=user_msg))
     extra: dict = {}
@@ -309,6 +314,8 @@ async def _persist(
         extra["tool_calls"] = audit
     if pending:
         extra["pending_confirmation"] = pending
+    if citations:
+        extra["citations"] = citations
     db.add(
         Message(
             session_id=session_id,
@@ -393,14 +400,20 @@ async def chat(
     check_token_budget(user.id)
     session = await _resolve_session(db, req.session_id, req.message, user)
     await apply_user_llm_config(db, user.id)
+    try:
+        _validate_llm_config()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     history = await _build_context(
         db, session.id, await _load_history(db, session.id), req.message, user.id,
         summary=session.summary,
     )
     tokens_before = _total_llm_tokens()
-    reply, audit, pending = await _run_agent(db, history, req.message, user.id)
+    usage_before = snapshot_usage()
+    reply, audit, pending, citations = await _run_agent(db, history, req.message, user.id)
     add_token_usage(user.id, _total_llm_tokens() - tokens_before)
-    await _persist(db, session.id, req.message, reply, audit, pending)
+    await record_usage_silently(db, user.id, usage_before)
+    await _persist(db, session.id, req.message, reply, audit, pending, citations)
     _schedule_memory_extract(session.id, user.id)
     _schedule_summary_compress(session.id)
     return ChatResponse(session_id=str(session.id), reply=reply)
@@ -452,6 +465,7 @@ async def chat_stream(
         reply_parts: list[str] = []
         saved = False  # 标记回复是否已落库（防 finally 重复保存）
         tokens_before = _total_llm_tokens()
+        usage_before = snapshot_usage()
         try:
             agent_stream = agent.run_stream(
                 session=db, user_id=user.id, history=history, user_message=req.message
@@ -489,11 +503,14 @@ async def chat_stream(
             reply = "".join(reply_parts)
             audit = list(getattr(agent, "last_tool_calls", []))
             pending = list(getattr(agent, "pending_confirmation", []))
+            citations = list(getattr(agent, "last_citations", []))
             extra: dict = {}
             if audit:
                 extra["tool_calls"] = audit
             if pending:
                 extra["pending_confirmation"] = pending
+            if citations:
+                extra["citations"] = citations
             db.add(
                 Message(
                     session_id=session.id,
@@ -516,6 +533,7 @@ async def chat_stream(
                 await _persist_partial(db, session.id, reply_parts)
             # 本轮用量计入用户每日预算（成功/失败/中断路径都累计）
             add_token_usage(user.id, _total_llm_tokens() - tokens_before)
+            await record_usage_silently(db, user.id, usage_before)
             await agent.close()
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

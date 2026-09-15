@@ -3,20 +3,37 @@
 开发模式默认 SQLite（aiosqlite），生产通过 DATABASE_URL 切换 PostgreSQL（asyncpg）。
 """
 
+import uuid
 from collections.abc import AsyncIterator
+from datetime import datetime
 
+from sqlalchemy import DateTime, Uuid
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.core.config import settings
 
 
 class Base(DeclarativeBase):
     """所有 ORM 模型的公共基类。"""
+
+
+class SoftDeleteMixin:
+    """软删除：业务数据删除只标记，不物理删除（AGENTS §13）。
+
+    - `deleted_at`：删除时间；查询层默认过滤 `IS NULL`。
+    - `deleted_by`：操作者用户 id（可空，兼容系统/历史数据）。
+    派生索引（向量/分块）可在软删除时清理，恢复时重建。
+    """
+
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
 
 engine = create_async_engine(

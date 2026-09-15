@@ -108,6 +108,17 @@ async def test_hybrid_search_returns_results(db_session, vector_store, doc_with_
 
 
 @pytest.mark.asyncio
+async def test_vector_search_exposes_source_type(vector_store) -> None:
+    """向量检索将 payload 的 source_type 透出到 SearchHit（供 per-source 切片）。"""
+    vec = [1.0] + [0.0] * 7
+    await vector_store.upsert(
+        [(uuid.uuid4(), vec, {"chunk_id": "c1", "content": "x", "source_type": "pdf"})]
+    )
+    hits = await vector_store.search(vec, top_k=1)
+    assert hits and hits[0].source_type == "pdf"
+
+
+@pytest.mark.asyncio
 async def test_hybrid_search_rrf_fusion(db_session, vector_store, doc_with_chunks) -> None:
     """RRF 融合：两路检索结果合并去重。"""
     doc, rows = doc_with_chunks

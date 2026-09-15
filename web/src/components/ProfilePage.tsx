@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  AutoComplete,
   Avatar,
   Button,
   Card,
@@ -25,12 +26,16 @@ import {
   ArrowLeftOutlined,
   BulbOutlined,
   CheckOutlined,
+  CheckSquareOutlined,
+  DashboardOutlined,
   DeleteOutlined,
   EditOutlined,
   FileTextOutlined,
   LockOutlined,
   MessageOutlined,
+  ReloadOutlined,
   RobotOutlined,
+  SettingOutlined,
   TagsOutlined,
 } from "@ant-design/icons";
 import {
@@ -40,6 +45,8 @@ import {
   deleteMemory,
   deleteSession,
   deleteTodo,
+  fetchLlmModels,
+  fetchLlmModelsWithKey,
   fetchLlmSettings,
   fetchMemories,
   fetchProfile,
@@ -50,16 +57,19 @@ import {
   updateMemory,
   updateTodo,
 } from "../api";
+import TrashPanel from "./TrashPanel";
 import type { LLMSettings, MemoryItem, Profile, Session, TodoItem } from "../types";
 
 const { Title, Text } = Typography;
 
 interface Props {
   onBack: () => void;
-  onOpenSession: (sessionId: string) => void;
+  onOpenSession: (sessionId: string, title?: string) => void;
+  /** 首次打开时定位到的页签（如未配置 Key 时直达「模型设置」） */
+  initialTab?: string;
 }
 
-export default function ProfilePage({ onBack, onOpenSession }: Props) {
+export default function ProfilePage({ onBack, onOpenSession, initialTab }: Props) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [changing, setChanging] = useState(false);
@@ -70,6 +80,9 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
   const [llmForm] = Form.useForm();
   const [savingLlm, setSavingLlm] = useState(false);
   const [testingLlm, setTestingLlm] = useState(false);
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
 
   // 我的会话
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -78,13 +91,51 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
   // 我的记忆
   const [memories, setMemories] = useState<MemoryItem[]>([]);
 
-  const loadData = useCallback(() => {
-    fetchProfile().then(setProfile).catch(() => {});
-    fetchSessions().then(setSessions).catch(() => {});
-    fetchTodos().then(setTodos).catch(() => {});
-    fetchMemories().then(setMemories).catch(() => {});
-    fetchLlmSettings()
-      .then((s) => {
+  /** 按已存配置预加载模型候选（未配置/上游不支持时静默，保留手输）。 */
+  const loadModelOptions = useCallback(async () => {
+    try {
+      const res = await fetchLlmModels();
+      setModelOptions(res.models ?? []);
+    } catch {
+      // 未配置 Key 或上游无 /models：忽略，用户可点“获取模型”或手输
+    }
+  }, []);
+
+  /** 用表单当前（可能未保存）的 Base URL / Key 拉取模型列表。 */
+  const fetchModels = async () => {
+    const values = llmForm.getFieldsValue(["base_url", "api_key"]);
+    setFetchingModels(true);
+    try {
+      const res = await fetchLlmModelsWithKey({
+        base_url: values.base_url,
+        api_key: values.api_key || undefined,
+      });
+      const list = res.models ?? [];
+      setModelOptions(list);
+      if (!llmForm.getFieldValue("model") && list.length > 0) {
+        llmForm.setFieldValue(
+          "model",
+          res.current && list.includes(res.current) ? res.current : list[0]
+        );
+      }
+      // 拉到候选后主动展开下拉，让用户直接选（否则还需再点输入框）
+      setModelOpen(list.length > 0);
+      message.success(`已获取 ${list.length} 个可用模型`);
+    } catch (err) {
+      message.error(`${err}`);
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    const results = await Promise.allSettled([
+      fetchProfile().then(setProfile),
+      fetchSessions().then(setSessions),
+      fetchTodos().then(setTodos),
+      fetchMemories().then(setMemories),
+      fetchLlmSettings().then((s) => {
         setLlm(s);
         llmForm.setFieldsValue({
           base_url: s.base_url,
@@ -92,13 +143,22 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           temperature: s.temperature,
           max_tokens: s.max_tokens,
         });
-      })
-      .catch(() => {});
-  }, [llmForm]);
+        if (s.api_key_set) void loadModelOptions();
+      }),
+    ]);
+    const failures = results.filter((r) => r.status === "rejected");
+    if (failures.length > 0) {
+      console.error(
+        "个人主页部分数据加载失败",
+        failures.map((f) => (f as PromiseRejectedResult).reason)
+      );
+      message.error("部分数据加载失败，请稍后重试");
+    }
+    setLoading(false);
+  }, [llmForm, loadModelOptions]);
 
   useEffect(() => {
     loadData();
-    setLoading(false);
   }, [loadData]);
 
   const changePw = async (values: { old_password: string; new_password: string }) => {
@@ -133,6 +193,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
       });
       setLlm(saved);
       llmForm.setFieldValue("api_key", "");
+      void loadModelOptions();
       message.success("模型配置已保存");
     } catch (err) {
       message.error(`${err}`);
@@ -181,7 +242,9 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
     try {
       await deleteSession(id);
       message.success("会话已删除");
-      fetchSessions().then(setSessions).catch(() => {});
+      fetchSessions()
+        .then(setSessions)
+        .catch((err) => console.error("刷新会话列表失败", err));
     } catch (err) {
       message.error(`删除失败: ${err}`);
     }
@@ -190,7 +253,9 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
   const completeTodo = async (id: string) => {
     try {
       await updateTodo(id, { status: "done" });
-      fetchTodos().then(setTodos).catch(() => {});
+      fetchTodos()
+        .then(setTodos)
+        .catch((err) => console.error("刷新待办列表失败", err));
       message.success("已完成");
     } catch (err) {
       message.error(`操作失败: ${err}`);
@@ -200,7 +265,9 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
   const removeTodo = async (id: string) => {
     try {
       await deleteTodo(id);
-      fetchTodos().then(setTodos).catch(() => {});
+      fetchTodos()
+        .then(setTodos)
+        .catch((err) => console.error("刷新待办列表失败", err));
       message.success("已删除");
     } catch (err) {
       message.error(`删除失败: ${err}`);
@@ -264,16 +331,23 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
       </Button>
 
       <Tabs
-        defaultActiveKey="overview"
+        defaultActiveKey={initialTab ?? "overview"}
         items={[
           {
             key: "overview",
-            label: "📊 概览",
+            label: (
+              <span>
+                <DashboardOutlined /> 概览
+              </span>
+            ),
             children: (
               <>
                 <Card className="profile-card">
                   <Space align="center" size={20}>
-                    <Avatar size={72} style={{ backgroundColor: "#4f6ef7", fontSize: 30 }}>
+                    <Avatar
+                      size={72}
+                      style={{ backgroundColor: "var(--color-primary)", fontSize: 30 }}
+                    >
                       {profile?.username?.[0]?.toUpperCase() ?? "U"}
                     </Avatar>
                     <div>
@@ -298,7 +372,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                 </Card>
                 <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
                   {stats.map((s) => (
-                    <Col span={8} key={s.title}>
+                    <Col xs={12} sm={8} key={s.title}>
                       <Card size="small">
                         <Statistic title={s.title} value={s.value} prefix={s.icon} />
                       </Card>
@@ -310,7 +384,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           },
           {
             key: "sessions",
-            label: "💬 我的会话",
+            label: (
+              <span>
+                <MessageOutlined /> 我的会话
+              </span>
+            ),
             children: (
               <Card className="profile-card">
                 {sessions.length === 0 ? (
@@ -323,7 +401,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                         actions={[
                           <Popconfirm
                             key="del"
-                            title="删除该会话？"
+                            title="删除该会话？可在回收站恢复"
                             onConfirm={() => removeSession(s.id)}
                           >
                             <Button type="text" size="small" danger icon={<DeleteOutlined />} />
@@ -332,7 +410,9 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                       >
                         <List.Item.Meta
                           title={
-                            <a onClick={() => onOpenSession(s.id)}>{s.title || "未命名会话"}</a>
+                            <a onClick={() => onOpenSession(s.id, s.title)}>
+                              {s.title || "未命名会话"}
+                            </a>
                           }
                           description={`${s.message_count} 条消息 · ${
                             s.updated_at
@@ -349,7 +429,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           },
           {
             key: "todos",
-            label: "📋 我的待办",
+            label: (
+              <span>
+                <CheckSquareOutlined /> 我的待办
+              </span>
+            ),
             children: (
               <Card className="profile-card">
                 {todos.length === 0 ? (
@@ -373,7 +457,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                           ),
                           <Popconfirm
                             key="del"
-                            title="删除该待办？"
+                            title="删除该待办？可在回收站恢复"
                             onConfirm={() => removeTodo(t.id)}
                           >
                             <Button type="text" size="small" danger icon={<DeleteOutlined />} />
@@ -404,7 +488,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           },
           {
             key: "memories",
-            label: "🧠 我的记忆",
+            label: (
+              <span>
+                <BulbOutlined /> 我的记忆
+              </span>
+            ),
             children: (
               <Card className="profile-card">
                 <div className="dim" style={{ marginBottom: 8 }}>
@@ -427,7 +515,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                           />,
                           <Popconfirm
                             key="del"
-                            title="忘记这条记忆？"
+                            title="忘记这条记忆？可在回收站恢复"
                             onConfirm={() => removeMemory(m.id)}
                           >
                             <Button type="text" size="small" danger icon={<DeleteOutlined />} />
@@ -435,7 +523,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                         ]}
                       >
                         <List.Item.Meta
-                          avatar={<BulbOutlined style={{ fontSize: 20, color: "#4f6ef7" }} />}
+                          avatar={
+                            <BulbOutlined
+                              style={{ fontSize: 20, color: "var(--color-primary)" }}
+                            />
+                          }
                           title={m.fact}
                           description={
                             <Space size={8}>
@@ -460,7 +552,11 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
           },
           {
             key: "model",
-            label: "⚙️ 模型设置",
+            label: (
+              <span>
+                <SettingOutlined /> 模型设置
+              </span>
+            ),
             children: (
               <Card
                 className="profile-card"
@@ -496,12 +592,36 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
                   >
                     <Input placeholder="https://api.deepseek.com" />
                   </Form.Item>
-                  <Form.Item
-                    name="model"
-                    label="模型名称"
-                    rules={[{ required: true, message: "请输入模型名称" }]}
-                  >
-                    <Input placeholder="deepseek-chat" />
+                  <Form.Item label="模型名称" required>
+                    <Space.Compact style={{ width: "100%" }}>
+                      <Form.Item
+                        name="model"
+                        noStyle
+                        rules={[{ required: true, message: "请输入或获取模型名称" }]}
+                      >
+                        <AutoComplete
+                          open={modelOpen}
+                          onOpenChange={setModelOpen}
+                          virtual={false}
+                          options={modelOptions.map((m) => ({ value: m }))}
+                          placeholder="deepseek-chat（可点右侧「获取模型」拉取列表）"
+                          onFocus={() => {
+                            if (modelOptions.length === 0 && llm?.api_key_set) {
+                              void loadModelOptions();
+                            }
+                          }}
+                          // 不按当前值过滤：模型名是已选值，过滤会把列表缩成一项
+                          filterOption={false}
+                        />
+                      </Form.Item>
+                      <Button
+                        icon={<ReloadOutlined />}
+                        loading={fetchingModels}
+                        onClick={fetchModels}
+                      >
+                        获取模型
+                      </Button>
+                    </Space.Compact>
                   </Form.Item>
                   <Form.Item
                     name="api_key"
@@ -543,8 +663,21 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
             ),
           },
           {
+            key: "trash",
+            label: (
+              <span>
+                <DeleteOutlined /> 回收站
+              </span>
+            ),
+            children: <TrashPanel />,
+          },
+          {
             key: "account",
-            label: "🔒 账号设置",
+            label: (
+              <span>
+                <LockOutlined /> 账号设置
+              </span>
+            ),
             children: (
               <>
                 <Card
@@ -635,7 +768,7 @@ export default function ProfilePage({ onBack, onOpenSession }: Props) {
         open={!!editMemory}
         onOk={submitMemoryEdit}
         onCancel={() => setEditMemory(null)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={memForm} layout="vertical">
           <Form.Item

@@ -1,0 +1,27 @@
+#!/bin/sh
+# Copilot-Lite pre-push 守卫：
+#   - 私有分支 private-docs 只允许推送到 GitHub（remote 名为 github）。
+#   - 推送到其它远端（如 origin/gitee）时直接拒绝，防止私有资料外泄/污染。
+#
+# 安装：cp scripts/git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+
+remote="$1"
+url="$2"
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -z "$local_ref" ] && continue
+    case "$remote_ref" in
+        refs/heads/private-docs)
+            case "$remote" in
+                github) : ;;
+                *)
+                    echo "[pre-push] 拒绝：private-docs 仅允许推送到 GitHub（remote=$remote url=$url）" >&2
+                    status=1
+                    ;;
+            esac
+            ;;
+    esac
+done
+
+exit $status

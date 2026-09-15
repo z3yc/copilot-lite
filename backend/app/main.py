@@ -1,5 +1,6 @@
 """应用入口：FastAPI 实例、生命周期、路由挂载。"""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -12,12 +13,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import app.models
 from app.api import api_router
 from app.core.config import settings
-from app.core.constants import DEFAULT_USER_ID, DEFAULT_USERNAME
 from app.core.context import RequestContextMiddleware
 from app.core.db import Base, async_session_factory, engine
 from app.core.envelope import EnvelopeMiddleware
 from app.core.errors import AppError, code_for_status, envelope
 from app.core.logging import setup_logging
+from app.core.security import hash_password
 from app.models import Category, User
 from app.models.category import DEFAULT_CATEGORIES
 
@@ -25,13 +26,36 @@ setup_logging(settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 
-async def _seed_default_user() -> None:
-    """P1 简化：确保默认用户存在（单用户模式）。"""
+async def _seed_super_admin() -> None:
+    """种子超级管理员账号（仅当显式配置了非空密码）。
+
+    超级管理员是唯一可用环境变量 Key 兜底的账号；不配密码则不创建，
+    避免生成空密码/默认密码的高危账号（AGENTS §6）。
+    """
+    from sqlalchemy import select
+
+    username = (settings.SUPER_ADMIN_USERNAME or "").strip()
+    password = settings.SUPER_ADMIN_PASSWORD or ""
+    if not username or not password:
+        return
     async with async_session_factory() as session:
-        if await session.get(User, DEFAULT_USER_ID) is None:
-            session.add(User(id=DEFAULT_USER_ID, username=DEFAULT_USERNAME, password_hash=""))
+        user = await session.scalar(
+            select(User).where(User.username == username, User.deleted_at.is_(None))
+        )
+        if user is None:
+            session.add(
+                User(
+                    username=username,
+                    password_hash=hash_password(password),
+                    role="admin",
+                )
+            )
             await session.commit()
-            logger.info("已创建默认用户: %s", DEFAULT_USERNAME)
+            logger.info("已创建超级管理员: %s", username)
+        elif user.role != "admin":
+            user.role = "admin"
+            await session.commit()
+            logger.info("已将账号提升为超级管理员: %s", username)
 
 
 async def _seed_categories() -> None:
@@ -52,6 +76,30 @@ async def _seed_categories() -> None:
         await session.commit()
 
 
+async def _prewarm_embeddings() -> None:
+    """后台预热嵌入模型（首次会下载约 50MB；失败不影响服务启动）。
+
+    背景：fastembed 默认缓存落 %TEMP%，被清理后每次加载都联网重下，首次同步会卡很久。
+    预热 + 固定缓存目录（EMBEDDING_CACHE_DIR）可让后续使用改为纯本地。
+    """
+    from app.rag.embeddings import get_embedding_service
+
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(None, get_embedding_service().prewarm)
+        logger.info("嵌入模型预热完成")
+    except Exception:
+        logger.warning("嵌入模型预热失败（首次使用时重试）", exc_info=True)
+    if settings.RAG_RERANK_ENABLED:
+        try:
+            from app.rag.reranker import get_reranker
+
+            await loop.run_in_executor(None, get_reranker().prewarm)
+            logger.info("重排模型预热完成")
+        except Exception:
+            logger.warning("重排模型预热失败（首次使用时重试）", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """应用生命周期。
@@ -63,10 +111,11 @@ async def lifespan(_: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("本地模式：数据表已就绪")
-    # 默认用户仅为本地单用户模式的历史简化；云模式不 seed 空密码账号
-    if settings.RUN_MODE == "local":
-        await _seed_default_user()
+    # 超级管理员仅当显式配置了密码时创建（唯一可用 env Key 兜底的账号）
+    await _seed_super_admin()
     await _seed_categories()
+    if settings.EMBEDDING_PREWARM:
+        asyncio.create_task(_prewarm_embeddings())
     yield
     await engine.dispose()
 

@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Empty, Input, List, Popconfirm, Spin, Typography } from "antd";
+import {
+  Alert,
+  Button,
+  Empty,
+  Input,
+  List,
+  Popconfirm,
+  Skeleton,
+  Typography,
+  message,
+} from "antd";
 import {
   DeleteOutlined,
   DownloadOutlined,
@@ -14,27 +24,32 @@ import {
   renameSession,
 } from "../api";
 import type { Session } from "../types";
+import { keyboardActivate } from "../utils/a11y";
 
 const { Text } = Typography;
 
 interface Props {
   activeId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, title?: string) => void;
   onNew: () => void;
 }
 
 export default function SessionList({ activeId, onSelect, onNew }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
   const load = useCallback(async (kw: string) => {
+    setLoading(true);
+    setError(null);
     try {
       setSessions(await fetchSessions(kw.trim() || undefined));
     } catch (err) {
       console.error("加载会话失败", err);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -53,6 +68,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
       load(keyword);
     } catch (err) {
       console.error("删除失败", err);
+      message.error("删除失败，请重试");
     }
   };
 
@@ -72,6 +88,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
       );
     } catch (err) {
       console.error("重命名失败", err);
+      message.error("重命名失败，请重试");
     }
   };
 
@@ -89,6 +106,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("导出失败", err);
+      message.error("导出失败，请重试");
     }
   };
 
@@ -112,9 +130,19 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
       />
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: 24 }}>
-          <Spin size="small" />
-        </div>
+        <Skeleton active paragraph={{ rows: 4 }} />
+      ) : error ? (
+        <Alert
+          type="error"
+          showIcon
+          title="加载会话失败"
+          description={error}
+          action={
+            <Button size="small" onClick={() => load(keyword)}>
+              重试
+            </Button>
+          }
+        />
       ) : sessions.length === 0 ? (
         <Empty
           description={keyword ? "无匹配会话" : "暂无会话"}
@@ -127,7 +155,11 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
           renderItem={(s) => (
             <List.Item
               className={`session-item ${s.id === activeId ? "active" : ""}`}
-              onClick={() => onSelect(s.id)}
+              role="button"
+              tabIndex={0}
+              aria-label={`打开会话：${s.title || "未命名会话"}`}
+              onClick={() => onSelect(s.id, s.title)}
+              onKeyDown={keyboardActivate(() => onSelect(s.id, s.title))}
               style={{ cursor: "pointer", padding: "10px 12px" }}
               actions={[
                 <Button
@@ -135,6 +167,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
                   type="text"
                   size="small"
                   title="导出 Markdown"
+                  aria-label="导出 Markdown"
                   icon={<DownloadOutlined />}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -146,6 +179,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
                   type="text"
                   size="small"
                   title="重命名"
+                  aria-label="重命名会话"
                   icon={<EditOutlined />}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -154,7 +188,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
                 />,
                 <Popconfirm
                   key="del"
-                  title="删除该会话？"
+                  title="删除该会话？可在回收站恢复"
                   onConfirm={(e) => {
                     e?.stopPropagation();
                     remove(s.id);
@@ -166,6 +200,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
                     size="small"
                     danger
                     title="删除会话"
+                    aria-label="删除会话"
                     icon={<DeleteOutlined />}
                     onClick={(e) => e.stopPropagation()}
                   />
@@ -187,6 +222,7 @@ export default function SessionList({ activeId, onSelect, onNew }: Props) {
                   <Text
                     strong={s.id === activeId}
                     ellipsis
+                    title={s.title || "未命名会话"}
                     style={{ display: "block", fontSize: 13 }}
                     onDoubleClick={(e) => {
                       e.stopPropagation();

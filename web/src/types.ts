@@ -14,7 +14,16 @@ export interface ChatMessage {
   extra?: {
     pending_confirmation?: PendingAction[];
     tool_calls?: unknown[];
+    citations?: Citation[];
   };
+}
+
+export interface Citation {
+  index: number;
+  chunk_id: string;
+  document_id?: string;
+  source: string;
+  snippet?: string;
 }
 
 export interface PendingAction {
@@ -31,6 +40,115 @@ export interface LLMSettings {
   api_key_set: boolean;
   api_key_preview: string;
   source: "user" | "env" | "none";
+}
+
+// ---- Wiki ----
+export interface WikiSpace {
+  id: string;
+  name: string;
+  source_type: string;
+  page_count: number;
+  last_synced_at?: string | null;
+}
+
+export interface WikiSyncStats {
+  added: number;
+  updated: number;
+  moved: number;
+  deleted: number;
+  failed: number;
+  total: number;
+  skipped?: number;
+  imported_files?: number | null;
+}
+
+/** J1：异步摄取/同步被受理（后端 202 + 作业 id，前端轮询 /jobs/{id}）。 */
+export interface WikiSyncAccepted {
+  job_id: string;
+  status: string;
+}
+
+/** 同步类接口返回：内联统计 或 异步作业受理（开关决定）。 */
+export type WikiSyncResponse = WikiSyncStats | WikiSyncAccepted;
+
+/** 通用后台作业（GET /jobs/{id}）。 */
+export interface JobInfo {
+  id: string;
+  kind: string;
+  status: "queued" | "running" | "done" | "failed" | "dead";
+  progress: number;
+  attempts: number;
+  max_attempts: number;
+  error?: string | null;
+  result: Record<string, unknown>;
+  payload?: Record<string, unknown>;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface WikiPage {
+  id: string;
+  space_id: string;
+  space_name?: string | null;
+  rel_path: string;
+  title: string;
+  slug: string;
+  document_id?: string | null;
+  page_type?: string;
+}
+
+export interface WikiLinkItem {
+  target_slug: string;
+  target_page_id?: string | null;
+  alias?: string | null;
+  kind: string;
+}
+
+export interface WikiBacklink {
+  source_page_id: string;
+  source_title?: string | null;
+}
+
+export interface WikiPageDetail extends WikiPage {
+  content: string;
+  tags: string[];
+  links: WikiLinkItem[];
+  backlinks: WikiBacklink[];
+  document_status?: string | null;
+}
+
+export interface WikiGraphNode {
+  id: string;
+  title: string;
+  slug: string;
+  space_id: string;
+  space?: string | null;
+  degree: number;
+  tags: string[];
+}
+
+export interface WikiGraphEdge {
+  source: string;
+  target: string;
+  kind: string;
+  relation?: string | null;
+}
+
+/** 知识图谱数据（节点=页面，边=已解析双链）。 */
+export interface WikiGraph {
+  nodes: WikiGraphNode[];
+  edges: WikiGraphEdge[];
+  total_nodes: number;
+  truncated: boolean;
+}
+
+// ---- 回收站（软删除）----
+export interface TrashItem {
+  type: "todo" | "document" | "session" | "memory" | "wiki_page";
+  id: string;
+  label: string;
+  deleted_at?: string | null;
 }
 
 export interface DocItem {
@@ -98,4 +216,97 @@ export interface Category {
   id: string;
   name: string;
   color: string;
+}
+
+// ---- 管理后台（ADMIN_PLAN）----
+export interface AdminUser {
+  id: string;
+  username: string;
+  role: "user" | "admin" | string;
+  status: "active" | "disabled" | string;
+  has_key: boolean;
+  deleted_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface AdminUserDetail extends AdminUser {
+  session_count: number;
+  document_count: number;
+  last_active?: string | null;
+}
+
+export interface AdminEvalRun {
+  id: string;
+  dataset_id?: string | null;
+  status: "queued" | "running" | "done" | "failed" | string;
+  trigger: string;
+  source_scope: string;
+  config_fingerprint: Record<string, unknown>;
+  metrics: Record<string, number>;
+  total: number;
+  passed: number;
+  progress: number;
+  error?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface AdminOverview {
+  users_total: number;
+  users_active: number;
+  users_disabled: number;
+  admins: number;
+  requests_today: number;
+  tokens_in_today: number;
+  tokens_out_today: number;
+  cost_today: number;
+  error_rate_7d: number;
+  latest_eval?: AdminEvalRun | null;
+}
+
+export interface AdminUsagePoint {
+  day: string;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  cost: number;
+  errors: number;
+}
+
+export interface AdminSourceStat {
+  source_type: string;
+  documents: number;
+  chunks: number;
+}
+
+export interface AdminWikiSpaceStat {
+  id: string;
+  name: string;
+  owner_id?: string | null;
+  page_count: number;
+  last_synced_at?: string | null;
+}
+
+export interface AdminKnowledge {
+  documents_total: number;
+  chunks_total: number;
+  failed_documents: number;
+  by_source: AdminSourceStat[];
+  wiki_spaces: number;
+  wiki_pages: number;
+  wiki_dangling_links: number;
+  spaces: AdminWikiSpaceStat[];
+}
+
+export interface AdminAuditItem {
+  id: string;
+  request_id?: string | null;
+  user_id?: string | null;
+  action: string;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  result: string;
+  meta: Record<string, unknown>;
+  created_at?: string | null;
 }

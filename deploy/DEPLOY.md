@@ -77,31 +77,43 @@ REDIS_URL=redis://:<口令>@redis:6379/0
 # 如前后端不同域，需在 .env 配置 CORS_ORIGINS=["https://你的前端域名"]
 ```
 
-### 3.3 构建前端静态资源
+### 3.3 一键部署（推荐）
 
-> web 服务（nginx）挂载 `../web/dist`，**必须先构建出该目录**。
-> 服务器需 Node 18+（vite 5 要求）。
+> 前端已进镜像（`deploy/Dockerfile.web` 多阶段构建），服务器**无需安装 Node**，
+> 也无需手动构建 `web/dist`——只需 Docker。
 
 ```bash
-# 在服务器上构建（推荐，保证与后端同机）
-cd /opt/copilot-lite/web && npm ci && npm run build && cd ../deploy
-# 或本地构建后把 web/dist 上传到服务器
+cd /opt/copilot-lite
+bash deploy/deploy.sh
 ```
 
-### 3.4 一键启动
+脚本流程：拉取最新 `main`（仅快进合并，绝不覆盖服务器本地改动）→
+`docker compose up -d --build`（构建后端 + 前端镜像）→ 健康检查（最多 120s）；
+**失败自动回滚**到上一版代码并重建。
+
+```bash
+bash deploy/deploy.sh rollback   # 手动回滚到上一版代码并重建
+```
+
+> 可用环境变量覆盖：`APP_DIR`（默认 `/opt/copilot-lite`）、`BRANCH`（默认 `main`）、
+> `HEALTH_URL`、`WAIT_SECONDS`。
+
+首次构建会 `uv sync` / `npm ci`，约 3-8 分钟；
+BGE 嵌入 / reranker 模型（约 1.1GB）首次使用从 hf-mirror 下载，
+已挂载 `models` 卷持久化，重建容器不重复下载。
+
+### 3.4 手动启动（等价，便于排查）
 
 ```bash
 cd /opt/copilot-lite/deploy
 docker compose up -d --build
 ```
 
-首次启动会拉取镜像 + 构建后端（uv sync 依赖），约 3-8 分钟；
-BGE 嵌入 / reranker 模型（约 1.1GB）首次使用从 hf-mirror 下载，
-已挂载 `models` 卷持久化，重建容器不重复下载。
-
 ### 3.5 验证
 
 ```bash
+cd /opt/copilot-lite/deploy        # 以下 compose 命令需在 deploy/ 目录下执行
+
 # 容器状态（全部 running/healthy）
 docker compose ps
 
@@ -132,10 +144,12 @@ docker compose logs -f backend
 
 ### 步骤 2：安装 certbot 并签发证书（Let's Encrypt 免费）
 
+> 80 端口已有 nginx 在跑，用 **webroot** 方式签发：宿主机 `/var/www/certbot` 已挂载进
+> web 容器（见 `docker-compose.yml`），nginx 已配置 `/.well-known/acme-challenge/` 指向该目录。
+
 ```bash
 apt-get update && apt-get install -y certbot
-# 使用 webroot 方式签发（80 端口已有 nginx 在跑）
-mkdir -p /opt/copilot-lite/certs
+mkdir -p /var/www/certbot        # 挑战目录（compose 已挂载进 web 容器）
 certbot certonly --webroot -w /var/www/certbot \
   -d 你的域名 --email 你的邮箱 --agree-tos --no-eff-email
 # 证书默认落 /etc/letsencrypt/live/你的域名/{fullchain.pem,privkey.pem}
@@ -143,20 +157,24 @@ certbot certonly --webroot -w /var/www/certbot \
 
 ### 步骤 3：挂载证书并启用 443 段
 
-编辑 `deploy/docker-compose.yml` 的 web 服务 volumes 增加：
+在 `deploy/docker-compose.yml` 的 web 服务增加**证书目录挂载**与 443 端口
+（`/var/www/certbot` 已默认挂载，无需再加）：
 
 ```yaml
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
     volumes:
-      - ../web/dist:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - /etc/letsencrypt:/etc/nginx/certs:ro      # 新增：挂载证书目录
-      - /var/www/certbot:/var/www/certbot:ro      # certbot webroot 续期用
+      - /var/www/certbot:/var/www/certbot:ro      # 已有：certbot webroot（ACME）
+      - /etc/letsencrypt:/etc/nginx/certs:ro      # 新增：证书目录
     ports:
       - "80:80"
       - "443:443"                                  # 新增：放行 443
 ```
 
-然后取消 `deploy/nginx.conf` 中 **443 server 段的注释** 和 **80 段的 301 跳转注释**，重建：
+然后取消 `deploy/nginx.conf` 中 **443 server 段的注释** 和 **80 段的 301 跳转注释**，
+重建 web **镜像**（配置已进镜像，仅重启不会生效）：
 
 ```bash
 cd /opt/copilot-lite/deploy && docker compose up -d --build web
@@ -193,9 +211,11 @@ crontab -e
 | 上传文档失败/摄取失败 | BGE 模型下载慢 | 代码已默认 hf-mirror 镜像；网络差可预下载模型后挂载卷 |
 | SSE 打字机卡顿 | Nginx 缓冲 | 已配置 `proxy_buffering off`（deploy/nginx.conf） |
 | 后端容器重启循环 | 数据库连接失败 | 等 postgres healthcheck 通过；检查 .env 密码 |
+| 改了口令后连不上，日志报 `password authentication failed` | 已有 `pgdata` 卷只在**首次初始化**时写入 `POSTGRES_PASSWORD`，之后改 `.env` 不生效 | 保留数据：`docker compose exec postgres psql -U copilot -c "ALTER USER copilot PASSWORD '<新口令>'"`；确认可丢数据：`docker compose down` 后 `docker volume rm deploy_pgdata`（**不要用 `down -v`**，会一并删掉 models/qdrantdata） |
 | 内存不足 | 4G 跑 5 容器偏紧 | 关掉 redis（当前未实际使用）或升级 4G 以上 |
 | 迁移报错 | 表已存在 | `docker compose exec backend uv run alembic stamp head` |
-| 迁移报 relation does not exist | 0.12.1 已修复迁移链缺表（categories / memory_facts）；旧库建议重建 | `docker compose down -v && docker compose up -d --build` |
+| 迁移报 relation does not exist | 0.12.1 已修复迁移链缺表（categories / memory_facts）；旧库建议重建 | `docker compose down && docker volume rm deploy_pgdata && docker compose up -d --build`（只删库卷，保留 models/qdrantdata，**勿用 `down -v`**） |
+| 想手工建库 / 迁移链推不动 | — | 导入幂等初始化 SQL：`cd deploy && docker compose exec -T postgres psql -U copilot -d copilot < sql/init_postgres.sql`（建表 + 写入 alembic head，之后 `alembic upgrade` 为 no-op；见 [`sql/README.md`](sql/README.md)） |
 
 ---
 
@@ -233,4 +253,4 @@ crontab -e
 | 7 | CORS 与部署形态一致 | 同域部署无需配置；跨域时白名单仅放行可信域名 |
 | 8 | 限流与预算生效 | LLM_DAILY_TOKEN_BUDGET 按需开启；API_CHAT_RATE_LIMIT 按用户限频 |
 | 9 | 镜像与依赖可复现 | uv 版本固定（Dockerfile tag）、uv.lock --frozen 安装 |
-| 10 | 备份与回滚 | pgdata/qdrantdata/models 卷持久化；deploy_remote.sh 支持代码+产物双回滚 |
+| 10 | 备份与回滚 | pgdata/qdrantdata/models 卷持久化；`deploy.sh` 健康检查失败自动回滚，亦可 `bash deploy/deploy.sh rollback` |

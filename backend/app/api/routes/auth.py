@@ -16,6 +16,7 @@ from app.api.deps import get_current_user
 from app.core.db import get_session
 from app.core.security import create_token, hash_password, verify_password
 from app.models import User
+from app.models.user import STATUS_ACTIVE
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -72,7 +73,9 @@ def _auth_response(user: User) -> AuthResponse:
 @router.post("/register", response_model=AuthResponse)
 async def register(req: RegisterRequest, db: AsyncSession = Depends(get_session)) -> AuthResponse:
     """注册新用户并返回令牌。"""
-    exists = await db.scalar(select(User).where(User.username == req.username))
+    exists = await db.scalar(
+        select(User).where(User.username == req.username, User.deleted_at.is_(None))
+    )
     if exists:
         raise HTTPException(status_code=409, detail="用户名已存在")
 
@@ -107,8 +110,14 @@ async def login(
     rate_key = f"{req.username}:{client_ip}"
     _check_login_rate(rate_key)
 
-    user = await db.scalar(select(User).where(User.username == req.username))
-    if user is None or not verify_password(req.password, user.password_hash):
+    user = await db.scalar(
+        select(User).where(User.username == req.username, User.deleted_at.is_(None))
+    )
+    if (
+        user is None
+        or user.status != STATUS_ACTIVE
+        or not verify_password(req.password, user.password_hash)
+    ):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     _clear_login_rate(rate_key)

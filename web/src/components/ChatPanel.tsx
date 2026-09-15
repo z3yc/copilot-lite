@@ -1,6 +1,4 @@
-import { marked } from "marked";
-import DOMPurify from "dompurify";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Avatar,
@@ -14,6 +12,7 @@ import {
   message,
 } from "antd";
 import {
+  ArrowDownOutlined,
   PaperClipOutlined,
   RobotOutlined,
   SendOutlined,
@@ -28,46 +27,46 @@ import {
   streamChat,
   uploadSessionFile,
 } from "../api";
+import { ACCEPT_EXTENSIONS } from "../constants";
 import type { ChatMessage, SessionFile } from "../types";
+import { renderMarkdown } from "../utils/markdown";
+import ModelSelect from "./ModelSelect";
 
 const { TextArea } = Input;
 const { Text } = Typography;
 
-const ACCEPT =
-  ".md,.txt,.pdf,.docx,.py,.js,.ts,.tsx,.jsx,.java,.go,.rs,.c,.cpp,.sql,.html,.htm";
+// 本地消息 id 生成器：为流式新增消息提供稳定 key（历史消息可能自带后端 id）
+let messageSeq = 0;
+const nextMessageId = () => `m-${Date.now().toString(36)}-${messageSeq++}`;
 
 interface Props {
   sessionId: string | null;
+  /** 当前会话标题；为空时回退到品牌名 */
+  sessionTitle?: string | null;
   initialMessages: ChatMessage[];
   onSessionCreated: (id: string) => void;
   onNewSession: () => void;
   busy: boolean;
   setBusy: (b: boolean) => void;
-}
-
-function renderMarkdown(text: string): string {
-  try {
-    const html = marked.parse(text, { async: false }) as string;
-    // 消毒：LLM 输出会复述用户上传的不可信内容（附件/知识库），
-    // 必须视为攻击面（防存储型 XSS）
-    return DOMPurify.sanitize(html);
-  } catch {
-    return text;
-  }
+  /** 未配置模型时，引导前往「个人主页 → 模型设置」 */
+  onOpenSettings?: () => void;
 }
 
 export default function ChatPanel({
   sessionId,
+  sessionTitle,
   initialMessages,
   onSessionCreated,
   onNewSession,
   busy,
   setBusy,
+  onOpenSettings,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<SessionFile[]>([]);
   const [confirming, setConfirming] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -87,9 +86,21 @@ export default function ChatPanel({
     }
   }, [sessionId]);
 
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  // 仅在用户停留底部时自动跟随，避免上翻阅读历史时被新 chunk 强行拽回
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, busy]);
+    if (atBottom) scrollToBottom();
+  }, [messages, busy, atBottom, scrollToBottom]);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+  };
 
   // 确保存在会话（上传附件需要 session_id）
   const ensureSession = async (): Promise<string> => {
@@ -128,8 +139,8 @@ export default function ChatPanel({
     setBusy(true);
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: text },
-      { role: "assistant", content: "" },
+      { id: nextMessageId(), role: "user", content: text },
+      { id: nextMessageId(), role: "assistant", content: "" },
     ]);
 
     const controller = new AbortController();
@@ -177,9 +188,9 @@ export default function ChatPanel({
             const lastIdx = next.length - 1;
             const last = next[lastIdx];
             if (last && last.role === "assistant" && !last.content) {
-              next[lastIdx] = { ...last, content: `⚠️ ${msg}` };
+              next[lastIdx] = { ...last, content: `生成出错：${msg}` };
             } else {
-              next.push({ role: "assistant", content: `⚠️ ${msg}` });
+              next.push({ role: "assistant", content: `生成出错：${msg}` });
             }
             return next;
           });
@@ -225,18 +236,30 @@ export default function ChatPanel({
     <div className="chat-panel">
       <div className="chat-header">
         <Space>
-          <RobotOutlined style={{ color: "#4f6ef7", fontSize: 18 }} />
-          <Text strong>Copilot-Lite · 青木</Text>
+          <RobotOutlined style={{ color: "var(--color-primary)", fontSize: 18 }} />
+          <Text
+            strong
+            ellipsis
+            style={{ maxWidth: 360 }}
+            title={sessionTitle || undefined}
+          >
+            {sessionTitle || "Copilot-Lite · 青木"}
+          </Text>
         </Space>
-        <Button size="small" onClick={onNewSession} disabled={busy}>
-          ＋ 新会话
-        </Button>
+        <Space size={8}>
+          <ModelSelect onOpenSettings={onOpenSettings} />
+          <Button size="small" onClick={onNewSession} disabled={busy}>
+            ＋ 新会话
+          </Button>
+        </Space>
       </div>
 
-      <div className="messages" ref={scrollRef}>
+      <div className="messages" ref={scrollRef} onScroll={handleScroll}>
         {messages.length === 0 && (
           <div className="empty-tip">
-            <div style={{ fontSize: 40, marginBottom: 8 }}>🤖</div>
+            <div style={{ marginBottom: 8 }}>
+              <RobotOutlined style={{ fontSize: 40, color: "var(--color-primary)" }} />
+            </div>
             <Text strong style={{ fontSize: 16 }}>
               你好！我是青木，你的个人 AI 助理
             </Text>
@@ -246,13 +269,16 @@ export default function ChatPanel({
           </div>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
+          <div key={m.id ?? i} className={`msg ${m.role}`}>
             <Avatar
               size={32}
               icon={m.role === "user" ? <UserOutlined /> : <RobotOutlined />}
               style={{
-                backgroundColor: m.role === "user" ? "#4f6ef7" : "#e8ecff",
-                color: m.role === "user" ? "#fff" : "#4f6ef7",
+                backgroundColor:
+                  m.role === "user"
+                    ? "var(--color-primary)"
+                    : "var(--color-primary-soft)",
+                color: m.role === "user" ? "#fff" : "var(--color-primary)",
               }}
             />
             <div
@@ -263,10 +289,51 @@ export default function ChatPanel({
               ) : (
                 <span dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
               )}
+              {m.role === "assistant" && (m.extra?.citations?.length ?? 0) > 0 && (
+                <div className="citations">
+                  <span className="dim" style={{ fontSize: 12 }}>
+                    来源：
+                  </span>
+                  {m.extra!.citations!.map((c) => (
+                    <a
+                      key={c.index}
+                      className="cite"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`查看来源 ${c.index}`}
+                      title={c.snippet || c.source}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        message.info(`[${c.index}] ${c.source}`);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          message.info(`[${c.index}] ${c.source}`);
+                        }
+                      }}
+                    >
+                      [{c.index}]
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}
       </div>
+
+      {!atBottom && (
+        <Tooltip title="回到底部">
+          <Button
+            className="scroll-bottom-btn"
+            shape="circle"
+            aria-label="回到底部"
+            icon={<ArrowDownOutlined />}
+            onClick={scrollToBottom}
+          />
+        </Tooltip>
+      )}
 
       {/* 高风险操作确认（human-in-the-loop） */}
       {pending.length > 0 && (
@@ -274,7 +341,7 @@ export default function ChatPanel({
           type="warning"
           showIcon
           style={{ margin: "0 12px 8px" }}
-          message="以下操作需要你确认后才会执行"
+          title="以下操作需要你确认后才会执行"
           description={
             <div>
               <div className="dim" style={{ fontSize: 12 }}>
@@ -315,7 +382,7 @@ export default function ChatPanel({
               onClose={() => onDeleteFile(f.id)}
               style={{ fontSize: 12 }}
             >
-              📎 {f.filename}
+              <PaperClipOutlined /> {f.filename}
             </Tag>
           ))}
         </div>
@@ -324,19 +391,23 @@ export default function ChatPanel({
       <div className="input-bar">
         <Tooltip title="上传文件到本次对话（不进知识库），可针对文件提问">
           <Upload
-            accept={ACCEPT}
+            accept={ACCEPT_EXTENSIONS}
             showUploadList={false}
             beforeUpload={async (file) => {
               await onUploadFile(file);
               return false;
             }}
           >
-            <Button icon={<PaperClipOutlined />} disabled={busy} />
+            <Button
+              icon={<PaperClipOutlined />}
+              aria-label="上传附件到本次对话"
+              disabled={busy}
+            />
           </Upload>
         </Tooltip>
         <TextArea
           value={input}
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行；或点击左侧📎上传文件到本次对话"
+          placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
           autoSize={{ minRows: 1, maxRows: 4 }}
           onChange={(e) => setInput(e.target.value)}
           onPressEnter={(e) => {
@@ -345,7 +416,6 @@ export default function ChatPanel({
               send();
             }
           }}
-          disabled={busy}
         />
         {busy ? (
           <Button danger icon={<StopOutlined />} onClick={stop}>

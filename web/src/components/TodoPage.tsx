@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Button,
   Checkbox,
@@ -15,8 +15,15 @@ import {
   message,
 } from "antd";
 import {
+  CalendarOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
   DeleteOutlined,
   EditOutlined,
+  FieldTimeOutlined,
+  FileTextOutlined,
+  FireOutlined,
+  InboxOutlined,
   PlusOutlined,
   RobotOutlined,
 } from "@ant-design/icons";
@@ -30,6 +37,8 @@ import {
   updateTodo,
 } from "../api";
 import type { Category, TodoItem } from "../types";
+import { keyboardActivate } from "../utils/a11y";
+import SiderPortal from "./SiderPortal";
 
 const { Text } = Typography;
 
@@ -195,30 +204,56 @@ export default function TodoPage() {
     }
   };
 
-  const navItems: { key: string; label: string }[] = [
-    { key: "all", label: "📥 全部待办" },
-    { key: "today", label: "🔴 今天" },
-    { key: "week", label: "🟡 本周" },
-    { key: "future", label: "🗓️ 未来" },
-    { key: "overdue", label: "⏰ 已过期" },
-    { key: "nodate", label: "📄 无日期" },
-    { key: "done", label: "✅ 已完成" },
+  const navItems: { key: string; label: string; icon: ReactNode }[] = [
+    { key: "all", label: "全部待办", icon: <InboxOutlined /> },
+    {
+      key: "today",
+      label: "今天",
+      icon: <ClockCircleOutlined style={{ color: "var(--color-danger)" }} />,
+    },
+    {
+      key: "week",
+      label: "本周",
+      icon: <ClockCircleOutlined style={{ color: "var(--color-warning)" }} />,
+    },
+    { key: "future", label: "未来", icon: <CalendarOutlined /> },
+    {
+      key: "overdue",
+      label: "已过期",
+      icon: <FieldTimeOutlined style={{ color: "var(--color-danger)" }} />,
+    },
+    { key: "nodate", label: "无日期", icon: <FileTextOutlined /> },
+    {
+      key: "done",
+      label: "已完成",
+      icon: <CheckCircleOutlined style={{ color: "var(--color-success)" }} />,
+    },
   ];
 
   return (
     <div className="todo-page">
-      {/* 左侧导航 */}
+      {/* 导航目录：portal 到「工作区」侧栏 */}
+      <SiderPortal>
       <div className="todo-nav">
         {navItems.map((n) => (
           <div
             key={n.key}
             className={`todo-nav-item ${view === n.key && !catFilter ? "active" : ""}`}
+            role="button"
+            tabIndex={0}
+            aria-label={`筛选：${n.label}`}
             onClick={() => {
               setView(n.key);
               setCatFilter(null);
             }}
+            onKeyDown={keyboardActivate(() => {
+              setView(n.key);
+              setCatFilter(null);
+            })}
           >
-            <span>{n.label}</span>
+            <span>
+              {n.icon} {n.label}
+            </span>
             <span className="todo-nav-count">{counts[n.key] ?? 0}</span>
           </div>
         ))}
@@ -227,10 +262,17 @@ export default function TodoPage() {
           <div
             key={c.id}
             className={`todo-nav-item ${catFilter === c.id ? "active" : ""}`}
+            role="button"
+            tabIndex={0}
+            aria-label={`按分类筛选：${c.name}`}
             onClick={() => {
               setCatFilter(c.id);
               setView("all");
             }}
+            onKeyDown={keyboardActivate(() => {
+              setCatFilter(c.id);
+              setView("all");
+            })}
           >
             <span>
               <span className="cat-dot" style={{ background: c.color }} />
@@ -240,14 +282,15 @@ export default function TodoPage() {
           </div>
         ))}
       </div>
+      </SiderPortal>
 
       {/* 主区 */}
       <div className="todo-main">
         <div className="todo-toolbar">
           <Space.Compact style={{ width: "60%", maxWidth: 560 }}>
             <Input
-              prefix={<RobotOutlined style={{ color: "#4f6ef7" }} />}
-              placeholder='🤖 AI 快速添加："明天下午3点买菜 生活 #采购"'
+              prefix={<RobotOutlined style={{ color: "var(--color-primary)" }} />}
+              placeholder='AI 快速添加："明天下午3点买菜 生活 #采购"'
               value={aiText}
               onChange={(e) => setAiText(e.target.value)}
               onPressEnter={aiAdd}
@@ -311,17 +354,31 @@ export default function TodoPage() {
                           </Text>
                         </div>
                       </div>
-                      <span className="todo-priority" title={`优先级 ${PRIORITY_LABEL[t.priority]}`}>
-                        {"🔥".repeat(Math.max(0, 4 - t.priority))}
+                      <span
+                        className="todo-priority"
+                        role="img"
+                        aria-label={`优先级：${PRIORITY_LABEL[t.priority]}`}
+                        title={`优先级 ${PRIORITY_LABEL[t.priority]}`}
+                      >
+                        {Array.from({ length: Math.max(0, 4 - t.priority) }, (_, i) => (
+                          <FireOutlined key={i} style={{ color: "var(--color-danger)" }} />
+                        ))}
                       </span>
                       <Button
                         type="text"
                         size="small"
+                        aria-label="编辑待办"
                         icon={<EditOutlined />}
                         onClick={() => openEdit(t)}
                       />
                       <Popconfirm title="删除该待办？" onConfirm={() => deleteTodo(t.id).then(load)}>
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          aria-label="删除待办"
+                          icon={<DeleteOutlined />}
+                        />
                       </Popconfirm>
                     </div>
                   );
@@ -338,7 +395,7 @@ export default function TodoPage() {
         open={modalOpen}
         onOk={submitForm}
         onCancel={() => setModalOpen(false)}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入标题" }]}>

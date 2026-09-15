@@ -7,6 +7,7 @@
 
 ## 目录
 
+- [🛠 本地开发环境（DEVELOPMENT）](DEVELOPMENT.md)
 - [📋 项目工作计划（PLAN）](PLAN.md)
 - [项目简介](#项目简介)
 - [核心特性](#核心特性)
@@ -209,6 +210,8 @@ copilot-lite/
 ## 快速开始
 
 > 全栈（P0-P3 已实现）：开发模式无需 Docker，一键启动前后端。P4 已具备 CI 与云端部署编排（预留）。
+>
+> 👉 **参与开发请看 [DEVELOPMENT.md](DEVELOPMENT.md)**（环境要求 / 启动 / 测试与排错）；云端部署见 [deploy/DEPLOY.md](deploy/DEPLOY.md)。
 
 ### 方式一：一键启动（推荐）
 
@@ -225,8 +228,7 @@ powershell -ExecutionPolicy Bypass -File scripts\dev_start.ps1
 # 1. 后端（终端 1）
 cd backend
 uv sync                              # 安装依赖（Python 3.12）
-uv run alembic upgrade head          # 数据库迁移
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload # 本地模式启动时自动建表，无需 alembic（见 DEVELOPMENT.md §2.4）
 
 # 2. 前端（终端 2）
 cd web && npm install && npm run dev # 访问 http://localhost:5173
@@ -258,7 +260,9 @@ npm run build        # 前端类型检查 + 构建
 | 配置项 | 说明 | 本地默认 | 云端建议 |
 |---|---|---|---|
 | `RUN_MODE` | `local` / `cloud` | `local` | `cloud` |
-| `DEEPSEEK_API_KEY` | 大模型 API Key | 必填 | 必填 |
+| `DEEPSEEK_API_KEY` | 大模型 API Key（**可选**：普通用户在前端「个人中心 → 模型设置」各自配置；本项**仅超级管理员**可作兜底） | 可选 | 可不填 |
+| `SUPER_ADMIN_USERNAME` | 超级管理员用户名（配合非空密码才在启动时创建/提升，`role=admin`） | `demo` | `demo` |
+| `SUPER_ADMIN_PASSWORD` | 超级管理员密码（**非空才创建该账号**；唯一可用 env Key 兜底的账号） | 可不填 | 按需 |
 | `DEEPSEEK_BASE_URL` | 模型网关地址（支持切换） | 官方 | 官方/代理 |
 | `DB_URL` | PostgreSQL 连接串 | `localhost:5432` | 内网/托管 |
 | `QDRANT_URL` | 向量库地址 | `localhost:6333` | 同机 Docker |

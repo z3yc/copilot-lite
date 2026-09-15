@@ -26,9 +26,11 @@ async def ingest_document(
     content: bytes,
     embeddings: EmbeddingService,
     vector_store: VectorStore,
+    extra_meta: dict | None = None,
 ) -> int:
     """执行一次完整摄取，返回生成的分块数量。
 
+    extra_meta 会合并进每个分块的 meta（供 Wiki 等来源注入空间/路径等）。
     任一步骤失败会抛 IngestError，由调用方将文档状态置为 failed。
     """
     parser = get_parser(document.source_type)
@@ -50,12 +52,14 @@ async def ingest_document(
     # 4. 写入 chunks 表
     chunk_rows: list[Chunk] = []
     for i, c in enumerate(chunks):
+        # 防御：PostgreSQL UTF-8 不接受 NUL（部分 UTF-16 文本解码后会残留）
+        safe_content = c.content.replace("\x00", "")
         chunk_rows.append(
             Chunk(
                 document_id=document.id,
                 chunk_index=i,
-                content=c.content,
-                meta={**c.meta, "document_title": document.title},
+                content=safe_content,
+                meta={**c.meta, "document_title": document.title, **(extra_meta or {})},
             )
         )
     db.add_all(chunk_rows)
@@ -74,6 +78,7 @@ async def ingest_document(
                     "chunk_id": str(row.id),
                     "document_id": str(document.id),
                     "user_id": str(document.user_id),
+                    "source_type": document.source_type,
                     "content": row.content,
                     "meta": row.meta,
                 },

@@ -11,24 +11,38 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_copilot.db"
 os.environ["MEMORY_EXTRACT_ENABLED"] = "false"
 # 测试环境关闭后台摘要压缩（同上）
 os.environ["SUMMARY_COMPRESS_ENABLED"] = "false"
+# 测试环境关闭评测后台作业（后台任务必须默认关闭，AGENTS §8）
+os.environ["EVAL_JOB_ENABLED"] = "false"
+# 测试环境关闭通用后台作业（同上；wiki import/sync 用例默认走内联，关闭后行为同旧版）
+os.environ["JOBS_ENABLED"] = "false"
+# 测试环境关闭嵌入模型预热（避免下载模型）
+os.environ["EMBEDDING_PREWARM"] = "false"
 # 测试环境注入假 LLM Key（chat.py 的 _validate_llm_config 会校验 key 非空；
 # 测试全程用 FakeLLM mock，不会真实调用 DeepSeek——避免 CI 无 .env 时误报 503）
 os.environ.setdefault("DEEPSEEK_API_KEY", "test-key-not-real")
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.models
-from app.core.db import Base, engine
+from app.core.crypto import encrypt_secret
+from app.core.db import Base, async_session_factory, engine
 from app.main import app
+from app.models import LLMSetting, User
 
 _TEST_DB = "test_copilot.db"
 
 
 @pytest.fixture
 async def authed_headers() -> dict:
-    """建表 + 注册测试用户，返回 Authorization 头与用户 id。"""
+    """建表 + 注册测试用户，返回 Authorization 头与用户 id。
+
+    默认给该用户播种一份**假的个人模型配置**：聊天链路要求用户自配 Key
+    （env Key 仅超级管理员可用），所以绝大多数用例需要一个“已配置”的用户。
+    需要“新账号未配置”语义时改用 `unconfigured_headers`。
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     transport = ASGITransport(app=app)
@@ -42,7 +56,45 @@ async def authed_headers() -> dict:
         )
         assert resp.status_code == 200, resp.text
         data = resp.json()["data"]
+    async with async_session_factory() as db:
+        db.add(
+            LLMSetting(
+                user_id=_uuid.UUID(data["user"]["id"]),
+                base_url="https://api.example.com",
+                model="test-model",
+                api_key_encrypted=encrypt_secret("sk-test-user-key"),
+            )
+        )
+        await db.commit()
     return {"Authorization": f"Bearer {data['token']}", "uid": data["user"]["id"]}
+
+
+@pytest.fixture
+async def admin_headers(authed_headers: dict) -> dict:
+    """把已登录用户提升为管理员（role=admin），复用同款授权头。
+
+    角色在每次请求时从 DB 读取，故改角色无需重签 token。
+    """
+    import uuid as _u
+
+    async with async_session_factory() as db:
+        user = await db.get(User, _u.UUID(authed_headers["uid"]))
+        user.role = "admin"
+        await db.commit()
+    return authed_headers
+
+
+@pytest.fixture
+async def unconfigured_headers(authed_headers: dict) -> dict:
+    """已登录但未自配模型 Key 的用户（模拟新注册账号）。"""
+    async with async_session_factory() as db:
+        await db.execute(
+            delete(LLMSetting).where(
+                LLMSetting.user_id == _uuid.UUID(authed_headers["uid"])
+            )
+        )
+        await db.commit()
+    return authed_headers
 
 
 @pytest.fixture(autouse=True)

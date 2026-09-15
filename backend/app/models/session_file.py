@@ -11,10 +11,10 @@ from datetime import datetime
 from sqlalchemy import ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.db import Base
+from app.core.db import Base, SoftDeleteMixin
 
 
-class SessionFile(Base):
+class SessionFile(SoftDeleteMixin, Base):
     __tablename__ = "session_files"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

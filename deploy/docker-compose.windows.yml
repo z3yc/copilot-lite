@@ -1,0 +1,17 @@
+# Windows 本地 Docker 全栈补丁（**显式叠加**使用，compose 不会自动加载）：
+#   cd deploy && docker compose -f docker-compose.yml -f docker-compose.windows.yml up -d --build
+#
+# 为什么需要：
+#   1) base 文件 web 服务挂载了 Linux 专用 certbot webroot `/var/www/certbot`，
+#      Windows 上无法创建（实测 `docker run -v /var/www/certbot:/x alpine ls /x`
+#      → `ls: X:/: No such file or directory`），直接 up 会失败；
+#   2) 本地 80 端口常被 http.sys / IIS 占用，改为发布 8080。
+#
+# ⚠️ `!override` 是必需的：compose 对 list 字段是**追加**语义——
+#    实测写 `volumes: []` 清不掉硬编码挂载，`ports` 会变成 80 与 8080 同时发布。
+#    该标签需要 Docker Compose ≥ 2.24（`docker compose version` 查看）。
+services:
+  web:
+    volumes: !override []
+    ports: !override
+      - "8080:80"

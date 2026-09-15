@@ -68,6 +68,7 @@ pipeline {
                     bat 'if not exist reports mkdir reports'
                     bat 'uv sync --frozen'
                     bat 'uv run ruff check .'
+                    bat 'uv run python scripts/db_init_sql.py --check'
                     bat 'uv run pytest --junitxml=reports\\junit.xml'
                 }
             }
@@ -94,9 +95,11 @@ pipeline {
             }
         }
 
-        // ---------- Deploy（后门）----------
+        // ---------- Deploy（后门，默认关闭）----------
         // Phase 1（无服务器）：DEPLOY_ENABLED=false → 本阶段跳过。
-        // Phase 2：勾选参数并填 DEPLOY_SERVER，启用 SSH 自动部署。
+        // Phase 2：勾选参数并填 DEPLOY_SERVER，SSH 执行服务器上一键部署脚本
+        //          （deploy/deploy.sh：拉码 + 构建镜像 + 重建容器 + 健康检查 + 失败回滚）。
+        //          不再上传任何产物：前端已进镜像（deploy/Dockerfile.web）。
         stage('Deploy') {
             when {
                 expression { return params.DEPLOY_ENABLED && params.DEPLOY_SERVER?.trim() }
@@ -109,12 +112,9 @@ pipeline {
                         // SSH 主机校验：accept-new 仅首次连接自动记录主机指纹，之后严格校验
                         // （取代 StrictHostKeyChecking=no 的中间人风险；
                         //   首次部署前建议手工 ssh 一次核对服务器指纹）
-                        // 1) 服务器上准备产物接收目录
-                        bat "ssh -i \"%SSH_KEY%\" -o StrictHostKeyChecking=accept-new ${params.DEPLOY_SERVER} \"mkdir -p /opt/copilot-lite/web/dist.new\""
-                        // 2) 上传前端产物
-                        bat "scp -i \"%SSH_KEY%\" -o StrictHostKeyChecking=accept-new -r web\\dist\\* ${params.DEPLOY_SERVER}:/opt/copilot-lite/web/dist.new/"
-                        // 3) 远端执行部署脚本（拉码 + 重建容器 + 健康检查 + 失败回滚）
-                        bat "ssh -i \"%SSH_KEY%\" -o StrictHostKeyChecking=accept-new ${params.DEPLOY_SERVER} \"bash /opt/copilot-lite/deploy/deploy_remote.sh\""
+                        // 服务器上执行一键部署（拉码 + 构建镜像 + 重建 + 健康检查 + 失败回滚）
+                        // 不再上传任何产物：前端已进镜像（deploy/Dockerfile.web）
+                        bat "ssh -i \"%SSH_KEY%\" -o StrictHostKeyChecking=accept-new ${params.DEPLOY_SERVER} \"bash /opt/copilot-lite/deploy/deploy.sh\""
                     }
                 }
             }

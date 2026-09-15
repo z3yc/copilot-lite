@@ -4,14 +4,17 @@
 #
 # 说明：本仓库托管于 Gitee，此配置同时兼容 GitHub（面试展示用）。
 # Gitee 可对接 Gitee Go 或自建 Runner 复用同一脚本。
+#
+# 触发分支：main（发布）+ develop（集成分支）——
+# 保证「功能分支 → develop」的 PR 与合入后的 develop 都过 CI，避免集成分支失去质量门。
 
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   backend:
@@ -36,6 +39,10 @@ jobs:
 
       - name: Lint (ruff)
         run: uv run ruff check .
+
+      # 防止改了模型/迁移却忘了重新生成初始化 SQL（产物漂移 -> 导入的库与迁移链不一致）
+      - name: DB init SQL up-to-date
+        run: uv run python scripts/db_init_sql.py --check
 
       - name: Test + coverage (>=80%)
         run: uv run pytest

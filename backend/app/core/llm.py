@@ -297,6 +297,14 @@ class LLMClient:
             raise
         return _GuardedStream(stream, sem)
 
+    async def list_models(self) -> list[str]:
+        """拉取服务端可用模型 id（OpenAI 兼容 `GET /models`）。
+
+        供前端在聊天窗口按用户配置的 Key / Base URL 提供模型候选。
+        """
+        resp = await self._client.models.list()
+        return sorted(m.id for m in resp.data)
+
     async def close(self) -> None:
         await self._client.close()
 
@@ -327,7 +335,11 @@ def build_llm(config: LLMConfig) -> LLMClient:
 
 
 def env_llm_config() -> LLMConfig | None:
-    """环境变量默认配置（未配置 Key 时返回 None）。"""
+    """环境变量默认配置（未配置 Key 时返回 None）。
+
+    **仅供超级管理员兜底**：由上层按 `User.role == "admin"` 判定后选用；
+    普通注册用户不得使用，避免开放注册后白嫖部署方 Key。
+    """
     if not settings.DEEPSEEK_API_KEY:
         return None
     return LLMConfig(
@@ -340,33 +352,21 @@ def env_llm_config() -> LLMConfig | None:
 
 
 def get_llm() -> LLMClient:
-    """获取当前请求的 LLM 客户端。
+    """获取当前请求的 LLM 客户端（仅用上下文中的配置）。
 
-    优先使用上下文中的用户配置（set_llm_config）；未配置则回退环境变量。
-    客户端按配置参数缓存，连接池复用；未配置 Key 时报错。
+    配置由 `apply_user_llm_config` 在请求入口写入：用户自配优先；
+    超级管理员未自配时写入 env 兜底；其余情况为 None → 报错引导去配置。
+    客户端按配置参数缓存，连接池复用。
     """
     config = get_llm_config()
-    if config is not None:
-        return _build_client(
-            config.api_key,
-            config.base_url,
-            config.model,
-            config.temperature,
-            config.max_tokens,
-        )
-    return _env_client()
-
-
-@lru_cache
-def _env_client() -> LLMClient:
-    """环境变量默认客户端（进程级单例）。"""
-    if not settings.DEEPSEEK_API_KEY:
+    if config is None:
         raise RuntimeError(
-            "未配置模型：请在「个人中心 → 模型设置」中配置，"
-            "或在 backend/.env 设置 DEEPSEEK_API_KEY（参考 .env.example）"
+            "未配置模型：请在「个人中心 → 模型设置」中配置你自己的 API Key"
         )
-    return LLMClient(
-        api_key=settings.DEEPSEEK_API_KEY,
-        base_url=settings.DEEPSEEK_BASE_URL,
-        model=settings.DEEPSEEK_MODEL,
+    return _build_client(
+        config.api_key,
+        config.base_url,
+        config.model,
+        config.temperature,
+        config.max_tokens,
     )

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   App as AntApp,
   Avatar,
@@ -11,8 +17,22 @@ import {
   theme,
 } from "antd";
 import zhCN from "antd/locale/zh_CN";
-import { BulbOutlined, LogoutOutlined, MoonOutlined } from "@ant-design/icons";
-import { clearToken, fetchMessages, getToken } from "./api";
+import {
+  BookOutlined,
+  BulbOutlined,
+  CheckSquareOutlined,
+  DashboardOutlined,
+  LogoutOutlined,
+  MessageOutlined,
+  MoonOutlined,
+  PartitionOutlined,
+} from "@ant-design/icons";
+import { clearToken, fetchMessages, fetchProfile, getToken } from "./api";
+import { SiderNavContext } from "./contexts/SiderNav";
+import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
+import { keyboardActivate } from "./utils/a11y";
+import ApiKeyOnboarding from "./components/ApiKeyOnboarding";
+import AdminPanel from "./components/AdminPanel";
 import ChatPanel from "./components/ChatPanel";
 import DocCategoryNav from "./components/DocCategoryNav";
 import KbPanel from "./components/KbPanel";
@@ -20,21 +40,44 @@ import LoginPage from "./components/LoginPage";
 import ProfilePage from "./components/ProfilePage";
 import SessionList from "./components/SessionList";
 import TodoPage from "./components/TodoPage";
-import type { ChatMessage } from "./types";
+import WikiPanel from "./components/WikiPanel";
+import type { ChatMessage, Profile } from "./types";
 
 const { Sider, Content } = Layout;
 
+// 侧栏可拖拽调宽范围与默认值（宽度记忆到 localStorage）
+const SIDER_MIN = 240;
+const SIDER_MAX = 560;
+const SIDER_DEFAULT = 300;
+const SIDER_WIDTH_KEY = "kb-sider-width";
+
 export default function App() {
   const [authed, setAuthed] = useState<boolean>(() => !!getToken());
-  const [tab, setTab] = useState<"chat" | "kb" | "todo">("chat");
+  const [tab, setTab] = useState<"chat" | "kb" | "wiki" | "todo">("chat");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [activeCat, setActiveCat] = useState<string>("all");
   const [showProfile, setShowProfile] = useState(false);
-  const [dark, setDark] = useState<boolean>(
-    () => localStorage.getItem("kb-theme") === "dark"
-  );
+  // 管理后台（仅管理员入口可见；后端 require_admin 强制鉴权）
+  const [showAdmin, setShowAdmin] = useState(false);
+  // 打开个人主页时定位的页签（未配置 Key 时直达「模型设置」）
+  const [profileTab, setProfileTab] = useState("overview");
+  const [me, setMe] = useState<Profile | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  // 「工作区」侧栏中、Wiki/待办导航的挂载点
+  const [siderNavEl, setSiderNavEl] = useState<HTMLDivElement | null>(null);
+  const [siderWidth, setSiderWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(SIDER_WIDTH_KEY));
+    return saved >= SIDER_MIN && saved <= SIDER_MAX ? saved : SIDER_DEFAULT;
+  });
+  const [dark, setDark] = useState<boolean>(() => {
+    const saved = localStorage.getItem("kb-theme");
+    if (saved) return saved === "dark";
+    // 无显式偏好时跟随系统
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  });
 
   // 令牌过期事件（api.ts 401 时触发）
   useEffect(() => {
@@ -43,11 +86,96 @@ export default function App() {
     return () => window.removeEventListener("auth-expired", onExpired);
   }, []);
 
+  // 登录后拉取当前用户，侧栏展示真实昵称/头像，而非写死
+  useEffect(() => {
+    if (!authed) {
+      setMe(null);
+      return;
+    }
+    let cancelled = false;
+    fetchProfile()
+      .then((p) => {
+        if (!cancelled) setMe(p);
+      })
+      .catch((err) => console.error("加载当前用户失败", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [authed]);
+
+  const persistSiderWidth = useCallback((w: number) => {
+    const next = Math.min(SIDER_MAX, Math.max(SIDER_MIN, w));
+    setSiderWidth(next);
+    localStorage.setItem(SIDER_WIDTH_KEY, String(next));
+  }, []);
+
+  // 拖拽分隔条调整侧栏宽度（指针事件 + 指针捕获，拖动更稳）
+  const startSiderResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const el = e.currentTarget;
+    const startX = e.clientX;
+    const startW = siderWidth;
+    el.setPointerCapture?.(e.pointerId);
+    const onMove = (ev: PointerEvent) => {
+      setSiderWidth(
+        Math.min(SIDER_MAX, Math.max(SIDER_MIN, startW + (ev.clientX - startX)))
+      );
+    };
+    const onUp = (ev: PointerEvent) => {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
+      try {
+        el.releasePointerCapture?.(ev.pointerId);
+      } catch {
+        // 指针已释放：忽略
+      }
+      setSiderWidth((w) => {
+        localStorage.setItem(SIDER_WIDTH_KEY, String(w));
+        return w;
+      });
+    };
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+  };
+
+  // 键盘微调：←/→ 调整，Shift 加速，Home/End 到边界
+  const onSiderKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 48 : 16;
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      persistSiderWidth(siderWidth - step);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      persistSiderWidth(siderWidth + step);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      persistSiderWidth(SIDER_MIN);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      persistSiderWidth(SIDER_MAX);
+    }
+  };
+
+  const openProfile = useCallback((tab = "overview") => {
+    setShowAdmin(false);
+    setProfileTab(tab);
+    setShowProfile(true);
+  }, []);
+
+  // 退出管理后台/个人主页，回到工作区（点侧栏页签时调用，避免页签成为死控件）
+  const closeOverlays = useCallback(() => {
+    setShowAdmin(false);
+    setShowProfile(false);
+  }, []);
+
   const logout = () => {
     clearToken();
     setAuthed(false);
     setSessionId(null);
     setMessages([]);
+    setShowAdmin(false);
   };
 
   useEffect(() => {
@@ -55,9 +183,10 @@ export default function App() {
     localStorage.setItem("kb-theme", dark ? "dark" : "light");
   }, [dark]);
 
-  const selectSession = useCallback(async (id: string) => {
+  const selectSession = useCallback(async (id: string, title?: string) => {
     setTab("chat");
     setSessionId(id);
+    setSessionTitle(title ?? null);
     try {
       setMessages(await fetchMessages(id));
     } catch (err) {
@@ -68,6 +197,7 @@ export default function App() {
 
   const newSession = useCallback(() => {
     setSessionId(null);
+    setSessionTitle(null);
     setMessages([]);
     setTab("chat");
   }, []);
@@ -78,8 +208,8 @@ export default function App() {
       theme={{
         algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: {
-          colorPrimary: "#4f6ef7",
-          borderRadius: 10,
+          colorPrimary: BRAND_PRIMARY,
+          borderRadius: BRAND_RADIUS,
         },
       }}
     >
@@ -87,12 +217,15 @@ export default function App() {
         {!authed ? (
           <LoginPage onSuccess={() => setAuthed(true)} />
         ) : (
+        <SiderNavContext.Provider value={{ el: siderNavEl, enabled: true }}>
         <Layout style={{ height: "100vh" }}>
           <Sider
-            width={280}
+            width={siderWidth}
             theme="light"
+            breakpoint="lg"
+            collapsedWidth={0}
+            onCollapse={setCollapsed}
             style={{
-              borderRight: "1px solid var(--border)",
               display: "flex",
               flexDirection: "column",
               overflow: "hidden",
@@ -102,16 +235,55 @@ export default function App() {
             <div style={{ padding: "12px 12px 0" }}>
               <Tabs
                 activeKey={tab}
-                onChange={(k) => setTab(k as "chat" | "kb" | "todo")}
+                onChange={(k) => {
+                  setTab(k as "chat" | "kb" | "wiki" | "todo");
+                  closeOverlays();
+                }}
+                // 覆盖视图打开时，点当前已激活的页签也应退出（onChange 不会触发）
+                onTabClick={() => closeOverlays()}
                 centered
                 items={[
-                  { key: "chat", label: "💬 对话" },
-                  { key: "kb", label: "📚 知识库" },
-                  { key: "todo", label: "📋 待办" },
+                  {
+                    key: "chat",
+                    label: (
+                      <span>
+                        <MessageOutlined /> 对话
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "kb",
+                    label: (
+                      <span>
+                        <BookOutlined /> 知识库
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "wiki",
+                    label: (
+                      <span>
+                        <PartitionOutlined /> Wiki
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "todo",
+                    label: (
+                      <span>
+                        <CheckSquareOutlined /> 待办
+                      </span>
+                    ),
+                  },
                 ]}
               />
             </div>
-            {tab === "chat" ? (
+            {/*
+              工作区目录仅在「工作区」模式显示：管理后台/个人主页打开时隐藏，
+              避免出现空白目录区，以及「点了没有可见反应」的假控件。
+              顶部页签始终作为全局导航可用——点击即退出覆盖视图。
+            */}
+            {showAdmin || showProfile ? null : tab === "chat" ? (
               <SessionList
                 activeId={sessionId}
                 onSelect={selectSession}
@@ -120,75 +292,120 @@ export default function App() {
             ) : tab === "kb" ? (
               <DocCategoryNav activeCat={activeCat} onChange={setActiveCat} />
             ) : (
-              <div className="dim" style={{ textAlign: "center", padding: 24 }}>
-                待办工作区（右侧操作）
-              </div>
+              /* Wiki / 待办：页面目录 portal 到此处（工作区侧栏） */
+              <div className="sider-nav" ref={setSiderNavEl} />
             )}
-            <div style={{ padding: 12, borderTop: "1px solid var(--border)" }}>
-              <Space direction="vertical" style={{ width: "100%" }} size={8}>
+            <div
+              style={{
+                marginTop: "auto", // 始终钉在侧栏底部（左下角）
+                padding: 12,
+                borderTop: "1px solid var(--border)",
+              }}
+            >
+              <Space style={{ width: "100%", justifyContent: "space-between" }}>
                 <Space
-                  style={{ width: "100%", justifyContent: "space-between" }}
+                  size={8}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="打开个人主页"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => openProfile("overview")}
+                  onKeyDown={keyboardActivate(() => openProfile("overview"))}
+                  title="个人主页"
                 >
-                  <Space
-                    size={8}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => setShowProfile(true)}
-                    title="个人主页"
-                  >
-                    <Avatar size={28} style={{ backgroundColor: "#4f6ef7" }}>
-                      {(getToken() ? "青" : "U")[0]}
-                    </Avatar>
-                    <span style={{ fontSize: 13, color: "var(--text)" }}>
-                      青木的助理
-                    </span>
-                  </Space>
+                  <Avatar size={28} style={{ backgroundColor: "var(--color-primary)" }}>
+                    {(me?.username?.[0] ?? "U").toUpperCase()}
+                  </Avatar>
+                  <span style={{ fontSize: 13, color: "var(--text)" }}>
+                    {me?.username ?? "未登录"}
+                  </span>
+                </Space>
+                <Space size={4}>
+                  {me?.role === "admin" ? (
+                    <Tooltip title="管理后台">
+                      <Button
+                        type="text"
+                        size="small"
+                        aria-label="管理后台"
+                        icon={<DashboardOutlined />}
+                        onClick={() => {
+                          setShowProfile(false);
+                          setShowAdmin(true);
+                        }}
+                      />
+                    </Tooltip>
+                  ) : null}
+                  <Tooltip title={dark ? "切换到亮色模式" : "切换到暗色模式"}>
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label={dark ? "切换到亮色模式" : "切换到暗色模式"}
+                      icon={dark ? <BulbOutlined /> : <MoonOutlined />}
+                      onClick={() => setDark(!dark)}
+                    />
+                  </Tooltip>
                   <Tooltip title="退出登录">
                     <Button
                       type="text"
                       size="small"
+                      aria-label="退出登录"
                       icon={<LogoutOutlined />}
                       onClick={logout}
                     />
                   </Tooltip>
                 </Space>
-                <Tooltip title={dark ? "切换到亮色模式" : "切换到暗色模式"}>
-                  <Button
-                    block
-                    size="small"
-                    icon={dark ? <BulbOutlined /> : <MoonOutlined />}
-                    onClick={() => setDark(!dark)}
-                  >
-                    {dark ? "亮色模式" : "暗色模式"}
-                  </Button>
-                </Tooltip>
               </Space>
             </div>
           </Sider>
+          {!collapsed && (
+            <div
+              className="sider-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整侧栏宽度"
+              aria-valuemin={SIDER_MIN}
+              aria-valuemax={SIDER_MAX}
+              aria-valuenow={siderWidth}
+              tabIndex={0}
+              title="拖动调整宽度（方向键微调）"
+              onPointerDown={startSiderResize}
+              onKeyDown={onSiderKeyDown}
+            />
+          )}
           <Content style={{ display: "flex", overflow: "hidden" }}>
-            {showProfile ? (
+            {showAdmin ? (
+              <AdminPanel onBack={() => setShowAdmin(false)} />
+            ) : showProfile ? (
               <ProfilePage
+                initialTab={profileTab}
                 onBack={() => setShowProfile(false)}
-                onOpenSession={(id) => {
+                onOpenSession={(id, title) => {
                   setShowProfile(false);
-                  selectSession(id);
+                  selectSession(id, title);
                 }}
               />
             ) : tab === "chat" ? (
               <ChatPanel
                 sessionId={sessionId}
+                sessionTitle={sessionTitle}
                 initialMessages={messages}
                 onSessionCreated={setSessionId}
                 onNewSession={newSession}
                 busy={busy}
                 setBusy={setBusy}
+                onOpenSettings={() => openProfile("model")}
               />
             ) : tab === "kb" ? (
               <KbPanel activeCat={activeCat} onCatChange={setActiveCat} />
+            ) : tab === "wiki" ? (
+              <WikiPanel />
             ) : (
               <TodoPage />
             )}
           </Content>
         </Layout>
+        <ApiKeyOnboarding onConfigure={() => openProfile("model")} />
+        </SiderNavContext.Provider>
         )}
       </AntApp>
     </ConfigProvider>

@@ -9,6 +9,7 @@ from datetime import date
 
 from sqlalchemy import select
 
+from app.core.soft_delete import soft_delete
 from app.models import Category, Todo
 from app.tools.base import ToolContext, registry
 
@@ -38,7 +39,11 @@ def _todo_out(t: Todo) -> dict:
 @registry.register
 async def todo_list(ctx: ToolContext, status: str | None = None, category: str | None = None) -> list[dict]:
     """列出待办事项，可按状态（pending/done）或分类名（工作/生活/学习/其他）过滤。"""
-    stmt = select(Todo).where(Todo.user_id == ctx.user_id).order_by(Todo.created_at.desc())
+    stmt = (
+        select(Todo)
+        .where(Todo.user_id == ctx.user_id, Todo.deleted_at.is_(None))
+        .order_by(Todo.created_at.desc())
+    )
     if status:
         stmt = stmt.where(Todo.status == status)
     if category:
@@ -87,7 +92,7 @@ async def todo_update(
 ) -> dict:
     """编辑待办：按 id 修改任意字段（仅更新提供的字段）；priority 1-5（1 最高、5 最低）。"""
     todo = await ctx.session.get(Todo, uuid.UUID(todo_id))
-    if todo is None or todo.user_id != ctx.user_id:
+    if todo is None or todo.user_id != ctx.user_id or todo.deleted_at is not None:
         return {"error": f"待办 {todo_id} 不存在或无权限"}
     if title is not None:
         todo.title = title
@@ -110,7 +115,7 @@ async def todo_update(
 async def todo_complete(ctx: ToolContext, todo_id: str) -> dict:
     """按 id 将待办标记为已完成。"""
     todo = await ctx.session.get(Todo, uuid.UUID(todo_id))
-    if todo is None or todo.user_id != ctx.user_id:
+    if todo is None or todo.user_id != ctx.user_id or todo.deleted_at is not None:
         return {"error": f"待办 {todo_id} 不存在或无权限"}
     todo.status = "done"
     await ctx.session.commit()
@@ -121,8 +126,7 @@ async def todo_complete(ctx: ToolContext, todo_id: str) -> dict:
 async def todo_delete(ctx: ToolContext, todo_id: str) -> dict:
     """按 id 删除一条待办事项（属于高风险副作用操作，需用户确认）。"""
     todo = await ctx.session.get(Todo, uuid.UUID(todo_id))
-    if todo is None or todo.user_id != ctx.user_id:
+    if todo is None or todo.user_id != ctx.user_id or todo.deleted_at is not None:
         return {"error": f"待办 {todo_id} 不存在或无权限"}
-    await ctx.session.delete(todo)
-    await ctx.session.commit()
-    return {"deleted": todo_id}
+    await soft_delete(ctx.session, todo, ctx.user_id)
+    return {"deleted": todo_id, "soft": True}

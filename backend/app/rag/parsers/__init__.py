@@ -4,6 +4,7 @@ from app.rag.parsers import (  # noqa: F401
     code_parser,
     docx_parser,
     markdown_parser,
+    obsidian_parser,
     pdf_parser,
     web_parser,
 )

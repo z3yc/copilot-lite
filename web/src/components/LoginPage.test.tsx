@@ -17,10 +17,10 @@ vi.mock("../api", () => ({
 const mocked = vi.mocked(api);
 
 function fillAndSubmit(username: string, password: string) {
-  fireEvent.change(screen.getByPlaceholderText("用户名"), {
+  fireEvent.change(screen.getByLabelText("用户名"), {
     target: { value: username },
   });
-  fireEvent.change(screen.getByPlaceholderText("密码（至少 6 位）"), {
+  fireEvent.change(screen.getByLabelText("密码"), {
     target: { value: password },
   });
   fireEvent.click(screen.getByRole("button", { name: "登 录" }));
@@ -30,8 +30,8 @@ describe("LoginPage", () => {
   it("渲染登录表单（标题 / 输入框 / 按钮）", () => {
     render(<LoginPage onSuccess={vi.fn()} />);
     expect(screen.getByText("Copilot-Lite")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("用户名")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("密码（至少 6 位）")).toBeInTheDocument();
+    expect(screen.getByLabelText("用户名")).toBeInTheDocument();
+    expect(screen.getByLabelText("密码")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "登 录" })).toBeInTheDocument();
   });
 
@@ -68,10 +68,10 @@ describe("LoginPage", () => {
     render(<LoginPage onSuccess={onSuccess} />);
 
     fireEvent.click(screen.getByText("注 册"));
-    fireEvent.change(screen.getByPlaceholderText("用户名"), {
+    fireEvent.change(screen.getByLabelText("用户名"), {
       target: { value: "bob" },
     });
-    fireEvent.change(screen.getByPlaceholderText("密码（至少 6 位）"), {
+    fireEvent.change(screen.getByLabelText("密码"), {
       target: { value: "secret1" },
     });
     fireEvent.click(screen.getByRole("button", { name: "注册并登录" }));

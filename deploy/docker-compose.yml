@@ -1,5 +1,6 @@
 # Copilot-Lite 云端部署编排（2C4G 轻量服务器，¥50/月内）
 # 使用：cd deploy && docker compose up -d --build
+#   或（推荐）服务器上一键部署：bash deploy/deploy.sh
 # ⚠️ 需本机/服务器安装 Docker；本地开发无需本文件（见 README 快速开始）
 # ⚠️ deploy/.env 必填：POSTGRES_PASSWORD（数据库强口令，缺省直接报错拒绝启动）
 
@@ -104,11 +105,16 @@ services:
           cpus: "2.00"
 
   web:
-    image: nginx:1.27-alpine
+    # 前端多阶段镜像：node 构建 + nginx 托管（产物与 nginx.conf 均在镜像内，
+    # 不依赖宿主机 Node / web/dist —— Docker 部署自包含）
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
     restart: unless-stopped
+    # certbot webroot：ACME 挑战文件由宿主机签发/续期写入，nginx 只读提供
+    # （nginx.conf 的 /.well-known/acme-challenge/ 指向此目录）
     volumes:
-      - ../web/dist:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /var/www/certbot:/var/www/certbot:ro
     ports:
       - "80:80"
     depends_on:

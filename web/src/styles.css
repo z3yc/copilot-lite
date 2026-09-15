@@ -1,21 +1,93 @@
-/* Copilot-Lite Web 样式（基于 Ant Design + CSS 变量支持暗色模式） */
+/* Copilot-Lite Web 样式（基于 Ant Design + 语义令牌，支持亮/暗双主题） */
 :root {
-  --bg: #f5f6fa;
-  --panel: #ffffff;
-  --border: #e4e7ef;
-  --msg-bg: #fafbfe;
-  --ai-bubble: #ffffff;
-  --text: #1f2330;
-  --dim: #8a90a3;
+  color-scheme: light; /* 让原生控件/滚动条随主题切换 */
+
+  /* ---- 品牌 / 语义色 ---- */
+  --color-primary: #4f6ef7; /* 必须与 src/theme.ts 的 BRAND_PRIMARY 一致 */
+  --color-primary-hover: #3b5bdb;
+  --color-primary-soft: #eef1ff; /* 激活/选中态浅底（P0-3 将接入暗色） */
+  --color-primary-soft-text: #3b5bdb;
+  --color-primary-strong: #3b5bdb; /* 小字/正文级主色，保证白字对比度 ≥4.5:1 */
+  --color-danger: #e5484d;
+  --color-warning: #f08c00;
+  --color-success: #16a34a;
+  --color-warning-soft: #e9b949;
+  --color-neutral: #d9d9d9;
+
+  /* ---- 文字层级（四级）---- */
+  --text-primary: #1f2330;
+  --text-secondary: #4b5163;
+  --text-tertiary: #6b7280; /* 原 #8a90a3，提升至 AA：白底 ≈4.8:1 */
+  --text-muted: #b0b5c3;
+
+  /* ---- 表面 / 边框 ---- */
+  --surface-base: #f5f6fa;
+  --surface-panel: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: #fafbfe;
+  --code-bg: rgba(0, 0, 0, 0.06);
+  --border-default: #e4e7ef;
+  --border-strong: #cdd2e0;
+
+  /* ---- 圆角 / 阴影 / 间距 scale（P1-2 全面接入）---- */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+
+  /* ---- 兼容旧变量名（组件仍在使用，逐步迁移）---- */
+  --bg: var(--surface-base);
+  --panel: var(--surface-panel);
+  --border: var(--border-default);
+  --msg-bg: var(--surface-sunken);
+  --ai-bubble: var(--surface-raised);
+  --text: var(--text-primary);
+  --dim: var(--text-tertiary);
 }
 body.dark {
-  --bg: #141414;
-  --panel: #1f1f1f;
-  --border: #303030;
-  --msg-bg: #171717;
-  --ai-bubble: #262626;
-  --text: #e6e6e6;
-  --dim: #8c8c8c;
+  color-scheme: dark;
+
+  --color-primary: #6b86ff;
+  --color-primary-hover: #8399ff;
+  --color-primary-soft: #232a44;
+  --color-primary-soft-text: #a9b8ff;
+  --color-primary-strong: #4d63e8;
+  --color-neutral: #3d3d3d;
+  --color-warning-soft: #a8842e;
+
+  --text-primary: #e6e6e6;
+  --text-secondary: #b8b8b8;
+  --text-tertiary: #8c8c8c;
+  --text-muted: #6f6f6f;
+
+  --surface-base: #141414;
+  --surface-panel: #1f1f1f;
+  --surface-raised: #262626;
+  --surface-sunken: #171717;
+  --code-bg: rgba(255, 255, 255, 0.1);
+  --border-default: #303030;
+  --border-strong: #3d3d3d;
+
+  /* 关键：自定义属性在声明元素上求值。兼容别名必须在暗色作用域内重新声明，
+     否则会沿用 :root 解析出的亮色值（导致 antd 已变暗、自研面板仍为亮色）。 */
+  --bg: var(--surface-base);
+  --panel: var(--surface-panel);
+  --border: var(--border-default);
+  --msg-bg: var(--surface-sunken);
+  --ai-bubble: var(--surface-raised);
+  --text: var(--text-primary);
+  --dim: var(--text-tertiary);
 }
 
 * {
@@ -31,47 +103,58 @@ body {
 
 #root {
   height: 100vh;
+  height: 100dvh;
 }
 
 /* ===== 登录页 ===== */
 .login-wrap {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #eef1ff 0%, #f5f6fa 60%);
+  background: linear-gradient(135deg, var(--color-primary-soft) 0%, var(--surface-base) 60%);
 }
 body.dark .login-wrap {
   background: linear-gradient(135deg, #1a1a2e 0%, #141414 60%);
 }
 .login-card {
   width: 380px;
-  box-shadow: 0 8px 32px rgba(79, 110, 247, 0.15);
-  border-radius: 16px;
+  max-width: 92vw;
+  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-lg);
 }
 
 /* ===== 聊天面板 ===== */
 .chat-panel {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
   background: var(--panel);
 }
+.scroll-bottom-btn {
+  position: absolute;
+  right: var(--space-6);
+  bottom: 96px;
+  z-index: 5;
+  box-shadow: var(--shadow-md);
+}
 .chat-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 20px;
+  padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--border);
 }
 
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-4);
   background: var(--msg-bg);
 }
 .empty-tip {
@@ -82,7 +165,7 @@ body.dark .login-wrap {
 
 .msg {
   display: flex;
-  gap: 10px;
+  gap: var(--space-3);
   max-width: 86%;
 }
 .msg.user {
@@ -90,39 +173,39 @@ body.dark .login-wrap {
   flex-direction: row-reverse;
 }
 .bubble {
-  padding: 10px 14px;
-  border-radius: 12px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
   line-height: 1.65;
   font-size: 14px;
   overflow-wrap: break-word;
   min-width: 40px;
 }
 .msg.user .bubble {
-  background: #4f6ef7;
+  background: var(--color-primary-strong);
   color: #fff;
-  border-top-right-radius: 4px;
+  border-top-right-radius: var(--radius-xs);
 }
 .msg.assistant .bubble {
   background: var(--ai-bubble);
   border: 1px solid var(--border);
-  border-top-left-radius: 4px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  border-top-left-radius: var(--radius-xs);
+  box-shadow: var(--shadow-sm);
 }
 .bubble p {
-  margin: 6px 0;
+  margin: var(--space-2) 0;
 }
 .bubble pre {
   background: #1e2130;
   color: #e8eaf2;
-  padding: 12px;
-  border-radius: 8px;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   font-size: 13px;
 }
 .bubble code {
-  background: rgba(0, 0, 0, 0.06);
-  padding: 2px 5px;
-  border-radius: 4px;
+  background: var(--code-bg);
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-xs);
   font-size: 13px;
 }
 .bubble pre code {
@@ -136,7 +219,7 @@ body.dark .login-wrap {
 .bubble th,
 .bubble td {
   border: 1px solid var(--border);
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-3);
   font-size: 13px;
 }
 .msg.user .bubble code {
@@ -154,8 +237,8 @@ body.dark .login-wrap {
 /* ===== 输入栏 ===== */
 .input-bar {
   display: flex;
-  gap: 10px;
-  padding: 12px 20px;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
@@ -164,51 +247,69 @@ body.dark .login-wrap {
 .file-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   flex-wrap: wrap;
-  padding: 8px 20px 0;
+  padding: var(--space-2) var(--space-5) 0;
   background: var(--panel);
+}
+
+/* ===== 侧栏内部布局 =====
+   antd Sider 的 style 加在最外层 <aside> 上，子元素实际被包在
+   .ant-layout-sider-children（块级容器）里 → 必须显式设为 flex 列，
+   内部 .session-pane(flex:1) 与底部用户区(margin-top:auto) 才会生效。 */
+.ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 /* ===== 会话列表 ===== */
 .session-pane {
   flex: 1;
+  min-height: 0; /* 允许在 flex 列中收缩并滚动，避免把底部用户区顶出可视区 */
   overflow-y: auto;
-  padding: 4px 12px 12px;
+  padding: var(--space-1) var(--space-3) var(--space-3);
   display: flex;
   flex-direction: column;
 }
 .session-list {
   flex: 1;
 }
-.session-item {
-  border-radius: 10px !important;
-  border: 1px solid transparent !important;
-  transition: all 0.15s;
+/* 用 .session-pane 提升选择器优先级覆盖 antd，避免 !important 对抗主题 */
+.session-pane .session-item {
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
-.session-item:hover {
+.session-pane .session-item:hover {
   background: var(--bg);
 }
-.session-item.active {
-  background: #eef1ff !important;
-  border-color: #4f6ef7 !important;
+.session-pane .session-item.active {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
 }
-.session-item .ant-list-item-action {
-  margin-inline-start: 8px;
+.session-pane .session-item .ant-list-item-action {
+  margin-inline-start: var(--space-1);
 }
 
 /* 侧边栏分类导航 */
-.cat-item {
-  border-radius: 10px !important;
-  border: 1px solid transparent !important;
-  transition: all 0.15s;
+.session-pane .cat-item {
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
-.cat-item:hover {
+.session-pane .cat-item:hover {
   background: var(--bg);
 }
-.cat-item.active {
-  background: #eef1ff !important;
-  border-color: #4f6ef7 !important;
+.session-pane .cat-item.active {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
 }
 
 /* ===== 知识库 ===== */
@@ -223,14 +324,14 @@ body.dark .login-wrap {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 20px;
+  padding: var(--space-3) var(--space-5);
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
 .kb-body {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 20px;
+  padding: var(--space-4) var(--space-5);
 }
 .kb-cat-hint {
   display: flex;
@@ -256,8 +357,8 @@ body.dark .login-wrap {
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
-  border-left: 3px solid #4f6ef7;
-  padding: 4px 2px 4px 10px;
+  border-left: 3px solid var(--color-primary);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
 }
 .kb-group-title .dim {
   font-weight: 400;
@@ -267,7 +368,7 @@ body.dark .login-wrap {
   transition: box-shadow 0.15s;
 }
 .doc-card:hover {
-  box-shadow: 0 4px 12px rgba(79, 110, 247, 0.12);
+  box-shadow: var(--shadow-md);
 }
 
 .dim {
@@ -284,40 +385,39 @@ body.dark .login-wrap {
   margin: 0 auto;
 }
 .profile-card {
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
 }
 
 /* ===== 待办工作区 ===== */
 .todo-page {
   flex: 1;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--msg-bg);
 }
+/* 待办目录现由 SiderPortal 渲染进「工作区」侧栏，此处仅保留内容样式 */
 .todo-nav {
-  width: 190px;
-  background: var(--panel);
-  border-right: 1px solid var(--border);
-  padding: 12px 8px;
-  overflow-y: auto;
-  flex-shrink: 0;
+  padding: var(--space-3) var(--space-2);
 }
 .todo-nav-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 13px;
-  transition: all 0.15s;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
 }
 .todo-nav-item:hover {
   background: var(--bg);
 }
 .todo-nav-item.active {
-  background: #eef1ff;
-  color: #4f6ef7;
+  background: var(--color-primary-soft);
+  color: var(--color-primary-soft-text);
   font-weight: 600;
 }
 .todo-nav-count {
@@ -333,14 +433,15 @@ body.dark .login-wrap {
   display: inline-block;
   width: 10px;
   height: 10px;
-  border-radius: 50%;
-  margin-right: 6px;
+  border-radius: var(--radius-full);
+  margin-right: var(--space-2);
 }
 
 .todo-main {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 16px 20px;
+  padding: var(--space-4) var(--space-5);
 }
 .todo-toolbar {
   display: flex;
@@ -354,44 +455,44 @@ body.dark .login-wrap {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-4);
 }
 .todo-group-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
-  border-left: 3px solid #4f6ef7;
-  padding: 4px 2px 4px 10px;
-  margin-bottom: 6px;
+  border-left: 3px solid var(--color-primary);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  margin-bottom: var(--space-2);
 }
 .todo-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .todo-item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-3);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
   border-left: 4px solid transparent;
   transition: box-shadow 0.15s;
 }
 .todo-item:hover {
-  box-shadow: 0 2px 10px rgba(79, 110, 247, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 /* 高亮：已过期红 / 今天橙 / 本周黄 */
 .todo-item.overdue {
-  border-left-color: #e5484d;
+  border-left-color: var(--color-danger);
 }
 .todo-item.today {
-  border-left-color: #f08c00;
+  border-left-color: var(--color-warning);
 }
 .todo-item.week {
-  border-left-color: #e9b949;
+  border-left-color: var(--color-warning-soft);
 }
 .todo-content {
   flex: 1;
@@ -417,4 +518,204 @@ body.dark .login-wrap {
   font-size: 12px;
   flex-shrink: 0;
   padding-top: 2px;
+}
+
+/* ---- Wiki 正文（Markdown 渲染区）---- */
+.wiki-content {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.wiki-content h1,
+.wiki-content h2,
+.wiki-content h3 {
+  margin: var(--space-3) 0 var(--space-2);
+}
+.wiki-content pre {
+  background: rgba(127, 127, 127, 0.12);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  overflow: auto;
+}
+.wiki-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+.wiki-content blockquote {
+  margin: var(--space-2) 0;
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--border);
+  color: var(--dim, #8a90a3);
+}
+
+/* ---- 回答引用来源 ---- */
+.citations {
+  margin-top: var(--space-2);
+  padding-top: var(--space-1);
+  border-top: 1px dashed var(--border);
+  font-size: 12px;
+}
+.citations .cite {
+  margin-right: 8px;
+  color: var(--color-primary-strong);
+  text-decoration: underline;
+}
+
+/* ===== Wiki 容器（目录现由 SiderPortal 渲染进侧栏）===== */
+.wiki-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.wiki-side {
+  padding: var(--space-3);
+}
+.wiki-main {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-4);
+  overflow: auto;
+}
+.wiki-graph {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+}
+.wiki-graph-canvas {
+  flex: 1;
+  min-height: 360px;
+  position: relative;
+  overflow: hidden;
+}
+.wiki-graph-state {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ===== 侧栏导航挂载点（Wiki/待办目录）===== */
+.sider-nav {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* ===== 响应式断点 ===== */
+@media (max-width: 768px) {
+  .chat-header,
+  .kb-toolbar,
+  .input-bar {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+  .messages,
+  .profile-wrap {
+    padding: var(--space-4);
+  }
+  .kb-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+  .kb-toolbar .ant-input-search {
+    width: 100% !important;
+  }
+  .todo-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .todo-toolbar .ant-space-compact {
+    width: 100% !important;
+    max-width: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .messages {
+    padding: var(--space-3);
+  }
+  .msg {
+    max-width: 96%;
+  }
+}
+
+/* ===== 动效降级：尊重系统 prefers-reduced-motion ===== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ===== 可访问性：图标按钮命中区 ===== */
+.todo-item .ant-btn-icon-only,
+.doc-card .ant-btn-icon-only,
+.input-bar .ant-btn-icon-only {
+  min-width: 44px;
+  min-height: 44px;
+}
+/* 会话项有 3 个操作按钮：44px×3 会把标题挤到不可读，改为 32×32（仍 ≥ WCAG 2.5.8 的 24px），
+   并确保标题容器可收缩，避免溢出被侧栏 overflow:hidden 裁掉。 */
+.session-item .ant-list-item-action .ant-btn {
+  min-width: 32px;
+  min-height: 32px;
+}
+.session-item .ant-list-item-main {
+  min-width: 0;
+}
+.session-item .ant-list-item-action {
+  flex-shrink: 0;
+}
+
+/* ===== 侧栏拖拽调宽 ===== */
+.sider-resizer {
+  flex: 0 0 auto;
+  width: 5px;
+  cursor: col-resize;
+  background: var(--border);
+  transition: background-color 0.15s;
+  touch-action: none;
+}
+.sider-resizer:hover,
+.sider-resizer:focus-visible {
+  background: var(--color-primary);
+  outline: none;
+}
+@media (max-width: 992px) {
+  .sider-resizer {
+    display: none;
+  }
+}
+
+/* ---- 管理后台（ADMIN_PLAN N1.8）---- */
+.admin-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+.admin-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.admin-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 20px 32px;
 }

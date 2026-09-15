@@ -8,7 +8,13 @@
 
 import re
 
-from app.rag.parsers.base import DocumentParser, ParsedDocument, Section, register_parser
+from app.rag.parsers.base import (
+    DocumentParser,
+    ParsedDocument,
+    Section,
+    decode_text,
+    register_parser,
+)
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
@@ -17,7 +23,7 @@ class MarkdownParser(DocumentParser):
     source_type = "md"
 
     def parse(self, content: bytes, meta: dict | None = None) -> ParsedDocument:
-        text = content.decode("utf-8", errors="replace")
+        text = decode_text(content)
         meta = meta or {}
 
         sections: list[Section] = []

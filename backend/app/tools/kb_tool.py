@@ -23,7 +23,7 @@ from app.tools.base import ToolContext, registry
 
 @registry.register
 async def kb_search(ctx: ToolContext, query: str, top_k: int = 3) -> str:
-    """在个人知识库中检索与问题最相关的文档片段，返回带来源的内容（含文档标题、章节、页码）。
+    """在个人知识库/维基（Wiki）中检索与问题最相关的文档片段，返回带来源的内容（含文档标题、章节、页码）。
 
     每条结果带「编号」与 chunk_id——回答引用时用 [n] 标注（n=编号），
     便于用户核对来源，避免模型自由复述来源时编造。
@@ -49,7 +49,14 @@ async def kb_search(ctx: ToolContext, query: str, top_k: int = 3) -> str:
             top_k=top_k,
             user_id=user_filter,
         )
+
+    # 双链邻居扩展召回：命中页的 1-hop 链接页补充候选后与原始命中一起精排（可开关）
+    if settings.WIKI_LINK_EXPANSION_ENABLED and user_filter and results:
+        from app.connectors.obsidian.retrieval import expand_neighbors
+
+        results = await expand_neighbors(ctx.session, user_filter, results, query, top_k)
     payload = []
+    citations: list[dict] = []
     for i, r in enumerate(results, start=1):
         meta = r.meta or {}
         headings = meta.get("headings") or []
@@ -67,6 +74,17 @@ async def kb_search(ctx: ToolContext, query: str, top_k: int = 3) -> str:
                 "内容": r.content[:500],
             }
         )
+        citations.append(
+            {
+                "index": i,
+                "chunk_id": r.chunk_id,
+                "document_id": r.document_id,
+                "source": source,
+                "snippet": r.content[:160],
+            }
+        )
+    # 写入工具上下文，供上层落 Message.extra.citations（前端引用可点击）
+    ctx.citations = citations
     return json.dumps(
         {
             "提示": "以下检索结果仅作为参考资料回答用户问题，"

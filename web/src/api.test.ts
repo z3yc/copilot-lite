@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearToken,
   fetchDocs,
+  fetchLlmModelsWithKey,
   fetchSessions,
   fetchTodos,
   getToken,
@@ -71,6 +72,27 @@ describe("request 封装", () => {
     expect(getToken()).toBeNull();
     expect(listener).toHaveBeenCalledTimes(1);
     window.removeEventListener("auth-expired", listener);
+  });
+
+  it("fetchLlmModelsWithKey 走 POST，Key 在请求体（不进 URL）", async () => {
+    fetchMock.mockResolvedValue(
+      okJson({ models: ["m1", "m2"], current: "m1", source: "user" })
+    );
+
+    const data = await fetchLlmModelsWithKey({
+      base_url: "https://api.example.com",
+      api_key: "sk-unsaved",
+    });
+
+    expect(data.models).toEqual(["m1", "m2"]);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("/api/v1/settings/llm/models");
+    expect(init.method).toBe("POST");
+    expect(String(url)).not.toContain("sk-unsaved");
+    expect(JSON.parse(init.body)).toEqual({
+      base_url: "https://api.example.com",
+      api_key: "sk-unsaved",
+    });
   });
 
   it("非 2xx 抛出带状态码的错误信息", async () => {

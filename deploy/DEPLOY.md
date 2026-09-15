@@ -215,6 +215,7 @@ crontab -e
 | 内存不足 | 4G 跑 5 容器偏紧 | 关掉 redis（当前未实际使用）或升级 4G 以上 |
 | 迁移报错 | 表已存在 | `docker compose exec backend uv run alembic stamp head` |
 | 迁移报 relation does not exist | 0.12.1 已修复迁移链缺表（categories / memory_facts）；旧库建议重建 | `docker compose down && docker volume rm deploy_pgdata && docker compose up -d --build`（只删库卷，保留 models/qdrantdata，**勿用 `down -v`**） |
+| 想手工建库 / 迁移链推不动 | — | 导入幂等初始化 SQL：`cd deploy && docker compose exec -T postgres psql -U copilot -d copilot < sql/init_postgres.sql`（建表 + 写入 alembic head，之后 `alembic upgrade` 为 no-op；见 [`sql/README.md`](sql/README.md)） |
 
 ---
 

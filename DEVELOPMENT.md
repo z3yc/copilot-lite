@@ -107,6 +107,9 @@ cd backend && cp .env.example .env   # 按需修改；不建也能跑
 > ⚠️ 嵌入式 Qdrant 是文件锁模式：**同一份 `qdrant_data/` 不能被两个后端进程同时打开**。
 > 需要多实例/多 worker 时，用 Docker 起 Qdrant 并配置 `QDRANT_URL`。
 
+> 💡 想直接建库（不跑 ORM/迁移）：仓库已备好初始化 SQL（PostgreSQL / SQLite 两方言，幂等）——
+> 见 [`deploy/sql/README.md`](deploy/sql/README.md)。
+
 ### 2.4 建表与迁移（新人第一大坑）
 
 | 模式 | 建表方式 |
@@ -248,6 +251,7 @@ uv run copilot logout
 |---|---|
 | 停服务 | 各终端 `Ctrl+C` |
 | 清本地业务数据（SQLite） | `rm backend/copilot.db`（重启后自动重建空表） |
+| 一键重建表结构 | 导入初始化 SQL：`sqlite3 backend/copilot.db < deploy/sql/init_sqlite.sql`（幂等，见 [`deploy/sql/README.md`](deploy/sql/README.md)） |
 | 清向量数据 | `rm -rf backend/qdrant_data`（根目录 `qdrant_data/` 同理，取决于你在哪启动后端） |
 | 清模型缓存 | `rm -rf backend/data/models`（下次启动重新下载） |
 | Docker 全栈 | `cd deploy && docker compose down` —— **别加 `-v`**，会连数据卷与模型卷一起删 |

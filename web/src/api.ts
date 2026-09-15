@@ -19,6 +19,7 @@ import type {
   SessionFile,
   TodoItem,
   TrashItem,
+  Trajectory,
   WikiGraph,
   WikiPage,
   WikiPageDetail,
@@ -523,7 +524,7 @@ export const confirmChat = (sessionId: string, approve: boolean) =>
 export interface StreamHandlers {
   onSession: (sessionId: string) => void;
   onChunk: (text: string) => void;
-  onDone: () => void;
+  onDone: (payload?: { trajectory?: Trajectory }) => void;
   onError: (message: string) => void;
   /** 挂起确认操作（human-in-the-loop） */
   onPending?: (actions: PendingAction[]) => void;
@@ -584,6 +585,7 @@ export async function streamChat(
       text?: string;
       detail?: string;
       actions?: PendingAction[];
+      trajectory?: Trajectory;
     };
     try {
       payload = JSON.parse(data);
@@ -594,7 +596,7 @@ export async function streamChat(
     else if (event === "chunk" && typeof payload.text === "string") handlers.onChunk(payload.text);
     else if (event === "pending" && Array.isArray(payload.actions)) handlers.onPending?.(payload.actions);
     else if (event === "error") handlers.onError(payload.detail ?? "未知错误");
-    else if (event === "done") handlers.onDone();
+    else if (event === "done") handlers.onDone(payload);
   };
 
   try {

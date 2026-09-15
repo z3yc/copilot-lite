@@ -31,6 +31,7 @@ import { ACCEPT_EXTENSIONS } from "../constants";
 import type { ChatMessage, SessionFile } from "../types";
 import { renderMarkdown } from "../utils/markdown";
 import ModelSelect from "./ModelSelect";
+import TrajectoryPanel from "./TrajectoryPanel";
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -181,7 +182,24 @@ export default function ChatPanel({
             return next;
           });
         },
-        onDone: () => setBusy(false),
+        onDone: (payload) => {
+          // 轨迹落库随 done 一并到达（旧后端不带）：合并到最后一条助手消息
+          if (payload?.trajectory) {
+            setMessages((prev) => {
+              const next = [...prev];
+              const lastIdx = next.length - 1;
+              const last = next[lastIdx];
+              if (last && last.role === "assistant") {
+                next[lastIdx] = {
+                  ...last,
+                  extra: { ...(last.extra || {}), trajectory: payload.trajectory },
+                };
+              }
+              return next;
+            });
+          }
+          setBusy(false);
+        },
         onError: (msg) => {
           setMessages((prev) => {
             const next = [...prev];
@@ -317,6 +335,9 @@ export default function ChatPanel({
                     </a>
                   ))}
                 </div>
+              )}
+              {m.role === "assistant" && m.extra?.trajectory && (
+                <TrajectoryPanel trajectory={m.extra.trajectory} />
               )}
             </div>
           </div>

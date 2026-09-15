@@ -88,7 +88,7 @@
 - [x] **G-M2 双链检索增强 + 引用可点击**：1-hop 邻居扩展召回（可开关）；回答 `[n]` 来源落库并可点击。
 - [x] **G-M2.5 导入体验 P1–P3**（用户反馈驱动）：单/多文件与文件夹导入、非 md（PDF/DOCX/TXT）索引与 `skipped`、模板目录排除与双链渲染、单页重新索引。
 - [x] **G-M3 图谱可视化**：`GET /wiki/graph` + 前端 `react-force-graph-2d`（点击跳页、按空间/标签过滤、节点数上限）。
-- [ ] **G-M4 轻量本体（可选）**：类型化链接 `wiki_link.relation` + 按关系加权/着色；**不做完整本体**。
+- ❄️ **G-M4 轻量本体（可选）**：类型化链接 `wiki_link.relation` + 按关系加权/着色；**不做完整本体**。
 
 ---
 
@@ -110,12 +110,12 @@
 
 > 模型：`Tenant（隔离边界）→ Workspace（协作/知识空间）→ Membership(角色) → document.acl`。
 
-- [ ] **I1 租户模型与迁移**：`tenants` / `workspaces` / `workspace_members`（owner/admin/member/viewer）；seed 默认租户+workspace。
-- [ ] **I2 资源归属**：`documents` / `wiki_spaces` 增加 `tenant_id` / `workspace_id`；摄取时写入。
-- [ ] **I3 文档级 ACL**：`documents.acl`（可访问 workspace/role/user；默认继承 workspace）。
-- [ ] **I4 检索过滤链（企业命门）**：向量 payload + BM25 JOIN + 引用链路统一按 `tenant → 可访问 workspace → ACL`；跨租户/跨 workspace 不可见回归测试。
-- [ ] **I5 请求上下文**：从 JWT/请求头解析 tenant/workspace（缺省回退默认，兼容 demo）。
-- [ ] **I6 角色与前端**：workspace 切换器、成员管理、按角色隐藏危险操作（与 HITL 联动）。
+- ❄️ **I1 租户模型与迁移**：`tenants` / `workspaces` / `workspace_members`（owner/admin/member/viewer）；seed 默认租户+workspace。
+- ❄️ **I2 资源归属**：`documents` / `wiki_spaces` 增加 `tenant_id` / `workspace_id`；摄取时写入。
+- ❄️ **I3 文档级 ACL**：`documents.acl`（可访问 workspace/role/user；默认继承 workspace）。
+- ❄️ **I4 检索过滤链（企业命门）**：向量 payload + BM25 JOIN + 引用链路统一按 `tenant → 可访问 workspace → ACL`；跨租户/跨 workspace 不可见回归测试。
+- ❄️ **I5 请求上下文**：从 JWT/请求头解析 tenant/workspace（缺省回退默认，兼容 demo）。
+- ❄️ **I6 角色与前端**：workspace 切换器、成员管理、按角色隐藏危险操作（与 HITL 联动）。
 
 ---
 
@@ -125,22 +125,22 @@
       _实现：`app/core/jobs.py` 通用状态机（handler 注册表 + 限并发/超时 + 自动重试→dead）+ `Job` 模型与迁移
       + `/jobs` 列表/详情/重试（按 `user_id` 隔离）+ Wiki 导入/同步接入（`JOBS_ENABLED` 开→202+job_id，关→内联回退旧行为）
       + 前端轮询进度（可取消）。_
-- [ ] **J2 可观测性**：OpenTelemetry（检索/LLM/工具 span）+ 指标 + 按 tenant 的 token/成本统计。
-- [ ] **J3 评测进 CI**：`rag_eval.py` / `rag_eval_ragas.py` 阈值门槛。
-- [ ] **J4 审计日志**：与 L3 联动，统一审计表（敏感操作）。
-- [ ] **J6 密钥与配置分级**：Secret Manager 接入。
-- [ ] **J7 基础设施可替换**：Redis（C3）、任务队列、Qdrant 集群、S3。
+- ❄️ **J2 可观测性**：OpenTelemetry（检索/LLM/工具 span）+ 指标 + 按 tenant 的 token/成本统计。
+- 🟡 **J3 评测进 CI**：`rag_eval.py` / `rag_eval_ragas.py` 阈值门槛。（见 §13 R5）
+- ❄️ **J4 审计日志**：与 L3 联动，统一审计表（敏感操作）。
+- ❄️ **J6 密钥与配置分级**：Secret Manager 接入。
+- ❄️ **J7 基础设施可替换**：Redis（C3）、任务队列、Qdrant 集群、S3。
 - [x] **J5 软删除与合规** → 已提升为 **批次 L**（更严格：全部软删除+可溯源）。
 
 ---
 
 ## 7. 批次 K · 连接器生态与直连能力
 
-- [ ] **K1 连接器管理与选择**：API/UI 列出可用连接器，按连接器创建空间。
-- [ ] **K2 新连接器**：S3/对象存储、Git、通用本地目录；后续 SharePoint / Confluence。
-- [ ] **K3 直读工具（成本回退）**：`vault_list` / `vault_search(grep)` / `vault_read`。
-- [ ] **K4 Obsidian 写回（可选）**：Local REST API / MCP。
-- [ ] **K5 增量与权限映射**：外部源增量游标 + ACL 映射。
+- ❄️ **K1 连接器管理与选择**：API/UI 列出可用连接器，按连接器创建空间。
+- ❄️ **K2 新连接器**：S3/对象存储、Git、通用本地目录；后续 SharePoint / Confluence。
+- ❄️ **K3 直读工具（成本回退）**：`vault_list` / `vault_search(grep)` / `vault_read`。
+- ❄️ **K4 Obsidian 写回（可选）**：Local REST API / MCP。
+- ❄️ **K5 增量与权限映射**：外部源增量游标 + ACL 映射。
 
 ---
 
@@ -152,11 +152,11 @@
 
 - [x] **M1 来源元数据入检索层**：`document.source_type` 写入 Qdrant payload（与 BM25 的 Document JOIN 对齐），使 scope 过滤在**向量 + BM25 同一条过滤链**生效；需一次性重建/回填索引。
       _已完成（实测 `rag/pipeline.py` 写 payload `source_type`，`rag/retriever.py` 向量/BM25 双路读取；对应 ADMIN_PLAN §9 N0.4 已勾选）。_
-- [ ] **M2 `kb_search` 增加可选 `scope`**：枚举 `all | docs | wiki`，**默认 all**；仅当用户**显式表达**范围（“只在我的 wiki 里”/“根据我上传的文档”）才收窄；无法判断一律 all。
-- [ ] **M3 空结果自动回退**：收窄检索为空时**自动放宽到 all**，并如实告知用户已放宽范围——杜绝“猜错范围即漏答”。
-- [ ] **M4 策略随 scope 联动**：`scope=wiki` 强制开双链邻居扩展；`scope=docs` 关闭该扩展（将现有 `WIKI_LINK_EXPANSION_ENABLED` 从全局开关细化为按 scope）。
-- [ ] **M5 引用来源标注**：引用中明确区分 `Wiki/空间/页面` 与 `文档/页码`（方案 A 的补强，**可独立先做**，不依赖 M1）。
-- [ ] **M6（可选）UI 知识范围选择器**：聊天框“知识范围”下拉或 `@wiki` 提及，提供零 LLM 猜测的确定性入口（方案 D，作为 scope 的上层输入）。
+- ❄️ **M2 `kb_search` 增加可选 `scope`**：枚举 `all | docs | wiki`，**默认 all**；仅当用户**显式表达**范围（“只在我的 wiki 里”/“根据我上传的文档”）才收窄；无法判断一律 all。
+- ❄️ **M3 空结果自动回退**：收窄检索为空时**自动放宽到 all**，并如实告知用户已放宽范围——杜绝“猜错范围即漏答”。
+- ❄️ **M4 策略随 scope 联动**：`scope=wiki` 强制开双链邻居扩展；`scope=docs` 关闭该扩展（将现有 `WIKI_LINK_EXPANSION_ENABLED` 从全局开关细化为按 scope）。
+- 🟡 **M5 引用来源标注**：引用中明确区分 `Wiki/空间/页面` 与 `文档/页码`（方案 A 的补强，**可独立先做**，不依赖 M1）。（见 §13 R3）
+- ❄️ **M6（可选）UI 知识范围选择器**：聊天框“知识范围”下拉或 `@wiki` 提及，提供零 LLM 猜测的确定性入口（方案 D，作为 scope 的上层输入）。
 
 ---
 
@@ -183,11 +183,11 @@
 
 ### 9.2 分期（每期独立可交付、可验收）
 
-- [ ] **P-F1 MCP 地基**：`app/mcp/`（stdio client + server 注册表 + 适配器注册表）+ `app/funds/quotes.py`（归一化/校验/缓存）+ `fund_tool`（对话查单支基金净值）。
+- 🟡 **P-F1 MCP 地基**：`app/mcp/`（stdio client + server 注册表 + 适配器注册表）+ `app/funds/quotes.py`（归一化/校验/缓存）+ `fund_tool`（对话查单支基金净值）。（见 §13 R4）
       _最早验证 MCP server 选型：不合适就换，不返工。_
-- [ ] **P-F2 持仓**：`fund_positions` 表 + 迁移 + CRUD API + 前端录入 + 收益计算（`Decimal`，含 `prev_nav` 缺失/除零边界）。
-- [ ] **P-F3 调度闭环**：`schedules` 表 + `core/scheduler.py` ticker（原子抢占 + 幂等 + 可开关）+ `fund_watch` job handler + 站内 `notifications`。
-- [ ] **P-F4 提醒体验**：IM Webhook 推送（URL 脱敏 + 超时 + 失败不回滚站内）+ 通知中心前端（列表/已读/删除）。
+- 🟡 **P-F2 持仓**：`fund_positions` 表 + 迁移 + CRUD API + 前端录入 + 收益计算（`Decimal`，含 `prev_nav` 缺失/除零边界）。（见 §13 R7）
+- 🟡 **P-F3 调度闭环**：`schedules` 表 + `core/scheduler.py` ticker（原子抢占 + 幂等 + 可开关）+ `fund_watch` job handler + 站内 `notifications`。（见 §13 R7）
+- 🟡 **P-F4 提醒体验**：IM Webhook 推送（URL 脱敏 + 超时 + 失败不回滚站内）+ 通知中心前端（列表/已读/删除）。（见 §13 R7）
 
 ### 9.3 关键实现约束
 
@@ -235,11 +235,11 @@
 
 ### 10.2 分期（每期独立可交付、可验收）
 
-- [ ] **Q1 可观测地基**：trajectory 结构定义 + 落 `Message.extra` + 前端可见（先能看清）。
-- [ ] **Q2 工具白名单与渐进披露**：`tools_agent` 显式白名单；按意图分批披露工具（为 MCP 铺路）。
-- [ ] **Q3 Task 实体**：任务状态机（跨轮/可恢复/可中断）+ API + 前端；"分配工作"的载体。
-- [ ] **Q4 supervisor 深化**：单次路由 + 失败回退 + 路由落 trajectory + **路由回归用例**（关键词兜底仍生效）。
-- [ ] **Q5 双引擎对照评测**：脚本 + 报告（token/延迟/准确率）；作为"何时退回单智能体"的数据依据。
+- 🟡 **Q1 可观测地基**：trajectory 结构定义 + 落 `Message.extra` + 前端可见（先能看清）。（见 §13 R2）
+- ❄️ **Q2 工具白名单与渐进披露**：`tools_agent` 显式白名单；按意图分批披露工具（为 MCP 铺路）。
+- ❄️ **Q3 Task 实体**：任务状态机（跨轮/可恢复/可中断）+ API + 前端；"分配工作"的载体。
+- ❄️ **Q4 supervisor 深化**：单次路由 + 失败回退 + 路由落 trajectory + **路由回归用例**（关键词兜底仍生效）。
+- 🟡 **Q5 双引擎对照评测**：脚本 + 报告（token/延迟/准确率）；作为"何时退回单智能体"的数据依据。（见 §13 R5）
 - ⏸ **子 Agent 扩展（深度研究 / 长文写作）**：按需，不在本期。
 
 ### 10.3 关键实现约束

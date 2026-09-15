@@ -264,7 +264,7 @@ npm run build        # 前端类型检查 + 构建
 | `SUPER_ADMIN_USERNAME` | 超级管理员用户名（配合非空密码才在启动时创建/提升，`role=admin`） | `demo` | `demo` |
 | `SUPER_ADMIN_PASSWORD` | 超级管理员密码（**非空才创建该账号**；唯一可用 env Key 兜底的账号） | 可不填 | 按需 |
 | `DEEPSEEK_BASE_URL` | 模型网关地址（支持切换） | 官方 | 官方/代理 |
-| `DB_URL` | PostgreSQL 连接串 | `localhost:5432` | 内网/托管 |
+| `DATABASE_URL` | PostgreSQL 连接串（**唯一支持的库**，非 `postgresql://` 会被启动自检拒绝） | `postgresql+asyncpg://postgres:root@localhost:5432/copilot` | 内网/托管 |
 | `QDRANT_URL` | 向量库地址 | `localhost:6333` | 同机 Docker |
 | `REDIS_URL` | 缓存地址 | `localhost:6379` | 同机 Docker |
 | `INGEST_ROOT` | 知识库数据根目录 | `~/copilot-data` | 挂载卷 |

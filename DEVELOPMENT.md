@@ -1,7 +1,7 @@
 # 本地开发环境指南
 
 > 面向**其他开发者**：从 clone 到能改代码、能跑测试，约 10 分钟。
-> 跨平台（Windows / macOS / Linux），**不需要 Docker，不需要 PostgreSQL**。
+> 跨平台（Windows / macOS / Linux），需要本地 **PostgreSQL**（本仓库只用 PG，不用 SQLite/MySQL），**不需要 Docker**。
 >
 > - 云端部署（2C4G 服务器 + HTTPS + 回滚）→ [`deploy/DEPLOY.md`](deploy/DEPLOY.md)
 > - Docker 全栈跑法（不装 Python/Node，最接近生产形态）→ 本文[附录 A](#附录-adocker-全栈可选)
@@ -21,7 +21,8 @@ cd backend && uv sync && uv run uvicorn app.main:app --reload
 cd web && npm ci && npm run dev
 ```
 
-**零配置即可跑**：默认 SQLite + 嵌入式 Qdrant + 本地嵌入模型，不依赖任何外部服务；
+**只要本机有 PostgreSQL 就能跑**：PG + 嵌入式 Qdrant + 本地嵌入模型，不需要 Docker；
+首次建库 `createdb copilot`（或导入初始化 SQL，见 [§2.3](#23-数据库只支持-postgresql)）；
 本地模式建表由代码自动完成，**不需要跑 `alembic upgrade head`**（原因见 [§2.4](#24-建表与迁移新人第一大坑)）。
 
 > 首次启动会在后台下载模型（嵌入 ~50–100MB + 重排 ~1.1GB），不阻塞服务；想跳过见 [§6](#6-模型下载与缓存)。
@@ -39,9 +40,10 @@ cd web && npm ci && npm run dev
 | [uv](https://docs.astral.sh/uv/) | 较新版本 | 依赖与环境管理；`uv sync` 会自动准备 3.12 解释器 |
 | Node.js | **≥ 20**（CI 基准 20） | 前端构建与测试 |
 | Git | — | — |
+| **PostgreSQL** | **17.x（必需）** | 本地 / 测试 / 生产统一 PG（不再支持 SQLite）；`createdb copilot` |
 | Docker | 可选 | 仅[附录 A](#附录-adocker-全栈可选)需要 |
 
-**不需要**：PostgreSQL、Qdrant 服务、Redis —— 本地模式都有零依赖替代（见 [§2.3](#23-数据后端二选一)）。
+**不需要**：Qdrant 服务、Redis —— 本地都有零依赖替代（见 [§2.3](#23-数据库只支持-postgresql)）。
 
 ```bash
 uv --version && node -v && git --version   # Docker 可选：docker --version
@@ -87,27 +89,34 @@ cd backend && cp .env.example .env   # 按需修改；不建也能跑
 | 配置 | 默认值 | 说明 |
 |---|---|---|
 | `RUN_MODE` | `local` | 本地模式：自动建表，允许使用内置开发 `SECRET_KEY` |
-| `DATABASE_URL` | `sqlite+aiosqlite:///./copilot.db` | 零依赖，落 `backend/copilot.db` |
+| `DATABASE_URL` | `postgresql+asyncpg://postgres:root@localhost:5432/copilot` | **非 PG 方言会在启动自检被直接拒绝**（`config.py`） |
 | `SECRET_KEY` | 内置开发值 | **仅 `local` 可用**；`RUN_MODE=cloud` 时不改会拒绝启动（安全自检） |
 | `DEEPSEEK_API_KEY` | 空 | 不影响启动：普通用户在前端各自配置模型（见 [§5](#5-首次使用注册--配模型--问答)） |
 
 `.env` 已被 gitignore，`.env.example` 是入库模板。
 
-### 2.3 数据后端二选一
+### 2.3 数据库只支持 PostgreSQL
 
-| 方案 | 怎么配 | 适用 |
-|---|---|---|
-| **A. SQLite（默认，推荐）** | 什么都不用改 | 最快上手、单机开发 |
-| **B. 本地 PostgreSQL** | `createdb copilot`，并把 `DATABASE_URL` 设为 `postgresql+asyncpg://postgres:<口令>@localhost:5432/copilot` | 要与生产同构、要验证 Alembic 迁移脚本 |
+本仓库**统一 PostgreSQL**（本地 / 测试 / 生产同构），不引入 SQLite / MySQL ——
+`config.py` 的启动自检会拒绍非 `postgresql://` 的 `DATABASE_URL`。
 
-**向量库同理零依赖**：`QDRANT_URL` 保持默认 `http://localhost:6333` 时，代码走**嵌入式 Qdrant**
+```bash
+createdb copilot   # 首次建库；或用初始化 SQL（见下）
+# DATABASE_URL 默认已指向 postgresql+asyncpg://postgres:root@localhost:5432/copilot
+```
+
+若用户名/口令不同，改 `backend/.env` 的 `DATABASE_URL`（两份 `.env.example` 都有模板）。
+
+> ⚠️ 测试库不用手工建：`conftest.py` 会自动创建 `copilot_test`（可用 `TEST_DATABASE_URL` 覆盖）。
+
+**向量库仍零依赖**：`QDRANT_URL` 保持默认 `http://localhost:6333` 时，代码走**嵌入式 Qdrant**
 （`QDRANT_PATH=./qdrant_data`，文件模式，无需安装 Qdrant 服务）；
 只有设成别的地址（如 `http://qdrant:6333`）才连远程服务。
 
 > ⚠️ 嵌入式 Qdrant 是文件锁模式：**同一份 `qdrant_data/` 不能被两个后端进程同时打开**。
 > 需要多实例/多 worker 时，用 Docker 起 Qdrant 并配置 `QDRANT_URL`。
 
-> 💡 想直接建库（不跑 ORM/迁移）：仓库已备好初始化 SQL（PostgreSQL / SQLite 两方言，幂等）——
+> 💡 想直接建库（不跑 ORM/迁移）：仓库已备好幂等初始化 SQL（PostgreSQL）——
 > 见 [`deploy/sql/README.md`](deploy/sql/README.md)。
 
 ### 2.4 建表与迁移（新人第一大坑）
@@ -120,10 +129,11 @@ cd backend && cp .env.example .env   # 按需修改；不建也能跑
 **后果**：改了 `app/models/` 里的 ORM 模型，本地**不会自动生效** ——
 `create_all` 只补缺失的表，**不会 ALTER 已有表**。处理：
 
-- SQLite：删库重建 `rm backend/copilot.db`（Windows：`Remove-Item backend\copilot.db`），重启后端；
-- PostgreSQL：`dropdb copilot && createdb copilot`，或手工 `ALTER TABLE`；
-- **若你这次改动写了 Alembic 迁移**（`backend/alembic/versions/`），必须用
-  PostgreSQL + `RUN_MODE=cloud` 才能真实验证，见 [§7](#7-开发闭环提交前必须全绿)。
+- 最快：`dropdb copilot && createdb copilot`，重启后端（数据会丢，仅开发库）；
+- 保留数据：手工 `ALTER TABLE`，或把 `RUN_MODE=cloud` 临时打开让启动走 `alembic upgrade head`；
+- **若你这次改动写了 Alembic 迁移**（`backend/alembic/versions/`）：用**独立空库**验证，例如
+  `createdb copilot_mig && DATABASE_URL=postgresql+asyncpg://postgres:root@localhost:5432/copilot_mig uv run alembic upgrade head`
+  （不要在已被 `create_all` 建过表的开发库上直接跑迁移，会因表已存在而失败），见 [§7](#7-开发闭环提交前必须全绿)。
 
 ### 2.5 建议关掉的后台任务
 
@@ -202,12 +212,13 @@ uv run copilot logout
 | `cd web && npm test` | 前端单测（vitest） | 全过 |
 | `cd web && npm run build` | `tsc -b` 类型检查 + 构建 | 零类型错误 |
 
-- **测试不触网、不下载模型**：`backend/tests/conftest.py` 会强制
-  `DATABASE_URL=sqlite+aiosqlite:///./test_copilot.db`，并关闭全部后台任务
-  （记忆提取 / 摘要压缩 / 预热等），LLM / 嵌入 / 重排全用 Fake；
+- **测试不触网、不下载模型，但需要一个真实 PostgreSQL**：`backend/tests/conftest.py` 会把
+  `DATABASE_URL` 指向 `TEST_DATABASE_URL`（默认 `.../copilot_test`，**库不存在会自动创建**），
+  每个用例前 `TRUNCATE` 全部表，并关闭全部后台任务（记忆提取 / 摘要压缩 / 预热等），
+  LLM / 嵌入 / 重排全用 Fake；
 - 新增 `asyncio.create_task` 类后台逻辑**必须**配 `settings` 开关，并在 conftest 中默认关闭（`AGENTS.md` §8）；
-- 验证 **Alembic 迁移**：本地 PostgreSQL + `RUN_MODE=cloud`，跑
-  `uv run alembic upgrade head` 再看 `downgrade`（SQLite 的 `create_all` 验证不到迁移脚本）；
+- 验证 **Alembic 迁移**：在独立空库上跑（`createdb copilot_mig` + 临时 `DATABASE_URL`），
+  `uv run alembic upgrade head` 再看 `downgrade`；CI 已自动做这一步（干净 PG 上从零迁移）；
 - 检索参数调优用 `backend/scripts/rag_eval.py`（recall@K / MRR），
   生成质量用 `backend/scripts/rag_eval_ragas.py`，golden 集在 `backend/eval/golden_set.json`。
 
@@ -250,8 +261,8 @@ uv run copilot logout
 | 目标 | 操作 |
 |---|---|
 | 停服务 | 各终端 `Ctrl+C` |
-| 清本地业务数据（SQLite） | `rm backend/copilot.db`（重启后自动重建空表） |
-| 一键重建表结构 | 导入初始化 SQL：`sqlite3 backend/copilot.db < deploy/sql/init_sqlite.sql`（幂等，见 [`deploy/sql/README.md`](deploy/sql/README.md)） |
+| 清本地业务数据 | `dropdb copilot && createdb copilot`（重启后自动重建空表） |
+| 一键重建表结构 | 导入初始化 SQL：`psql -U postgres -d copilot -f deploy/sql/init_postgres.sql`（幂等，见 [`deploy/sql/README.md`](deploy/sql/README.md)） |
 | 清向量数据 | `rm -rf backend/qdrant_data`（根目录 `qdrant_data/` 同理，取决于你在哪启动后端） |
 | 清模型缓存 | `rm -rf backend/data/models`（下次启动重新下载） |
 | Docker 全栈 | `cd deploy && docker compose down` —— **别加 `-v`**，会连数据卷与模型卷一起删 |

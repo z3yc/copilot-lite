@@ -23,5 +23,6 @@ uv run pytest
 - API 文档：http://127.0.0.1:8000/docs
 - 健康检查：http://127.0.0.1:8000/api/v1/health
 
-> **数据库策略**：默认 SQLite（零依赖，克隆即跑）；推荐配置 `.env` 指向本地 PostgreSQL
-> （`postgresql+asyncpg://...`），与生产环境同构。表结构统一由 Alembic 迁移管理。
+> **数据库策略**：本地 / 测试 / 生产统一 **PostgreSQL**（不再支持 SQLite）。
+> 先 `createdb copilot`（默认连接 `postgresql+asyncpg://postgres:root@localhost:5432/copilot`）；
+> 表结构由 `create_all`（`RUN_MODE=local`）或 Alembic 迁移（`cloud`）管理。

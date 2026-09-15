@@ -1,7 +1,7 @@
 # 📋 Copilot-Lite 项目工作计划（PLAN）
 
 > 面向面试作品的**个人 AI 智能助理**项目 · 工作编排与待办清单
-> 关联文档：[README](README.md)（项目说明） · [架构文档](docs/architecture.md)（Mermaid 图）
+> 关联文档：[README](README.md)（项目说明） · [架构说明](README.md)（Mermaid 图）
 
 ---
 
@@ -26,9 +26,11 @@ P2 知识库   ██████████ 100% ✅（M2 验收通过）
 P3 双前端   ██████████ 100% ✅（M3 验收通过 + 功能增强）
 P4 工程化   ██████████ 100% ✅（M4 本地验收通过）
 P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端待实测）
+P6 收敛交付 ░░░░░░░░░░   0%（R0 计划收敛进行中，见 OPTIMIZATION_PLAN §13）
 ```
 
-**Git 现状**：83 个提交 · 功能增强已并入（antd UI/分类/搜索/暗色/会话附件/记忆/Rerank/LangGraph 多 Agent）· 前端 vitest 单测已就绪 · 工具容错/401/优先级语义等修复见 [docs/CHANGELOG.md](docs/CHANGELOG.md)
+**Git 现状**：`develop` 基线后端 **337 用例 / 覆盖率 82.53%**、前端 **92 用例**、CLI **15 用例**（@ `5b5ce2f` J1 合并后）；CI/CD 由本机 Jenkins 承载（见 `docs/CICD_PLAN.md`）。
+**范围基准**：本轮已收敛为 **R0-R7**（`OPTIMIZATION_PLAN.md` §13），冻结项见该文件 §11；需求准入规则见 `DEMO_SCRIPT.md`。
 
 ---
 
@@ -93,7 +95,7 @@ P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端�
 - [x] 配套：会话管理 API + Todo REST API（CLI 与前端共用）
 - [x] **M3 验收**：Web 完整可用（localhost:5173 浏览器演示，22 测试全绿）
 
-### ✨ 功能增强（P3 后追加，已记录于 docs/CHANGELOG.md）
+### ✨ 功能增强（P3 后追加，已记录于 docs/优化落地记录.md）
 
 - [x] **Ant Design 重构**：专业组件库 UI（主题色可定制），业务代码 gzip 20KB
 - [x] **知识库分类视图**：侧边栏分类导航（带数量）+ 分组展示 + `type` 参数过滤
@@ -118,11 +120,24 @@ P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端�
 ### 🔵 P5 · 部署 + 面试（约 2 周）
 
 - [ ] 云服务器选购（2C4G 轻量，¥50/月内）与环境初始化
-- [ ] 云端部署（Docker Compose + Nginx + HTTPS）
+- [ ] 云端部署（Docker Compose + Nginx + HTTPS）实测通过，`/health/ready` 为 ok
 - [ ] README 完善（架构图 + 演示截图 + 配置说明）
 - [ ] 面试问答文档（deep-dive 20 问：RAG/记忆/工具/架构取舍）
-- [ ] 演示脚本排练（3 分钟 Demo 流程）
+- [ ] 演示脚本排练（`DEMO_SCRIPT.md` 6 镜头，3 分钟内一次过）
 - [ ] **M5 验收**：云上可演示，故事线完整
+
+### ⚪ P6 · 范围收敛与交付（进行中）
+
+- [ ] **R0** 计划收敛：三份计划改造 + 冻结清单（带重启条件）+ `DEMO_SCRIPT.md`
+- [ ] **R2** Q1 trajectory 可观测
+- [ ] **R3** M5 引用来源标注
+- [ ] **R4** P-F1 MCP 地基 + `fund_tool`
+- [ ] **R5** J3 评测门槛进 Jenkins + Q5 双引擎对照报告
+- [ ] **R6** N2 质量看板（N2.1-N2.6 + N2.8）
+- [ ] **R7** 基金自用闭环（P-F2/F3/F4,必做）
+
+> 明细与预估见 `OPTIMIZATION_PLAN.md` §13；冻结与重启条件见同文件 §11。
+> **进度以 `OPTIMIZATION_PLAN.md` §13 为准**；本页 P5/P6 为镜像视图，改动时先改 §13。
 
 ---
 

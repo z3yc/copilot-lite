@@ -11,22 +11,27 @@
 | 批次 | 主题 | 状态 |
 |---|---|---|
 | A | CLI 完整可用（双入口闭环） | ✅ 完成 |
-| B | 契约与可观测性（对齐 AGENTS.md） | ✅ B1/B2/B4 完成（B3/B5 暂缓） |
-| C | 性能与正确性 | ✅ C1/C2/C5 完成（C3/C4 暂缓） |
-| D | RAG / Agent 能力深度 | ✅ D1/D2/D4 完成（D3 并入 G-M2、已完成；D5 暂缓） |
-| E | 产品体验（前端 UX） | ✅ E1–E4 完成（E5 暂缓） |
+| B | 契约与可观测性（对齐 AGENTS.md） | ✅ B1/B2/B4 完成（B3/B5 ❄️ 冻结） |
+| C | 性能与正确性 | ✅ C1/C2/C5 完成（C3/C4 ❄️ 冻结） |
+| D | RAG / Agent 能力深度 | ✅ D1/D2/D4 完成（D3 并入 G-M2；D5 ❄️ 冻结） |
+| E | 产品体验（前端 UX） | ✅ E1-E4 完成（E5 ❄️ 冻结） |
 | F | 模型配置页面化 | ✅ 完成 |
-| G | 本地 Wiki 知识库（Obsidian 接入） | ✅ M1/M1.5/M2 + 导入体验 P1–P3 + **M3 图谱可视化** 完成；M4 待做 |
+| G | 本地 Wiki 知识库（Obsidian 接入） | ✅ G-M1/G-M1.5/G-M2 + G-P1–G-P3 + G-M3 完成（G-M4 ❄️ 冻结） |
 | H | 连接器化收口（Obsidian → connectors） | ✅ 完成 |
-| **L** | **软删除与审计（强制红线）** | ✅ 完成（后端+回收站前端） |
-| I | 企业化：租户与权限（混合模式） | ⬜ 待做 |
-| J | 可靠性与治理（企业可运营） | 🟡 **J1 完成**；J2–J7 待做（J5 并入 L） |
-| K | 连接器生态与直连能力 | ⬜ 待做 |
-| M | 知识来源范围（RAG / Wiki 检索分流） | ⏸ 已设计（方案 C），待排期 |
-| N | 管理后台与质量看板（作品集为主，企业留口） | ⏸ 已设计，见 [ADMIN_PLAN.md](ADMIN_PLAN.md) |
-| **P** | **基金盯盘 + MCP 接入（Agent 主动性第一落地）** | ⏸ 已设计（F1–F4），待排期 |
-| **Q** | **Agent 形态与可观测（多智能体主干）** | ⏸ 已设计（Q1–Q5），待排期 |
-| Z | 其他暂缓项（B3/B5/C3/C4/D5/E5/L7） | ⏸ 暂缓 |
+| L | 软删除与审计（强制红线） | ✅ 完成（后端+回收站前端） |
+| I | 企业化：租户与权限 | ❄️ 冻结（§11） |
+| J | 可靠性与治理 | ✅ J1 完成；🟡 J3 → R5；J2/J4/J6/J7 ❄️ 冻结（J5 并入 L） |
+| K | 连接器生态与直连能力 | ❄️ 冻结（§11） |
+| M | 知识来源范围（RAG / Wiki 检索分流） | 🟡 M1 完成、M5 → R3;M2/M3/M4/M6 ❄️ 冻结 |
+| N | 管理后台与质量看板 | 🟡 N0/N1 完成、N2 → R6;N2.7/N2.9/N3 ❄️ 冻结 |
+| P | 基金盯盘 + MCP 接入 | 🟡 F1 → R4、F2-F4 → R7（**已排期**） |
+| Q | Agent 形态与可观测 | 🟡 Q1 → R2、Q5 → R5;Q2/Q3/Q4 ❄️ 冻结 |
+| Z | 暂缓项（B3/B5/C3/C4/D5/E5/L7） | ❄️ 冻结（§11） |
+
+> ❄️ = 已冻结（不改代码、不排期）；**冻结项一律带重启条件**，见 §11 冻结清单与重启条件。
+> 🟡 = 在范围内（已排期），行尾标注 `（见 §13 R<N>）`。
+> ⏸ = 按需、不进路线图（等同冻结，不单列于 §11）。
+> **进度事实来源：§13**。`PLAN.md` 的 P5/P6 与 `ADMIN_PLAN.md` 的 N2/N3 均为**镜像**；调整进度时先改 §13。
 
 **当前基线**：后端 **337 用例 / 覆盖率 82.53%**、ruff 全过；前端 **92 用例**、build 零错误；CLI **15 用例**（沿用 `develop` 基线）。
 （数据为 `develop` @ `5b5ce2f`（J1 合并后）实测。）
@@ -85,7 +90,7 @@
 - [x] **G-M2 双链检索增强 + 引用可点击**：1-hop 邻居扩展召回（可开关）；回答 `[n]` 来源落库并可点击。
 - [x] **G-M2.5 导入体验 P1–P3**（用户反馈驱动）：单/多文件与文件夹导入、非 md（PDF/DOCX/TXT）索引与 `skipped`、模板目录排除与双链渲染、单页重新索引。
 - [x] **G-M3 图谱可视化**：`GET /wiki/graph` + 前端 `react-force-graph-2d`（点击跳页、按空间/标签过滤、节点数上限）。
-- [ ] **G-M4 轻量本体（可选）**：类型化链接 `wiki_link.relation` + 按关系加权/着色；**不做完整本体**。
+- ❄️ **G-M4 轻量本体（可选）**：类型化链接 `wiki_link.relation` + 按关系加权/着色；**不做完整本体**。
 
 ---
 
@@ -107,12 +112,12 @@
 
 > 模型：`Tenant（隔离边界）→ Workspace（协作/知识空间）→ Membership(角色) → document.acl`。
 
-- [ ] **I1 租户模型与迁移**：`tenants` / `workspaces` / `workspace_members`（owner/admin/member/viewer）；seed 默认租户+workspace。
-- [ ] **I2 资源归属**：`documents` / `wiki_spaces` 增加 `tenant_id` / `workspace_id`；摄取时写入。
-- [ ] **I3 文档级 ACL**：`documents.acl`（可访问 workspace/role/user；默认继承 workspace）。
-- [ ] **I4 检索过滤链（企业命门）**：向量 payload + BM25 JOIN + 引用链路统一按 `tenant → 可访问 workspace → ACL`；跨租户/跨 workspace 不可见回归测试。
-- [ ] **I5 请求上下文**：从 JWT/请求头解析 tenant/workspace（缺省回退默认，兼容 demo）。
-- [ ] **I6 角色与前端**：workspace 切换器、成员管理、按角色隐藏危险操作（与 HITL 联动）。
+- ❄️ **I1 租户模型与迁移**：`tenants` / `workspaces` / `workspace_members`（owner/admin/member/viewer）；seed 默认租户+workspace。
+- ❄️ **I2 资源归属**：`documents` / `wiki_spaces` 增加 `tenant_id` / `workspace_id`；摄取时写入。
+- ❄️ **I3 文档级 ACL**：`documents.acl`（可访问 workspace/role/user；默认继承 workspace）。
+- ❄️ **I4 检索过滤链（企业命门）**：向量 payload + BM25 JOIN + 引用链路统一按 `tenant → 可访问 workspace → ACL`；跨租户/跨 workspace 不可见回归测试。
+- ❄️ **I5 请求上下文**：从 JWT/请求头解析 tenant/workspace（缺省回退默认，兼容 demo）。
+- ❄️ **I6 角色与前端**：workspace 切换器、成员管理、按角色隐藏危险操作（与 HITL 联动）。
 
 ---
 
@@ -122,38 +127,38 @@
       _实现：`app/core/jobs.py` 通用状态机（handler 注册表 + 限并发/超时 + 自动重试→dead）+ `Job` 模型与迁移
       + `/jobs` 列表/详情/重试（按 `user_id` 隔离）+ Wiki 导入/同步接入（`JOBS_ENABLED` 开→202+job_id，关→内联回退旧行为）
       + 前端轮询进度（可取消）。_
-- [ ] **J2 可观测性**：OpenTelemetry（检索/LLM/工具 span）+ 指标 + 按 tenant 的 token/成本统计。
-- [ ] **J3 评测进 CI**：`rag_eval.py` / `rag_eval_ragas.py` 阈值门槛。
-- [ ] **J4 审计日志**：与 L3 联动，统一审计表（敏感操作）。
-- [ ] **J6 密钥与配置分级**：Secret Manager 接入。
-- [ ] **J7 基础设施可替换**：Redis（C3）、任务队列、Qdrant 集群、S3。
+- ❄️ **J2 可观测性**：OpenTelemetry（检索/LLM/工具 span）+ 指标 + 按 tenant 的 token/成本统计。
+- 🟡 **J3 评测进 CI**：`rag_eval.py` / `rag_eval_ragas.py` 阈值门槛。（见 §13 R5）
+- ❄️ **J4 审计日志**：与 L3 联动，统一审计表（敏感操作）。
+- ❄️ **J6 密钥与配置分级**：Secret Manager 接入。
+- ❄️ **J7 基础设施可替换**：Redis（C3）、任务队列、Qdrant 集群、S3。
 - [x] **J5 软删除与合规** → 已提升为 **批次 L**（更严格：全部软删除+可溯源）。
 
 ---
 
 ## 7. 批次 K · 连接器生态与直连能力
 
-- [ ] **K1 连接器管理与选择**：API/UI 列出可用连接器，按连接器创建空间。
-- [ ] **K2 新连接器**：S3/对象存储、Git、通用本地目录；后续 SharePoint / Confluence。
-- [ ] **K3 直读工具（成本回退）**：`vault_list` / `vault_search(grep)` / `vault_read`。
-- [ ] **K4 Obsidian 写回（可选）**：Local REST API / MCP。
-- [ ] **K5 增量与权限映射**：外部源增量游标 + ACL 映射。
+- ❄️ **K1 连接器管理与选择**：API/UI 列出可用连接器，按连接器创建空间。
+- ❄️ **K2 新连接器**：S3/对象存储、Git、通用本地目录；后续 SharePoint / Confluence。
+- ❄️ **K3 直读工具（成本回退）**：`vault_list` / `vault_search(grep)` / `vault_read`。
+- ❄️ **K4 Obsidian 写回（可选）**：Local REST API / MCP。
+- ❄️ **K5 增量与权限映射**：外部源增量游标 + ACL 映射。
 
 ---
 
-## 8. 批次 M · 知识来源范围（RAG / Wiki 检索分流）—— 已设计，待排期
+## 8. 批次 M · 知识来源范围（RAG / Wiki 检索分流）—— M1 完成、M5 → R3；M2–M4/M6 已冻结（§11）
 
 > **决策（本会话讨论锁定）**：采用**方案 C**——不拆两个工具，保持**统一索引 + 单一 `kb_search`**，用可选 `scope` 表达范围，默认全库，收窄为空时自动回退。
 > 背景：Wiki 页面已与上传文档同走 `documents/chunks/Qdrant` 一条摄取/检索链路，差异在**增强策略**（Wiki 有双链邻居扩展/图谱）而非检索主干，故拆工具只会增加路由犯错面。
-> 现状缺口：`document.source_type` **未写入 Qdrant payload**（payload 仅有 `document_id/chunk_id/user_id/meta/deleted`），故当前无法做**检索级**来源过滤。
+> 现状：`document.source_type` **已写入** Qdrant payload（M1 已完成，向量与 BM25 双路读取）；原文「未写入」的描述已过时，保留于此仅为沿革记录。
 
 - [x] **M1 来源元数据入检索层**：`document.source_type` 写入 Qdrant payload（与 BM25 的 Document JOIN 对齐），使 scope 过滤在**向量 + BM25 同一条过滤链**生效；需一次性重建/回填索引。
       _已完成（实测 `rag/pipeline.py` 写 payload `source_type`，`rag/retriever.py` 向量/BM25 双路读取；对应 ADMIN_PLAN §9 N0.4 已勾选）。_
-- [ ] **M2 `kb_search` 增加可选 `scope`**：枚举 `all | docs | wiki`，**默认 all**；仅当用户**显式表达**范围（“只在我的 wiki 里”/“根据我上传的文档”）才收窄；无法判断一律 all。
-- [ ] **M3 空结果自动回退**：收窄检索为空时**自动放宽到 all**，并如实告知用户已放宽范围——杜绝“猜错范围即漏答”。
-- [ ] **M4 策略随 scope 联动**：`scope=wiki` 强制开双链邻居扩展；`scope=docs` 关闭该扩展（将现有 `WIKI_LINK_EXPANSION_ENABLED` 从全局开关细化为按 scope）。
-- [ ] **M5 引用来源标注**：引用中明确区分 `Wiki/空间/页面` 与 `文档/页码`（方案 A 的补强，**可独立先做**，不依赖 M1）。
-- [ ] **M6（可选）UI 知识范围选择器**：聊天框“知识范围”下拉或 `@wiki` 提及，提供零 LLM 猜测的确定性入口（方案 D，作为 scope 的上层输入）。
+- ❄️ **M2 `kb_search` 增加可选 `scope`**：枚举 `all | docs | wiki`，**默认 all**；仅当用户**显式表达**范围（“只在我的 wiki 里”/“根据我上传的文档”）才收窄；无法判断一律 all。
+- ❄️ **M3 空结果自动回退**：收窄检索为空时**自动放宽到 all**，并如实告知用户已放宽范围——杜绝“猜错范围即漏答”。
+- ❄️ **M4 策略随 scope 联动**：`scope=wiki` 强制开双链邻居扩展；`scope=docs` 关闭该扩展（将现有 `WIKI_LINK_EXPANSION_ENABLED` 从全局开关细化为按 scope）。
+- 🟡 **M5 引用来源标注**：引用中明确区分 `Wiki/空间/页面` 与 `文档/页码`（方案 A 的补强，**可独立先做**，不依赖 M1）。（见 §13 R3）
+- ❄️ **M6（可选）UI 知识范围选择器**：聊天框“知识范围”下拉或 `@wiki` 提及，提供零 LLM 猜测的确定性入口（方案 D，作为 scope 的上层输入）。
 
 ---
 
@@ -180,11 +185,11 @@
 
 ### 9.2 分期（每期独立可交付、可验收）
 
-- [ ] **P-F1 MCP 地基**：`app/mcp/`（stdio client + server 注册表 + 适配器注册表）+ `app/funds/quotes.py`（归一化/校验/缓存）+ `fund_tool`（对话查单支基金净值）。
+- 🟡 **P-F1 MCP 地基**：`app/mcp/`（stdio client + server 注册表 + 适配器注册表）+ `app/funds/quotes.py`（归一化/校验/缓存）+ `fund_tool`（对话查单支基金净值）。（见 §13 R4）
       _最早验证 MCP server 选型：不合适就换，不返工。_
-- [ ] **P-F2 持仓**：`fund_positions` 表 + 迁移 + CRUD API + 前端录入 + 收益计算（`Decimal`，含 `prev_nav` 缺失/除零边界）。
-- [ ] **P-F3 调度闭环**：`schedules` 表 + `core/scheduler.py` ticker（原子抢占 + 幂等 + 可开关）+ `fund_watch` job handler + 站内 `notifications`。
-- [ ] **P-F4 提醒体验**：IM Webhook 推送（URL 脱敏 + 超时 + 失败不回滚站内）+ 通知中心前端（列表/已读/删除）。
+- 🟡 **P-F2 持仓**：`fund_positions` 表 + 迁移 + CRUD API + 前端录入 + 收益计算（`Decimal`，含 `prev_nav` 缺失/除零边界）。（见 §13 R7）
+- 🟡 **P-F3 调度闭环**：`schedules` 表 + `core/scheduler.py` ticker（原子抢占 + 幂等 + 可开关）+ `fund_watch` job handler + 站内 `notifications`。（见 §13 R7）
+- 🟡 **P-F4 提醒体验**：IM Webhook 推送（URL 脱敏 + 超时 + 失败不回滚站内）+ 通知中心前端（列表/已读/删除）。（见 §13 R7）
 
 ### 9.3 关键实现约束
 
@@ -232,11 +237,11 @@
 
 ### 10.2 分期（每期独立可交付、可验收）
 
-- [ ] **Q1 可观测地基**：trajectory 结构定义 + 落 `Message.extra` + 前端可见（先能看清）。
-- [ ] **Q2 工具白名单与渐进披露**：`tools_agent` 显式白名单；按意图分批披露工具（为 MCP 铺路）。
-- [ ] **Q3 Task 实体**：任务状态机（跨轮/可恢复/可中断）+ API + 前端；"分配工作"的载体。
-- [ ] **Q4 supervisor 深化**：单次路由 + 失败回退 + 路由落 trajectory + **路由回归用例**（关键词兜底仍生效）。
-- [ ] **Q5 双引擎对照评测**：脚本 + 报告（token/延迟/准确率）；作为"何时退回单智能体"的数据依据。
+- 🟡 **Q1 可观测地基**：trajectory 结构定义 + 落 `Message.extra` + 前端可见（先能看清）。（见 §13 R2）
+- ❄️ **Q2 工具白名单与渐进披露**：`tools_agent` 显式白名单；按意图分批披露工具（为 MCP 铺路）。
+- ❄️ **Q3 Task 实体**：任务状态机（跨轮/可恢复/可中断）+ API + 前端；"分配工作"的载体。
+- ❄️ **Q4 supervisor 深化**：单次路由 + 失败回退 + 路由落 trajectory + **路由回归用例**（关键词兜底仍生效）。
+- 🟡 **Q5 双引擎对照评测**：脚本 + 报告（token/延迟/准确率）；作为"何时退回单智能体"的数据依据。（见 §13 R5）
 - ⏸ **子 Agent 扩展（深度研究 / 长文写作）**：按需，不在本期。
 
 ### 10.3 关键实现约束
@@ -263,15 +268,42 @@
 
 ---
 
-## 11. 暂缓批次（按需）
+## 11. ❄️ 冻结清单与重启条件
 
-- [ ] **B3 分层收口**：service 层抽离、`core` 去 FastAPI 依赖。
-- [ ] **B5 OpenAPI → TS 类型自动生成**。
-- [ ] **C3 Redis 落地**（并入 J7）。
-- [ ] **C4 语义缓存（答案级）**。
-- [ ] **D5 BM25 升级 PostgreSQL FTS**。
-- [ ] **E5 用户反馈闭环**。
-- [ ] **L7 用户注销/账号软删除**（承接批次 L）：账号注销/自助删除统一走**软删除**（`deleted_at` / `deleted_by` / 可选 `delete_reason`）+ **审计留痕**（request_id/user_id/资源/时间/结果）；注销后禁止登录、列表与检索按用户隔离过滤，数据默认可恢复；彻底删除仅限合规（GDPR）且写审计。**后续排期时一并做。**
+> 冻结 ≠ 删除。**每条必须带重启条件**，否则半年后会被重新当成待办挖出来——这正是本轮范围沉积的成因（见 `docs/plans/2026-09-15-scope-convergence-design.md` §1）（属 `private-docs` 分支）。
+> 冻结项一律**不改代码、不排期、不承接部分实现**。
+> 重新激活流程：满足重启条件 → 先写设计文档 → 纳入路线图 → 再开工。
+
+| 项 | 冻结理由 | 重启条件 |
+|---|---|---|
+| **I1-I6** 多租户 / workspace / ACL | 单用户不可演示、不可验证；半成品 ACL 是真实泄露面 | 真实出现第二个用户，或面试岗位明确要求讲多租户 |
+| **J2** OTel + Grafana + 告警 | `request_id` + `/health/ready` + 审计已够个人量级 | 出现真实排障需求（线上事故查不动）,或岗位明确要求可观测体系 |
+| **J4** 审计统一表 | L3 + `/admin/audit` 已覆盖敏感操作 | 企业合规要求 |
+| **J6** Secret Manager | 单机 `.env` + Fernet 加密已足够 | 企业落地 / 合规要求 |
+| **J7 / C3** Redis、任务队列、S3、Qdrant 集群 | `jobs` 表 + 单体已够；"基础设施可替换"是架构原则，不是待办 | 出现可量化瓶颈（队列深度/延迟有数据支撑） |
+| **K1** 连接器管理界面 | K2 前置，无多来源可管 | K2 解冻 |
+| **K2** 新连接器（S3/Git/通用目录/SharePoint/Confluence） | **无真实数据源 = 无内容可检索** | 出现真实数据源（如实习/工作环境有 Confluence） |
+| **K3** 直读工具（`vault_list`/`grep`/`read`） | Obsidian 已导入索引；Demo 的工具调用示例由 `fund_tool` 承担 | 自用时真实出现"要 grep 未索引内容"的需求 |
+| **K4** Obsidian 写回 | 读路径未跑满，写回增加对外部系统的副作用面 | 自用中真实出现回写需求，且评估过副作用风险 |
+| **K5** 增量游标 + ACL 映射 | 依赖 I 与 K2 | I + K2 解冻 |
+| **M2/M3/M4** `kb_search` scope 分流 | 未进任何镜头；当前未出现"查错来源"的真实痛点 | 自用时反复出现检索范围混淆 |
+| **M6** UI 知识范围选择器 | 依赖 M2 | M2 解冻 |
+| **N2.7** Wiki 图谱对账 | 不在镜头 5；确定性指标可后补 | R6 出数顺利且需要 Wiki 质量故事 |
+| **N2.9** A/B lift（rerank/query-rewrite/双链） | 单用户样本量不足，结论不可信 | 有足够评测样本量（≥ 200 query） |
+| **N3.1 / N3.2** OTel+Grafana / 多租户 | 同 J2 / I | 同 J2 / I |
+| **Q2** 工具白名单与渐进披露 | 当前工具数少，全量注入未爆 | 工具数 > 15,或 prompt 明显膨胀 |
+| **Q3** Task 实体（跨轮任务状态机） | 无跨轮跟进场景；成本中型 | 自用中真实出现"跨轮跟进/可恢复任务"需求 |
+| **Q4** supervisor 深化 | 现有单次路由 + 关键词兜底已够 | 路由判错成为高频问题（有 trajectory 数据支撑） |
+| **B3** 分层收口（service 层抽离） | 纯重构，无新故事，风险高 | 需要大规模协作或模块数翻倍时 |
+| **B5** OpenAPI → TS 类型自动生成 | 手写类型量级小，收益低 | 接口数翻倍 |
+| **C4** 语义缓存（答案级） | 个人量级无命中率，且有缓存错答案的正确性风险 | 请求量支撑命中率（有数据） |
+| **D5** BM25 → PostgreSQL FTS | 现有 BM25 在百篇量级够用，纯替换无收益 | 现有实现被证明是瓶颈（检索延迟数据） |
+| **E5** 用户反馈闭环 | 单用户无标注价值 | 多用户 |
+| **G-M4** 轻量本体（类型化链接） | 图谱可视化已够，本体属学术级玩具 | 真实出现关系推理需求 |
+| **L7** 用户注销 / 账号软删除 | 单用户无注销场景（`ADMIN_PLAN` N0.6/N1.3 已覆盖管理员侧软删） | 多用户上线 |
+
+**接缝不删**（`ADMIN_PLAN` §7「只留缝」是正确的，继续保留）:
+`tenant_id`/`workspace_id` nullable 列 · `require_admin → RBAC` 替换点 · `audit_logs` append-only · `config_fingerprint` 维度。
 
 ---
 
@@ -282,36 +314,47 @@
 - [x] **合并 `feat/jobs-async-ingest`**（J1 异步摄取/同步：jobs 表 + 状态机 + Wiki 接入 + 前端轮询）→ `develop`（`5b5ce2f`）；`main` 待发布时合并。
 - [x] **合并修复分支**：`fix/wiki-delete-safety`（tip，含 M2 + 引用 + 认知修复 + 嵌入/LangGraph/重排修复 + P1–P3 + 编码修复 + 删除护栏）→ `develop`——**已完成**（分支已删除，早前合并，此行属陈旧记录）。
 - [ ] **推送**：GitHub + Gitee 的 `develop` / `main`（J1 合并后新增待推）。
-- [ ] **推送**：GitHub + Gitee 的 `develop` / `main`。
 - [ ] **推送 `private-docs`**：含本轮记录（`docs/优化落地记录.md`、`FIX_LOG_*`）。
 
 ---
 
-## 13. 总路线图（建议顺序）
+## 13. 总路线图（R0-R7）
 
-| 顺序 | 事项 | 价值 | 依赖/说明 |
+> 定稿依据：`docs/plans/2026-09-15-scope-convergence-design.md`（目标 C:面试优先 + 兼顾自用）（属 `private-docs` 分支）。
+> 准入规则：新需求必须能回答"进哪个镜头"（见 `DEMO_SCRIPT.md`）或"讲出什么数据",否则进 §11 冻结清单。
+
+| 批次 | 事项 | 预估 | 验收位置 |
 |---|---|---|---|
-| 0 | **合并待批准分支 + 推送**（§12） | 消除已知 bug/数据风险 | 需批准 |
-| 1 | **批次 L 软删除与审计** | 数据安全红线、可溯源 | 事故驱动，优先 |
-| 2 | **G-M3 图谱可视化** | 作品亮点、演示效果 | `react-force-graph-2d` |
-| 3 | **J1 异步摄取/同步** | 可靠性、解锁大 vault | ✅ 已完成（`feat/jobs-async-ingest`） |
-| 4 | **I1–I4 租户 + workspace + ACL** | 企业落地硬门槛 | 检索三路统一过滤 |
-| 5 | **J2 可观测 + J3 评测进 CI** | 企业可运营/质量门槛 | 复用 request_id / golden set |
-| 6 | **K 连接器生态 + 直读/MCP 写回** | 多来源、体验闭环 | 基于 H 的接缝 |
-| 7 | **批次 M 知识来源范围（scope）** | 多来源精准检索、为 I4 ACL 铺路 | 默认 all + 空回退；需 payload 回填索引；M5 可先做 |
-| 8 | **批次 N 管理后台与质量看板** | 作品集亮点 + 企业治理留口 | 见 [ADMIN_PLAN.md](ADMIN_PLAN.md)；依赖 M1 |
-| 9 | **批次 P 基金盯盘 + MCP 接入** | Agent 主动性第一落地 + MCP 接缝验证 | 复用 J1 `jobs`；见 §9；F1 先验 server 选型 |
-| 10 | **批次 Q Agent 形态与可观测** | 助手形态定稿（多智能体）+ 可调试可评测 | **当前主攻方向**；与 P 并行；见 §10 |
-| 11 | 暂缓项（B3/B5/C3/C4/D5/E5） | 按需 | C3 并入 J7 |
+| **R0** | 计划收敛（本文件改造 + `DEMO_SCRIPT.md` + 清理双份分叉） | 0.5 天 | 本批 |
+| **R1** | **P5 云上可演示**：服务器 + Compose/Nginx/HTTPS 实测 + README 截图 + 面试问答 + Demo 排练 | ~1 周 | 镜头 1-6 可跑通 |
+| **R2** | **Q1 trajectory**：全量落 `Message.extra` + 前端可见（`AGENT_TRACE_ENABLED`） | ~3 天 | 镜头 2 |
+| **R3** | **M5 引用来源标注**：区分 `Wiki/空间/页面` 与 `文档/页码` | ~2 天 | 镜头 1 |
+| **R4** | **P-F1 MCP 地基**：`app/mcp/` + `funds/quotes.py` + `fund_tool` | ~1 周 | 镜头 3 |
+| **R5** | **评测闭环**：J3 进 Jenkins 门槛 + Q5 双引擎对照报告（共用 `rag_eval`） | ~3 天 | 镜头 5 |
+| **R6** | **N2 质量看板**：N2.1-N2.6 + N2.8 | ~1.5 周 | 镜头 5 |
+| **R7** | **基金自用闭环（必做）**：P-F2 持仓 → P-F3 调度 → P-F4 通知 | ~1.5 周 | 自用价值 |
 
-> 原则：**单体模块化 + 配置驱动 + 基础设施可替换**；每项遵循「一功能一分支 + 防回归测试 + 全绿 + 经批准后合并」。
+- [x] **R0** 计划收敛（本批交付）：三份计划改造 + 冻结清单（带重启条件）+ `DEMO_SCRIPT.md`
+- [ ] **R1** 云上可演示（P5）:服务器选购与环境初始化、Compose+Nginx+HTTPS 实测、README 截图、面试问答 20 问、Demo 排练
+- [ ] **R2** Q1 trajectory 落库与前端展示
+- [ ] **R3** M5 引用来源标注
+- [ ] **R4** P-F1 MCP 地基与 `fund_tool`
+- [ ] **R5** J3 评测门槛进 Jenkins + Q5 双引擎对照报告
+- [ ] **R6** N2.1-N2.6、N2.8 质量看板
+- [ ] **R7** P-F2 持仓 → P-F3 调度 → P-F4 通知（必做）
+
+> **排序逻辑**：R1 先上线（把交付悬崖前置消化，之后每次改动即刻可演示）→ R2/R3 便宜且立刻改善 Demo → R4 新子系统放在有真环境可验之后 → R5/R6 产数据资产 → R7 兑现自用。
+> **实施计划粒度**：R1-R7 各自开工时另写计划（`docs/plans/YYYY-MM-DD-<批次>-<主题>.md`），**不超前写**——R4 需先定 MCP server 选型，R6 依赖 R5 产出的评测执行器。
+> **每批门槛**：见 §14。
 
 ---
 
 ## 14. 验收总门槛
 
-- [x] 后端 `pytest` 全绿且覆盖率 ≥ 80%（**221 / 80.10%**）
+> 本清单为**历史验收快照**（@ `5b5ce2f` J1 合并后），数字随基线推进可能滞后；最新基线见 §1。
+
+- [x] 后端 `pytest` 全绿且覆盖率 ≥ 80%（**337 / 82.53%**）
 - [x] 后端 `ruff check .` 全过
-- [x] 前端 `npm test` 全绿（**47**）、`npm run build` 零错误
+- [x] 前端 `npm test` 全绿（**92**）、`npm run build` 零错误
 - [x] CLI `pytest` 全绿（**15**）、`ruff` 全过
-- [ ] 删除操作全量软删除（`deleted_at/deleted_by`）且列表/检索已过滤（批次 L）
+- [x] 删除操作全量软删除（`deleted_at`/`deleted_by`）且列表/检索已过滤（批次 L：已完成）

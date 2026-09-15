@@ -100,19 +100,21 @@ async def test_chat_stream_done_event_carries_trajectory(
     monkeypatch.setattr(chat_module, "_build_agent", lambda: _FakeAgent())
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:  # noqa: SIM117
-        async with client.stream(
+    async with (
+        AsyncClient(transport=transport, base_url="http://test") as client,
+        client.stream(
             "POST", "/api/v1/chat/stream", json={"message": "你好"}, headers=authed_headers
-        ) as resp:
-            events: list[str] = []
-            done_payload: dict = {}
-            async for line in resp.aiter_lines():
-                if line.startswith("event: "):
-                    events.append(line[7:])
-                elif line.startswith("data: "):
-                    body = json.loads(line[6:])
-                    if "trajectory" in body:
-                        done_payload = body
+        ) as resp,
+    ):
+        events: list[str] = []
+        done_payload: dict = {}
+        async for line in resp.aiter_lines():
+            if line.startswith("event: "):
+                events.append(line[7:])
+            elif line.startswith("data: "):
+                body = json.loads(line[6:])
+                if "trajectory" in body:
+                    done_payload = body
 
     assert events[0] == "session" and events[-1] == "done"
     assert done_payload["trajectory"]["steps"][2]["name"] == "kb_search"

@@ -5,8 +5,10 @@
 
 SSE 事件序列：
     event: session  data: {"session_id": "..."}
-    event: chunk    data: {"text": "..."}    （回复内容分片）
-    event: done     data: {}
+    event: chunk    data: {"text": "..."}     （回复内容分片）
+    event: pending  data: {"actions": [...]}  （需用户确认的操作，HITL）
+    event: error    data: {"detail": "..."}
+    event: done     data: {} 或 {"trajectory": {...}}（回答轨迹为可选增量字段）
 """
 
 import asyncio

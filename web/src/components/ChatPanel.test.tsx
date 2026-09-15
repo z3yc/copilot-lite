@@ -26,16 +26,25 @@ vi.mock("../api", () => ({
 
 const mocked = vi.mocked(api);
 
-function renderPanel(overrides?: Partial<React.ComponentProps<typeof ChatPanel>>) {
+/** 共享空数组：模拟父组件 messages state 在「建会话」过程中引用不变（App.tsx 只 setSessionId）。
+ *  冻结以在测试间意外原地修改时尽早报错。 */
+const EMPTY_MESSAGES = Object.freeze([]) as unknown as ChatMessage[];
+
+function panelProps(overrides?: Partial<React.ComponentProps<typeof ChatPanel>>) {
   const props = {
     sessionId: null,
-    initialMessages: [] as ChatMessage[],
+    initialMessages: EMPTY_MESSAGES,
     onSessionCreated: vi.fn(),
     onNewSession: vi.fn(),
     busy: false,
     setBusy: vi.fn(),
     ...overrides,
   };
+  return props;
+}
+
+function renderPanel(overrides?: Partial<React.ComponentProps<typeof ChatPanel>>) {
+  const props = panelProps(overrides);
   return { ...render(<ChatPanel {...props} />), props };
 }
 
@@ -254,5 +263,133 @@ describe("ChatPanel", () => {
 
     await waitFor(() => expect(setBusy).toHaveBeenCalledWith(false));
     expect(screen.queryByText(/本次回答轨迹/)).not.toBeInTheDocument();
+  });
+
+  it("新会话首条消息不被自身的会话创建取消（防「已停止生成」）", async () => {
+    let signal: AbortSignal | undefined;
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      signal = handlers.signal;
+      handlers.onSession("s-new");
+      handlers.onChunk("回答");
+      await new Promise(() => {}); // 流保持进行中，rerender 时 abortRef 仍有效
+    });
+
+    const { rerender } = renderPanel({ sessionId: null });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "第一条" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+
+    await waitFor(() => expect(mocked.streamChat).toHaveBeenCalled());
+    // 模拟父组件收到 onSessionCreated 后把 sessionId 传下来
+    rerender(<ChatPanel {...panelProps({ sessionId: "s-new" })} />);
+
+    expect(signal?.aborted).toBe(false);
+    await waitFor(() => expect(screen.getByText("回答")).toBeInTheDocument());
+  });
+
+  it("新会话建出来前点「新建会话」会取消进行中的流（sessionId 仍为 null）", async () => {
+    let signal: AbortSignal | undefined;
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      signal = handlers.signal;
+      // 不发 onSession：模拟 SSE session 帧尚未到达，归属仍为 null
+      await new Promise(() => {});
+    });
+
+    const { rerender } = renderPanel({ sessionId: null });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "第一条" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+    await waitFor(() => expect(mocked.streamChat).toHaveBeenCalled());
+
+    // 模拟 App.newSession：sessionId 仍为 null（切换 effect 不触发），messages 换成新空数组
+    rerender(<ChatPanel {...panelProps({ sessionId: null, initialMessages: [] })} />);
+
+    await waitFor(() => expect(signal?.aborted).toBe(true));
+  });
+
+  it("真正切换会话时仍会取消进行中的流（保住原意图）", async () => {
+    let signal: AbortSignal | undefined;
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      signal = handlers.signal;
+      handlers.onSession("s-1");
+      await new Promise(() => {}); // 永不结束，模拟进行中
+    });
+
+    const { rerender } = renderPanel({ sessionId: "s-1" });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "hi" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+    await waitFor(() => expect(mocked.streamChat).toHaveBeenCalled());
+
+    rerender(<ChatPanel {...panelProps({ sessionId: "s-2" })} />);
+    await waitFor(() => expect(signal?.aborted).toBe(true));
+  });
+
+  it("新建/切换会话中止流时不残留「生成出错」气泡（busy 仍复位）", async () => {
+    const setBusy = vi.fn();
+    let deliveredError = false;
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      const signal = handlers.signal!;
+      await new Promise<void>((resolve) => {
+        const onAbort = () => {
+          // 真实 fetch 的 abort 拒绝是异步投递的：让「清空列表」的 state 更新先生效
+          queueMicrotask(() => {
+            deliveredError = true;
+            handlers.onError("已停止生成");
+            resolve();
+          });
+        };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      });
+    });
+
+    const { rerender } = renderPanel({ sessionId: null, setBusy });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "第一条" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+    await waitFor(() => expect(mocked.streamChat).toHaveBeenCalled());
+
+    // 模拟 App.newSession：sessionId 仍为 null，messages 换成新空数组（触发中止）
+    rerender(<ChatPanel {...panelProps({ sessionId: null, initialMessages: [] })} />);
+
+    await waitFor(() => expect(deliveredError).toBe(true));
+    expect(screen.queryByText(/生成出错/)).not.toBeInTheDocument();
+    expect(setBusy).toHaveBeenCalledWith(false);
+  });
+
+  it("点「停止」中止流时仍展示「生成出错：已停止生成」", async () => {
+    mocked.streamChat.mockImplementation(async (_msg, _sid, handlers) => {
+      const signal = handlers.signal!;
+      await new Promise<void>((resolve) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            queueMicrotask(() => {
+              handlers.onError("已停止生成");
+              resolve();
+            });
+          },
+          { once: true }
+        );
+      });
+    });
+
+    const { rerender } = renderPanel({ sessionId: "s1" });
+    fireEvent.change(screen.getByPlaceholderText(/输入消息/), {
+      target: { value: "hi" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+    await waitFor(() => expect(mocked.streamChat).toHaveBeenCalled());
+
+    // 父组件把 busy 置真 → 停止按钮出现（复用内置的 EMPTY_MESSAGES，避免误触清空 effect）
+    rerender(<ChatPanel {...panelProps({ sessionId: "s1", busy: true })} />);
+    fireEvent.click(screen.getByRole("button", { name: /停止/ }));
+
+    expect(await screen.findByText(/生成出错：已停止生成/)).toBeInTheDocument();
   });
 });

@@ -71,6 +71,11 @@ def _sse(event: str, data: dict) -> str:
 # SSE 心跳间隔（秒）：长工具轮期间无文本输出，靠注释帧保活连接
 _HEARTBEAT_SECONDS = 15.0
 
+# 静默预算（秒）：只在心跳超时（即一个 _HEARTBEAT_SECONDS 窗口内没有任何分片）时检查，
+# 是「静默上限」而非「墙钟总时长上限」——持续有产出、总时长很长的流不会被它封顶。
+# 存在的作用是防止一个真正挂死的生成器无限发心跳、长期占用连接与 DB 会话。
+_STREAM_MAX_SECONDS = 600.0
+
 
 async def _resolve_session(
     db: AsyncSession, session_id: str | None, title: str, user: User
@@ -447,11 +452,14 @@ async def chat_stream(
     user: User = Depends(get_current_user),
     _quota: None = Depends(require_chat_quota),
 ):
-    """SSE 流式对话（token 级流式，打字机效果）。
+    """SSE 流式对话。
 
     引擎按配置选择（LangGraph 多 Agent 默认 / 手写 ReAct）：
-    模型文本轮逐 token 实时转发（chunk 事件），工具调用轮在后台执行
-    （不阻塞、不产生用户可见文本）。
+    - 不挂工具的 Agent（如 LangGraph 的 chat_agent）仍逐 token 产出（chunk 事件）；
+    - 挂工具的叶子 Agent 按**模型轮**缓冲：该轮带 tool_calls 时其 content 是模型独白，
+      一律丢弃、不产生任何用户可见文本；只有该轮无 tool_calls 才把整段缓冲作为回答产出。
+
+    `run_stream` 只产出用户可见文本；`done` 事件表示整轮回答已完整产出并落库。
     """
     session = await _resolve_session(db, req.session_id, req.message, user)
     check_token_budget(user.id)
@@ -485,22 +493,48 @@ async def chat_stream(
         # 4. token 级流式运行引擎（逐 chunk 转发；长等待期间发心跳保活）
         reply_parts: list[str] = []
         saved = False  # 标记回复是否已落库（防 finally 重复保存）
+        pending_chunk: asyncio.Task | None = None  # 进行中的 anext（断开时需显式取消）
         tokens_before = _total_llm_tokens()
         usage_before = snapshot_usage()
+
+        async def _cancel_pending_chunk() -> None:
+            """取消并等待仍在等待的分片任务。
+
+            它可能在 registry.execute 里持有同一个 AsyncSession，必须等它真正结束再动 db，
+            否则会与落库/用量写入并发使用同一 session（SQLAlchemy 异步 session 禁止并发使用，
+            而且失败还会被兜底 except 吞掉）。done() 守卫使其可重复调用。
+            """
+            if pending_chunk is not None and not pending_chunk.done():
+                pending_chunk.cancel()
+                try:
+                    await pending_chunk
+                except (asyncio.CancelledError, StopAsyncIteration):
+                    pass
+                except Exception:
+                    logger.warning("流分片任务清理异常", exc_info=True)
+
         try:
             agent_stream = agent.run_stream(
                 session=db, user_id=user.id, history=history, user_message=req.message
             )
+            # 心跳：等待下一分片的同时按 _HEARTBEAT_SECONDS 发保活注释。
+            # 必须把 anext 挂成一个 Task 并跨超时复用——不能用 asyncio.wait_for，
+            # 它超时会取消被包裹的 anext，把生成器就地终止（回答被静默截断却仍发 done）。
+            stream_started = asyncio.get_running_loop().time()
+            pending_chunk = asyncio.ensure_future(anext(agent_stream))
             while True:
-                try:
-                    text = await asyncio.wait_for(
-                        anext(agent_stream), timeout=_HEARTBEAT_SECONDS
-                    )
-                except StopAsyncIteration:
-                    break
-                except TimeoutError:
+                done_set, _ = await asyncio.wait({pending_chunk}, timeout=_HEARTBEAT_SECONDS)
+                if not done_set:
+                    if asyncio.get_running_loop().time() - stream_started > _STREAM_MAX_SECONDS:
+                        await _cancel_pending_chunk()
+                        raise HTTPException(status_code=504, detail="生成超时，请重试")
                     yield ": ping\n\n"
                     continue
+                try:
+                    text = pending_chunk.result()
+                except StopAsyncIteration:
+                    break
+                pending_chunk = asyncio.ensure_future(anext(agent_stream))
                 reply_parts.append(text)
                 yield _sse("chunk", {"text": text})
         except HTTPException as exc:
@@ -544,6 +578,10 @@ async def chat_stream(
             _schedule_memory_extract(session.id, user.id)
             _schedule_summary_compress(session.id)
         finally:
+            # 先取消并等待仍在等待的分片任务：它可能在 registry.execute 里持有同一个 AsyncSession，
+            # 必须等它真正结束再动 db，否则会与 _persist_partial/用量写入并发使用同一 session
+            # （SQLAlchemy 异步 session 禁止并发使用，失败还会被兜底 except 吞掉）。
+            await _cancel_pending_chunk()
             # 客户端断开/任务取消（CancelledError）时兜底保存已生成部分
             if not saved:
                 await _persist_partial(db, session.id, reply_parts)

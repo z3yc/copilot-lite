@@ -270,8 +270,9 @@ class LLMClient:
     ):
         """原始流式响应：返回 chunk 迭代器，供编排器解析 content 与 tool_calls。
 
-        用于 ReAct 流式循环：工具轮（content 为空）与纯文本轮（tool_calls 为空）
-        在 DeepSeek 行为中互斥，可据此实时转发文本。
+        注意：**不能假设**「工具轮 content 为空」——模型会在带 tool_calls 的
+        同一轮里输出独白式 content；调用方需按轮缓冲，仅在无 tool_calls 时
+        将其作为回答产出（见 Orchestrator.run_stream）。
         """
         kwargs: dict = {
             "model": self.model,

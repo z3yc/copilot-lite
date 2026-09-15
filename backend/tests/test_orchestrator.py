@@ -167,7 +167,7 @@ class StreamFakeLLM:
 
 @pytest.mark.asyncio
 async def test_run_stream_with_tool_and_text(db_session) -> None:
-    """流式循环：先工具轮（todo_create），后文本轮，逐 token 产出。"""
+    """流式循环：先工具轮（todo_create），后文本轮，仅无工具轮整段产出。"""
     fake = StreamFakeLLM(
         [
             ("tool", [ToolCall(id="s1", name="todo_create", arguments='{"title": "流式任务"}')]),
@@ -193,7 +193,7 @@ async def test_run_stream_with_tool_and_text(db_session) -> None:
 
 @pytest.mark.asyncio
 async def test_run_stream_pure_text(db_session) -> None:
-    """纯文本轮：直接流式产出。"""
+    """纯文本轮：本轮整段产出（手写引擎按模型轮缓冲，非逐 token）。"""
     fake = StreamFakeLLM([("text", "你好，我是青木")])
     orch = Orchestrator(llm=fake, registry=registry, max_turns=3)
 

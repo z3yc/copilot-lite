@@ -89,12 +89,34 @@ export default function ChatPanel({
   const [atBottom, setAtBottom] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // 是否有流在飞：显式标记，避免用可空的 sessionId/abortRef 去推断「是否有流」
+  const streamingRef = useRef(false);
+  // 进行中的流属于哪个会话：用于区分「新建会话（null→id）」与「真的切走了」
+  const streamSessionRef = useRef<string | null>(null);
+  // 是否因「会话切换/新建会话」而中止：用于区分「停止按钮」与「切换自动中止」，
+  // 后者不得在刚被清空的列表里留下「生成出错」气泡
+  const abortedBySwitchRef = useRef(false);
 
   useEffect(() => {
+    // 新会话（sessionId 仍为 null）时父组件把消息换新（App.newSession 会 setMessages([])）
+    // = 点了 SessionList 的「新建会话」：此时 sessionId 没有变化、下面的切换 effect 不会触发，
+    // 必须在这里取消进行中的流，否则它的 chunk 会写进刚被清空的消息列表。
+    if (streamingRef.current && sessionId === null) {
+      abortedBySwitchRef.current = true;
+      abortRef.current?.abort();
+    }
     setMessages(initialMessages);
-    // 切换会话时取消进行中的流式请求（防旧会话响应写入新会话）
-    abortRef.current?.abort();
-  }, [initialMessages, sessionId]);
+    // 只随 initialMessages 变化重跑；sessionId 在此读取当前渲染值即可（切换会话由下面的 effect 处理）。
+  }, [initialMessages]);
+
+  useEffect(() => {
+    // 仅在真正切换到别的会话时取消进行中的流（防旧会话响应写入新会话）；
+    // 新会话首条消息会经历 null→新 id，那不算切换，取消它 = 自己杀自己。
+    if (streamingRef.current && sessionId !== streamSessionRef.current) {
+      abortedBySwitchRef.current = true;
+      abortRef.current?.abort();
+    }
+  }, [sessionId]);
 
   useEffect(() => {
     if (sessionId) {
@@ -157,6 +179,7 @@ export default function ChatPanel({
     if (!text || busy) return;
     setInput("");
     setBusy(true);
+    abortedBySwitchRef.current = false; // 新一轮请求开始，清掉上一轮的中止来源标记
     setMessages((prev) => [
       ...prev,
       { id: nextMessageId(), role: "user", content: text },
@@ -165,12 +188,15 @@ export default function ChatPanel({
 
     const controller = new AbortController();
     abortRef.current = controller;
+    streamingRef.current = true;            // 有流在飞（不依赖可空 id 推断）
+    streamSessionRef.current = sessionId;   // 本轮流属于哪个会话
     let currentSid = sessionId;
     try {
       await streamChat(text, currentSid, {
         signal: controller.signal,
         onSession: (sid) => {
           currentSid = sid;
+          streamSessionRef.current = sid;   // 新会话建出来了，归属随之更新
           onSessionCreated(sid);
         },
         onChunk: (chunk) => {
@@ -200,6 +226,11 @@ export default function ChatPanel({
           setBusy(false);
         },
         onError: (msg) => {
+          // 因会话切换/新建会话而中止：列表刚被清空，不应留下错误气泡
+          if (abortedBySwitchRef.current) {
+            setBusy(false);
+            return;
+          }
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last && last.role === "assistant" && !last.content) {
@@ -219,6 +250,9 @@ export default function ChatPanel({
       // 无论成功/失败/中断，busy 都必须复位（防 UI 永久卡死）
       setBusy(false);
       abortRef.current = null;
+      streamingRef.current = false;
+      streamSessionRef.current = null;
+      abortedBySwitchRef.current = false;
     }
   };
 

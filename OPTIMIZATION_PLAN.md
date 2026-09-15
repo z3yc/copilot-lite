@@ -319,6 +319,12 @@
   - ⚠️ **一次性例外（维护者 2026-09-15 批准）**：本次**本地 `--no-ff` 合并后直推 `develop`**，未走 PR/MR。原因：AGENTS §11「禁止直接 push `develop`」与 `GIT_WORKFLOW.md`「代码：正常推两个远端 —— `git push github develop && git push origin develop`」**互相矛盾**，维护者选择遵循 `GIT_WORKFLOW.md`。**遗留待办：二者措辞取齐**（改 §11 或改 GIT_WORKFLOW，勿再依赖口头例外）。
   - 合并前发现 `github/develop` 领先本地/Gitee **1 个提交**（`20353db` 部署/开发文档补超管说明），已先 `--ff-only` 并入再合并，避免非快进被拒。
   - 合并后的树上复跑实测：后端 370 / 82.81%、`ruff` 全过；前端 102、`build` 零错误。
+- [ ] **合并修复分支 `fix/stream-truncation`**（真实使用暴露的流式三修，tip `5755235`，base `8d79c11`，共 6 个提交）→ `develop`——**待批准**（合并/推送需人工批准）：
+  1. **心跳不再截断回答**（`743cdae`/`41d0880`）：旧实现用 `asyncio.wait_for(anext(gen), timeout=_HEARTBEAT_SECONDS)` 取下一分片，超时会**取消**被包裹的 `anext`、把异步生成器就地终止；流循环随后把 `StopAsyncIteration` 当正常结束 → 落库并发 `done`，表现为「回答被静默截断却显示成功」，且 `citations`/`trajectory` 一并丢失（它们只在 `run_stream` 收尾代码里拷贝）。改为把 `anext` 挂成 Task、跨心跳超时复用，并在断开时显式取消悬挂的分片任务。
+  2. **工具轮独白不再当作回答**（`6c74471`/`0e52eca`）：双引擎按「模型轮」缓冲，只有该轮**无** `tool_calls` 才把缓冲文本作为回答产出；`tool_calls` 字段缺失时 fail-closed（按工具轮丢弃并 WARNING）。旧假设「工具轮 content 为空、纯文本轮 tool_calls 为空，二者互斥」被真实模型打破（实测落库正文 = `"I'll check your todo list for you.你的待办列表如下：…"`）。另：工具轮耗尽 `max_turns` 时用节点收尾文本兜底，不再给空回复。
+  3. **新会话首条消息不再自杀**（`19c12a8`）：`onSessionCreated={setSessionId}` 让 `sessionId` 从 `null` 变为新 id，触发了依赖 `[initialMessages, sessionId]` 的 effect，把刚发起的请求 abort 掉。
+  - 测试结果：后端 **379 / 83.40%**、`ruff` 全过；前端 **104 / 19 文件**、`npm run build` 零错误。
+  - 真实模型端到端（运行中的服务，LangGraph 引擎）：Q1 `帮我看一下我的待办列表`（路由 tools→`todo_list`）与 Q2 `帮我看看wiki里有什么`（路由 kb→`kb_search`，启动后 19.4s 静默、期间发 1 次心跳、仍完整返回）均无英文独白，落库 `extra` 含 `tool_calls` + `trajectory`（Q2 另有 `citations`），流式拼接 == 落库 `content`，事件序列 `session,chunk,done` 无 `error`。
 - [x] **推送**：R2 合并后 `develop` 已推 GitHub + Gitee（顺带补推 `20353db`）；`main` 待发布时合并（§13 R1）。
 - [ ] **推送 `private-docs`**：含本轮记录（`docs/优化落地记录.md` R2 节、`docs/plans/2026-09-15-r2-trajectory.md` 实施计划与预检修订）——**待维护者确认**（按 §11 只推 GitHub）。
 

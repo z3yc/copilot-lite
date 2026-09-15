@@ -183,11 +183,13 @@ class Orchestrator(BaseAgent):
         history: list[dict],
         user_message: str,
     ):
-        """流式执行一次对话：逐 token 产出最终回复文本。
+        """流式执行一次对话：产出最终回复文本（**按模型轮**，不是逐 token）。
 
-        与 run() 行为一致（ReAct + 工具调用），但最终文本轮使用模型流式接口，
-        实时产出增量。约定（DeepSeek 行为）：工具调用轮 content 为空，
-        纯文本轮 tool_calls 为空，二者互斥——据此实时转发文本。
+        与 run() 行为一致（ReAct + 工具调用）。因每一轮都可能调用工具、无法预判
+        当前轮是否已是回答轮，所以文本按**模型轮**缓冲：带 tool_calls 的轮次其
+        content 是模型独白（如 "I'll check your todo list for you."），一律丢弃；
+        只有本轮没有任何 tool_calls 时才把缓冲的文本作为回答产出——用户看到的是
+        逐轮（整段）产出，而非逐 token 流式。
         """
         messages = _assemble_messages(ORCHESTRATOR_SYSTEM_PROMPT, history, user_message)
         self.last_tool_calls = []
@@ -200,17 +202,17 @@ class Orchestrator(BaseAgent):
         chars = 0
         for _ in range(self.max_turns):
             tool_calls: dict[int, dict] = {}
+            round_parts: list[str] = []
             try:
                 stream = await self.llm.stream_raw(messages, tools=self.registry.schemas())
 
-                # 逐 chunk 处理：转发文本增量 / 收集工具调用
+                # 逐 chunk 处理：本轮文本先入缓冲，tool_calls 边收边拼
                 async for chunk in stream:
                     if not chunk.choices:
                         continue
                     delta = chunk.choices[0].delta
                     if delta and delta.content:
-                        chars += len(delta.content)
-                        yield delta.content
+                        round_parts.append(delta.content)
                     if delta and delta.tool_calls:
                         for tc in delta.tool_calls:
                             entry = tool_calls.setdefault(
@@ -228,11 +230,16 @@ class Orchestrator(BaseAgent):
                 raise LLMError("模型服务暂时不可用") from exc
 
             if not tool_calls:
+                # 纯文本轮：本轮缓冲即回答（工具轮的独白在此前已被丢弃）
                 self.last_citations = list(ctx.citations)
+                text = "".join(round_parts)
+                chars += len(text)
                 self._seal_trajectory(chars)
-                return  # 纯文本轮完成
+                if text:
+                    yield text
+                return
 
-            # 工具轮：追加 assistant tool_calls 声明并执行
+            # 工具轮：本轮的 content 是独白，不产出（round_parts 直接丢弃）
             calls = [
                 ToolCall(id=e["id"], name=e["name"], arguments=e["arguments"])
                 for e in tool_calls.values()

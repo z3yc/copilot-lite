@@ -68,6 +68,7 @@ pipeline {
                     bat 'if not exist reports mkdir reports'
                     bat 'uv sync --frozen'
                     bat 'uv run ruff check .'
+                    bat 'uv run python scripts/db_init_sql.py --check'
                     bat 'uv run pytest --junitxml=reports\\junit.xml'
                 }
             }

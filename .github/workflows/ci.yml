@@ -40,6 +40,10 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check .
 
+      # 防止改了模型/迁移却忘了重新生成初始化 SQL（产物漂移 -> 导入的库与迁移链不一致）
+      - name: DB init SQL up-to-date
+        run: uv run python scripts/db_init_sql.py --check
+
       - name: Test + coverage (>=80%)
         run: uv run pytest
 

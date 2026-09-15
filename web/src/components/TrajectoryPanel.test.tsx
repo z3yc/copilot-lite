@@ -50,7 +50,8 @@ describe("TrajectoryPanel", () => {
     expect(screen.getByText("kb_agent")).toBeInTheDocument();
     expect(screen.getByText("kb_search")).toBeInTheDocument();
     expect(screen.getByText(/40ms/)).toBeInTheDocument();
-    expect(screen.getByText(/关键词兜底|模型判定/)).toBeInTheDocument();
+    // 精确断言：source="llm" 必须映射为「模型判定」，防止两分支被写反仍全绿
+    expect(screen.getByText(/模型判定/)).toBeInTheDocument();
   });
 
   it("截断时标注「已截断」", () => {
@@ -71,5 +72,32 @@ describe("TrajectoryPanel", () => {
     );
     fireEvent.click(screen.getByText(/本次回答轨迹/));
     expect(screen.getByText(/待确认/)).toBeInTheDocument();
+  });
+
+  it("外部数据按文本渲染，不产生 HTML 元素（AGENTS §5 红线）", () => {
+    render(
+      <TrajectoryPanel
+        trajectory={{
+          ...trajectory,
+          steps: [
+            {
+              type: "tool",
+              name: "kb_search",
+              arguments: '{"query": "<b>粗体</b>"}',
+              result: "<img src=x onerror=alert(1)>",
+              status: "ok",
+              ms: 5,
+            },
+          ],
+        }}
+      />
+    );
+    fireEvent.click(screen.getByText(/本次回答轨迹/));
+
+    // 载荷以文本形式可见（说明未被当作 HTML 解析）
+    expect(screen.getByText(/<img src=x onerror=alert\(1\)>/)).toBeInTheDocument();
+    // 且没有真的生成该元素
+    expect(document.querySelector("img")).toBeNull();
+    expect(document.querySelector("b")).toBeNull();
   });
 });

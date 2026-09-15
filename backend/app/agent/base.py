@@ -76,7 +76,11 @@ def confirmation_reply(pending: list[dict]) -> str:
 
 
 class BaseAgent(ABC):
-    """所有 Agent 的公共协议。"""
+    """所有 Agent 的公共协议。
+
+    可选属性（两个实现都提供，供上层落 Message.extra）：
+    last_tool_calls / pending_confirmation / last_citations / last_trajectory
+    """
 
     @abstractmethod
     async def run(

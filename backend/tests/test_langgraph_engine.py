@@ -4,6 +4,8 @@
 图结构与 astream_events 均为真实 LangGraph 执行路径；仅模型输出为预设。
 """
 
+import json
+
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
@@ -220,3 +222,107 @@ def test_engine_switch_langgraph(monkeypatch) -> None:
     monkeypatch.setattr("app.agent.langgraph_engine.LangGraphEngine", _Stub)
     agent = chat_module._build_agent()
     assert isinstance(agent, _Stub)
+
+
+# ---------- 轨迹（trajectory） ----------
+
+
+def _enable_trace(monkeypatch) -> None:
+    """conftest 默认关闭轨迹，需要轨迹的用例自行打开（顺带证明开关生效）。"""
+    monkeypatch.setattr(settings, "AGENT_TRACE_ENABLED", True)
+
+
+@pytest.mark.asyncio
+async def test_trajectory_records_route_node_and_answer(monkeypatch, db_session) -> None:
+    """路由 → 节点 → 回复：可复原路由判定来源与选中的子 Agent。"""
+    _enable_trace(monkeypatch)
+    engine = make_engine([_route_msg("chat"), AIMessage(content="你好")])
+    await engine.run(db_session, DEFAULT_USER_ID, [], "你好")
+
+    traj = engine.last_trajectory
+    assert traj["engine"] == "langgraph"
+    assert traj["truncated"] is False
+    assert [s["type"] for s in traj["steps"]] == ["route", "node", "answer"]
+    route = traj["steps"][0]
+    assert route["route"] == "chat"
+    assert route["source"] == "llm"
+    assert route["ms"] >= 0
+    assert traj["steps"][1]["node"] == "chat_agent"
+    assert traj["steps"][2]["chars"] == len("你好")
+
+
+@pytest.mark.asyncio
+async def test_trajectory_route_source_keyword_on_bad_llm_output(monkeypatch, db_session) -> None:
+    """Supervisor 输出不可解析 → 关键词兜底，轨迹如实标注 source=keyword。"""
+    _enable_trace(monkeypatch)
+    engine = make_engine([AIMessage(content="我无法判断"), AIMessage(content="好的")])
+    await engine.run(db_session, DEFAULT_USER_ID, [], "我的笔记里有什么")
+
+    route = engine.last_trajectory["steps"][0]
+    assert route["route"] == "kb"
+    assert route["source"] == "keyword"
+
+
+@pytest.mark.asyncio
+async def test_trajectory_records_tool_step(monkeypatch, db_session) -> None:
+    """工具调用与结果进轨迹（含耗时与状态）。"""
+    _enable_trace(monkeypatch)
+    engine = make_engine(
+        [
+            _route_msg("tools"),
+            AIMessage(content="", tool_calls=[{"name": "kb_search", "args": {"query": "x"}, "id": "c1"}]),
+            AIMessage(content="完成"),
+        ]
+    )
+    await engine.run(db_session, DEFAULT_USER_ID, [], "检索一下")
+
+    steps = engine.last_trajectory["steps"]
+    tool = next(s for s in steps if s["type"] == "tool")
+    assert tool["name"] == "kb_search"
+    assert tool["status"] == "ok"
+    assert tool["arguments"] == '{"query": "x"}'
+    assert tool["ms"] >= 0
+    assert tool["result"]
+
+
+@pytest.mark.asyncio
+async def test_trajectory_disabled_returns_empty(monkeypatch, db_session) -> None:
+    """开关关闭：不记录（AGENTS §8）。"""
+    monkeypatch.setattr(settings, "AGENT_TRACE_ENABLED", False)
+    engine = make_engine([_route_msg("chat"), AIMessage(content="你好")])
+    await engine.run(db_session, DEFAULT_USER_ID, [], "你好")
+    assert engine.last_trajectory == {}
+
+
+@pytest.mark.asyncio
+async def test_trajectory_no_secret_leak(monkeypatch, db_session) -> None:
+    """轨迹禁落密钥（AGENTS §6/§15 硬红线）。"""
+    _enable_trace(monkeypatch)
+    engine = make_engine(
+        [
+            _route_msg("tools"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "kb_search", "args": {"query": "x", "api_key": "sk-leak-me"}, "id": "c1"}
+                ],
+            ),
+            AIMessage(content="完成"),
+        ]
+    )
+    await engine.run(db_session, DEFAULT_USER_ID, [], "检索一下")
+
+    blob = json.dumps(engine.last_trajectory, ensure_ascii=False)
+    assert "sk-leak-me" not in blob
+
+
+@pytest.mark.asyncio
+async def test_stream_records_trajectory(monkeypatch, db_session) -> None:
+    """流式路径同样产出轨迹（回复长度=产出字符数）。"""
+    _enable_trace(monkeypatch)
+    engine = make_engine([_route_msg("chat"), AIMessage(content="流式回复")])
+    parts = [chunk async for chunk in engine.run_stream(db_session, DEFAULT_USER_ID, [], "你好")]
+
+    traj = engine.last_trajectory
+    assert [s["type"] for s in traj["steps"]] == ["route", "node", "answer"]
+    assert traj["steps"][2]["chars"] == len("".join(parts))

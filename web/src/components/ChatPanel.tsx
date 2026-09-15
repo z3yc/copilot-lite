@@ -40,6 +40,25 @@ const { Text } = Typography;
 let messageSeq = 0;
 const nextMessageId = () => `m-${Date.now().toString(36)}-${messageSeq++}`;
 
+/**
+ * 不可变更新「最后一条助手消息」（不存在则原样返回）。
+ *
+ * 统一的理由是 StrictMode 会双调用 updater：任何一处改成原地修改都会出重复内容，
+ * 机制集中在这里，三处调用不可能各自写歪（AGENTS §5 异步 UI 铁律）。
+ */
+function updateLastAssistant(
+  prev: ChatMessage[],
+  patch: Partial<ChatMessage>
+): ChatMessage[] {
+  const next = [...prev];
+  const lastIdx = next.length - 1;
+  const last = next[lastIdx];
+  if (last && last.role === "assistant") {
+    next[lastIdx] = { ...last, ...patch };
+  }
+  return next;
+}
+
 interface Props {
   sessionId: string | null;
   /** 当前会话标题；为空时回退到品牌名 */
@@ -169,48 +188,30 @@ export default function ChatPanel({
         },
         onPending: (actions) => {
           // 高风险操作挂起：给最后一条助手消息附加确认信息
-          setMessages((prev) => {
-            const next = [...prev];
-            const lastIdx = next.length - 1;
-            const last = next[lastIdx];
-            if (last && last.role === "assistant") {
-              next[lastIdx] = {
-                ...last,
-                extra: { ...(last.extra || {}), pending_confirmation: actions },
-              };
-            }
-            return next;
-          });
+          setMessages((prev) =>
+            updateLastAssistant(prev, {
+              extra: { ...(prev[prev.length - 1]?.extra || {}), pending_confirmation: actions },
+            })
+          );
         },
         onDone: (payload) => {
           // 轨迹落库随 done 一并到达（旧后端不带）：合并到最后一条助手消息
           if (payload?.trajectory) {
-            setMessages((prev) => {
-              const next = [...prev];
-              const lastIdx = next.length - 1;
-              const last = next[lastIdx];
-              if (last && last.role === "assistant") {
-                next[lastIdx] = {
-                  ...last,
-                  extra: { ...(last.extra || {}), trajectory: payload.trajectory },
-                };
-              }
-              return next;
-            });
+            setMessages((prev) =>
+              updateLastAssistant(prev, {
+                extra: { ...(prev[prev.length - 1]?.extra || {}), trajectory: payload.trajectory },
+              })
+            );
           }
           setBusy(false);
         },
         onError: (msg) => {
           setMessages((prev) => {
-            const next = [...prev];
-            const lastIdx = next.length - 1;
-            const last = next[lastIdx];
+            const last = prev[prev.length - 1];
             if (last && last.role === "assistant" && !last.content) {
-              next[lastIdx] = { ...last, content: `生成出错：${msg}` };
-            } else {
-              next.push({ role: "assistant", content: `生成出错：${msg}` });
+              return updateLastAssistant(prev, { content: `生成出错：${msg}` });
             }
-            return next;
+            return [...prev, { role: "assistant", content: `生成出错：${msg}` }];
           });
           setBusy(false);
         },

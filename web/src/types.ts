@@ -15,6 +15,7 @@ export interface ChatMessage {
     pending_confirmation?: PendingAction[];
     tool_calls?: unknown[];
     citations?: Citation[];
+    trajectory?: Trajectory;
   };
 }
 
@@ -24,6 +25,33 @@ export interface Citation {
   document_id?: string;
   source: string;
   snippet?: string;
+}
+
+/** Agent 轨迹单步：路由 / 节点 / 工具 / 回复（与后端 step 词汇表一一对应）。 */
+export interface TrajectoryStep {
+  type: "route" | "node" | "tool" | "answer";
+  /** type=route */
+  route?: string;
+  source?: "llm" | "keyword";
+  /** type=node */
+  node?: string;
+  /** type=tool */
+  name?: string;
+  arguments?: string;
+  result?: string;
+  status?: "ok" | "pending_confirmation";
+  /** type=answer */
+  chars?: number;
+  /** 该步耗时（毫秒；route/tool 有） */
+  ms?: number;
+}
+
+/** 一次回答的完整轨迹（后端规范化后落 Message.extra.trajectory）。 */
+export interface Trajectory {
+  engine: string;
+  total_ms: number;
+  truncated: boolean;
+  steps: TrajectoryStep[];
 }
 
 export interface PendingAction {

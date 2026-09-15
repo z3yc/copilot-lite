@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,11 +29,12 @@ from app.connectors.obsidian.service import (
     build_graph,
     refresh_page,
 )
+from app.core import jobs
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.pagination import DEFAULT_PAGE_SIZE, PageOut, normalize_page, page_offset
 from app.core.soft_delete import mark_deleted
-from app.models import Chunk, Document, User, WikiLink, WikiPage, WikiSpace
+from app.models import Chunk, Document, Job, User, WikiLink, WikiPage, WikiSpace
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/wiki", tags=["wiki"])
@@ -98,6 +99,13 @@ class SyncResult(BaseModel):
     imported_files: int | None = None
 
 
+class SyncAccepted(BaseModel):
+    """异步接受（J1）：返回作业 id，前端轮询 `/jobs/{id}` 取进度与结果。"""
+
+    job_id: str
+    status: str = "queued"
+
+
 class GraphNode(BaseModel):
     id: str
     title: str
@@ -155,6 +163,46 @@ def _connector():
 def _ensure_enabled() -> None:
     if not settings.WIKI_ENABLED:
         raise HTTPException(status_code=503, detail="Wiki 功能未启用")
+
+
+# ---------------- 后台作业（J1：异步摄取/同步）----------------
+
+WIKI_SYNC_KIND = "wiki_sync"
+
+
+async def _wiki_sync_handler(db: AsyncSession, job: Job) -> dict:
+    """作业处理器：按 payload.space_id 执行增量同步（后台跑，不阻塞请求）。"""
+    space = await db.get(WikiSpace, parse_uuid(str(job.payload.get("space_id", ""))))
+    if space is None or space.deleted_at is not None:
+        raise WikiServiceError("Wiki 空间不存在")
+    stats = await _connector().sync(db, job.user_id, space)
+    imported = job.payload.get("imported_files")
+    if imported is not None:
+        stats = {**stats, "imported_files": imported}
+    return stats
+
+
+jobs.register_handler(WIKI_SYNC_KIND, _wiki_sync_handler)
+
+
+async def _accept_or_none(
+    db: AsyncSession,
+    user: User,
+    space: WikiSpace,
+    *,
+    imported_files: int | None = None,
+) -> SyncAccepted | None:
+    """作业开关打开时把「同步」转成后台作业；关闭时返回 None（调用方内联执行）。"""
+    if not settings.JOBS_ENABLED:
+        return None
+    payload: dict = {"space_id": str(space.id)}
+    if imported_files is not None:
+        payload["imported_files"] = imported_files
+    job = await jobs.submit_job(
+        db, user_id=user.id, kind=WIKI_SYNC_KIND, payload=payload
+    )
+    await jobs.schedule_job(job.id)
+    return SyncAccepted(job_id=str(job.id))
 
 
 # ---------------- 空间 ----------------
@@ -231,14 +279,15 @@ async def delete_wiki_space(
 # ---------------- 导入 / 同步 ----------------
 
 
-@router.post("/spaces/{space_id}/import", response_model=SyncResult)
+@router.post("/spaces/{space_id}/import", response_model=SyncResult | SyncAccepted)
 async def import_wiki_zip(
     space_id: str,
     file: UploadFile,
+    response: Response,
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
-) -> SyncResult:
-    """上传 Obsidian vault 的 zip 包：解压到受管副本后立即同步。"""
+) -> SyncResult | SyncAccepted:
+    """上传 Obsidian vault 的 zip 包：解压到受管副本后同步（J1：开关开→异步）。"""
     _ensure_enabled()
     space = await _get_space(db, space_id, user)
     content = await file.read(settings.WIKI_MAX_ARCHIVE_BYTES + 1)
@@ -250,18 +299,23 @@ async def import_wiki_zip(
         imported = await _connector().import_archive(db, user.id, space, content)
     except (WikiImportError, WikiServiceError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    accepted = await _accept_or_none(db, user, space, imported_files=imported)
+    if accepted is not None:
+        response.status_code = 202
+        return accepted
     stats = await _sync(db, user, space)
     return SyncResult(**stats, imported_files=imported)
 
 
-@router.post("/spaces/{space_id}/import-files", response_model=SyncResult)
+@router.post("/spaces/{space_id}/import-files", response_model=SyncResult | SyncAccepted)
 async def import_wiki_files(
     space_id: str,
+    response: Response,
     files: list[UploadFile] = File(...),
     paths: str = Form("[]"),
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
-) -> SyncResult:
+) -> SyncResult | SyncAccepted:
     """上传单/多文件（或文件夹，带相对路径）到 Wiki 空间后同步。
 
     paths：与 files 同序的 JSON 数组（相对路径），用于保留文件夹结构；缺省用文件名。
@@ -292,19 +346,28 @@ async def import_wiki_files(
         imported = await _connector().import_files(db, user.id, space, items)
     except (WikiImportError, WikiServiceError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    accepted = await _accept_or_none(db, user, space, imported_files=imported)
+    if accepted is not None:
+        response.status_code = 202
+        return accepted
     stats = await _sync(db, user, space)
     return SyncResult(**stats, imported_files=imported)
 
 
-@router.post("/spaces/{space_id}/sync", response_model=SyncResult)
+@router.post("/spaces/{space_id}/sync", response_model=SyncResult | SyncAccepted)
 async def sync_wiki_space(
     space_id: str,
+    response: Response,
     db: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
-) -> SyncResult:
-    """手动同步：扫描受管副本并增量更新索引。"""
+) -> SyncResult | SyncAccepted:
+    """手动同步：扫描受管副本并增量更新索引（J1：开关开→返回 job_id 后台跑）。"""
     _ensure_enabled()
     space = await _get_space(db, space_id, user)
+    accepted = await _accept_or_none(db, user, space)
+    if accepted is not None:
+        response.status_code = 202
+        return accepted
     stats = await _sync(db, user, space)
     return SyncResult(**stats)
 

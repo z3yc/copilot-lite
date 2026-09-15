@@ -1,5 +1,6 @@
 """Wiki M1 测试：语法解析 / zip 安全 / 导入同步 / 页面与链接图 / 隔离。"""
 
+import asyncio
 import hashlib
 import io
 import json
@@ -737,3 +738,78 @@ async def test_wiki_graph_tag_without_match(authed_headers, wiki_env):
         )
         data = await _graph(client, authed_headers, sid, tag="nope")
     assert data["nodes"] == [] and data["total_nodes"] == 0
+
+
+# ---------------- J1 异步摄取/同步 ----------------
+
+
+async def _wait_job(client, headers: dict, job_id: str) -> dict:
+    """轮询作业至终态（限时防挂，返回最后一次响应体）。"""
+    data: dict = {}
+    for _ in range(120):
+        resp = await client.get(f"/api/v1/jobs/{job_id}", headers=headers)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        if data["status"] in {"done", "dead"}:
+            return data
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"作业未在限时内结束: {data}")
+
+
+async def test_wiki_sync_async_returns_job(authed_headers, wiki_env, monkeypatch):
+    """J1：JOBS_ENABLED 打开时同步接口返回 202+job_id，后台跑完后结果可查。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 导入阶段先走内联（开关关），保证空间有内容
+        monkeypatch.setattr(settings, "JOBS_ENABLED", False)
+        sid = await _create_space(client, authed_headers, "async-sync")
+        imported = await _import(client, authed_headers, sid, {"A.md": "# A\n\n正文"})
+        assert imported.status_code == 200, imported.text
+
+        # 打开开关：同步改为异步接受
+        monkeypatch.setattr(settings, "JOBS_ENABLED", True)
+        resp = await client.post(
+            f"/api/v1/wiki/spaces/{sid}/sync", headers=authed_headers
+        )
+        assert resp.status_code == 202, resp.text
+        accepted = resp.json()["data"]
+        assert accepted["job_id"]
+        assert accepted["status"] == "queued"
+
+        done = await _wait_job(client, authed_headers, accepted["job_id"])
+
+    assert done["status"] == "done", done
+    assert done["progress"] == 100
+    assert done["result"]["total"] == 1
+
+
+async def test_wiki_import_async_keeps_imported_count(authed_headers, wiki_env, monkeypatch):
+    """J1：异步导入仍如实返回写入文件数（由作业载荷带入 result）。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        monkeypatch.setattr(settings, "JOBS_ENABLED", True)
+        sid = await _create_space(client, authed_headers, "async-import")
+        repr_import = await _import(
+            client, authed_headers, sid, {"A.md": "# A\n\n正文", "B.md": "# B\n\n正文"}
+        )
+        assert repr_import.status_code == 202, repr_import.text
+        job_id = repr_import.json()["data"]["job_id"]
+
+        done = await _wait_job(client, authed_headers, job_id)
+
+    assert done["status"] == "done", done
+    assert done["result"]["imported_files"] == 2
+    assert done["result"]["added"] == 2
+
+
+async def test_wiki_sync_inline_when_jobs_disabled(authed_headers, wiki_env):
+    """J1：开关关闭时保持旧行为（内联执行，直接返回统计，不建作业）。"""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        sid = await _create_space(client, authed_headers, "inline-sync")
+        await _import(client, authed_headers, sid, {"A.md": "# A"})
+        resp = await client.post(
+            f"/api/v1/wiki/spaces/{sid}/sync", headers=authed_headers
+        )
+    assert resp.status_code == 200, resp.text
+    assert "added" in resp.json()["data"]

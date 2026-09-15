@@ -10,6 +10,7 @@ import type {
   ChatMessage,
   DocDetail,
   DocItem,
+  JobInfo,
   LLMSettings,
   MemoryItem,
   PendingAction,
@@ -22,7 +23,7 @@ import type {
   WikiPage,
   WikiPageDetail,
   WikiSpace,
-  WikiSyncStats,
+  WikiSyncResponse,
 } from "./types";
 
 const BASE = "/api/v1";
@@ -255,15 +256,15 @@ export const deleteWikiSpace = (id: string) =>
   request<{ deleted: string }>(`/wiki/spaces/${id}`, { method: "DELETE" });
 
 export const syncWikiSpace = (id: string) =>
-  request<WikiSyncStats>(`/wiki/spaces/${id}/sync`, { method: "POST" });
+  request<WikiSyncResponse>(`/wiki/spaces/${id}/sync`, { method: "POST" });
 
 export async function importWikiZip(
   spaceId: string,
   file: File
-): Promise<WikiSyncStats> {
+): Promise<WikiSyncResponse> {
   const form = new FormData();
   form.append("file", file);
-  return request<WikiSyncStats>(`/wiki/spaces/${spaceId}/import`, {
+  return request<WikiSyncResponse>(`/wiki/spaces/${spaceId}/import`, {
     method: "POST",
     body: form,
   });
@@ -274,14 +275,38 @@ export async function importWikiFiles(
   spaceId: string,
   files: File[],
   paths: string[]
-): Promise<WikiSyncStats> {
+): Promise<WikiSyncResponse> {
   const form = new FormData();
   files.forEach((file) => form.append("files", file));
   form.append("paths", JSON.stringify(paths));
-  return request<WikiSyncStats>(`/wiki/spaces/${spaceId}/import-files`, {
+  return request<WikiSyncResponse>(`/wiki/spaces/${spaceId}/import-files`, {
     method: "POST",
     body: form,
   });
+}
+
+// ---- 通用后台作业（J1）----
+export const fetchJob = (id: string, signal?: AbortSignal) =>
+  request<JobInfo>(`/jobs/${id}`, { signal });
+
+/**
+ * 轮询作业至终态（done / dead）。
+ *
+ * - 可取消：传 `signal` 后请求与轮询可被中止（AGENTS §5：异步必须可取消）；
+ * - 有上限：超过 `timeoutMs` 抛错，避免无限轮询。
+ */
+export async function waitForJob(
+  jobId: string,
+  opts: { intervalMs?: number; timeoutMs?: number; signal?: AbortSignal } = {}
+): Promise<JobInfo> {
+  const { intervalMs = 1200, timeoutMs = 15 * 60 * 1000, signal } = opts;
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const job = await fetchJob(jobId, signal);
+    if (job.status === "done" || job.status === "dead") return job;
+    if (Date.now() >= deadline) throw new Error("后台任务超时，请稍后重试");
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
 }
 
 export const fetchWikiPages = (

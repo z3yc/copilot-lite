@@ -224,7 +224,7 @@ POST /admin/eval/runs → 建 eval_runs(status=queued) → 返回 run_id
 | 批次 M1 | `source_type` 入 payload → per-source 切片 |
 | 批次 L | 审计表/软删除（N0.2 复用） |
 | 批次 L7 | 账号软删除（N0.6 / N1.3 承接） |
-| 批次 J1 | `jobs` 表（可选，N0.5 可自带状态机） |
+| 批次 J1 | `jobs` 表（✅ 已落地，可复用；`eval_runs` 迁移为后续项） |
 | 批次 I | 多租户（P3），接缝在 N0 |
 
 | 风险 | 对策 |
@@ -239,6 +239,6 @@ POST /admin/eval/runs → 建 eval_runs(status=queued) → 返回 run_id
 
 ## 12. 已定技术选型（默认，不再单列待定）
 - **图表库**：`recharts`（体积小、够用；不引重型 charts 包）。
-- **作业机制**：先用 `eval_runs` 自带状态机（不提前引 `jobs` 表）；J1 落地后再迁移。
+- **作业机制**：~~先用 `eval_runs` 自带状态机（不提前引 `jobs` 表）~~ **J1 已落地通用 `jobs` 表**（`app/core/jobs.py`：handler 注册表 + 限并发/超时 + 自动重试→dead + `/jobs` 查询/重试）；`eval_runs` 迁移到统一作业机制列为后续项，N2.2 评测执行器可直接复用。
 - **评测结果存储**：DB 表（`eval_runs` / `eval_items`），便于趋势与下钻。
 - **后台入口**：独立 `/admin` 路由（与个人主页解耦，利于日后权限收口）。

@@ -39,8 +39,15 @@ import {
   resolveWikiPage,
   resyncWikiPage,
   syncWikiSpace,
+  waitForJob,
 } from "../api";
-import type { WikiPage, WikiPageDetail, WikiSpace } from "../types";
+import type {
+  WikiPage,
+  WikiPageDetail,
+  WikiSpace,
+  WikiSyncAccepted,
+  WikiSyncStats,
+} from "../types";
 import { renderObsidian } from "../utils/obsidian";
 import { keyboardActivate } from "../utils/a11y";
 import SiderPortal from "./SiderPortal";
@@ -69,6 +76,28 @@ export default function WikiPanel() {
   const [serverPath, setServerPath] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dirInputRef = useRef<HTMLInputElement>(null);
+  // 后台作业轮询的取消控制器（AGENTS §5：异步可取消，防旧响应覆盖新操作）
+  const jobAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => jobAbortRef.current?.abort(), []);
+
+  /** J1：后端可能返回 202 作业受理（job_id）；轮询至完成后取回统计。 */
+  const resolveStats = async (
+    resp: WikiSyncStats | WikiSyncAccepted
+  ): Promise<WikiSyncStats> => {
+    if (!("job_id" in resp)) return resp;
+    jobAbortRef.current?.abort();
+    const controller = new AbortController();
+    jobAbortRef.current = controller;
+    message.loading({ content: "后台同步中…", key: "wiki-job", duration: 0 });
+    try {
+      const job = await waitForJob(resp.job_id, { signal: controller.signal });
+      if (job.status !== "done") throw new Error(job.error || "后台同步失败");
+      return job.result as unknown as WikiSyncStats;
+    } finally {
+      message.destroy("wiki-job");
+    }
+  };
 
   const loadSpaces = useCallback(async () => {
     try {
@@ -132,7 +161,7 @@ export default function WikiPanel() {
       setCreateOpen(false);
       if (sourceType === "local") {
         // 本地文件夹无需上传，直接扫描
-        const stats = await syncWikiSpace(space.id);
+        const stats = await resolveStats(await syncWikiSpace(space.id));
         message.success(`已扫描本地文件夹，新纳入 ${stats.added} 个页面`);
         await Promise.all([loadSpaces(), loadPages()]);
       } else {
@@ -161,7 +190,7 @@ export default function WikiPanel() {
     if (!activeSpace) return;
     setBusy(true);
     try {
-      const stats = await syncWikiSpace(activeSpace);
+      const stats = await resolveStats(await syncWikiSpace(activeSpace));
       message.success(
         `同步完成：新增 ${stats.added} / 更新 ${stats.updated} / 移动 ${stats.moved} / 删除 ${stats.deleted}` +
           (stats.skipped ? ` / 跳过 ${stats.skipped}` : "")
@@ -181,7 +210,7 @@ export default function WikiPanel() {
     }
     setBusy(true);
     try {
-      const stats = await importWikiZip(activeSpace, file);
+      const stats = await resolveStats(await importWikiZip(activeSpace, file));
       showImportResult(stats);
       await Promise.all([loadSpaces(), loadPages()]);
     } catch (err) {
@@ -214,7 +243,9 @@ export default function WikiPanel() {
     });
     setBusy(true);
     try {
-      const stats = await importWikiFiles(activeSpace, arr, paths);
+      const stats = await resolveStats(
+        await importWikiFiles(activeSpace, arr, paths)
+      );
       showImportResult(stats);
       await Promise.all([loadSpaces(), loadPages()]);
     } catch (err) {

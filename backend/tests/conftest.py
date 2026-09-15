@@ -13,6 +13,8 @@ os.environ["MEMORY_EXTRACT_ENABLED"] = "false"
 os.environ["SUMMARY_COMPRESS_ENABLED"] = "false"
 # 测试环境关闭评测后台作业（后台任务必须默认关闭，AGENTS §8）
 os.environ["EVAL_JOB_ENABLED"] = "false"
+# 测试环境关闭通用后台作业（同上；wiki import/sync 用例默认走内联，关闭后行为同旧版）
+os.environ["JOBS_ENABLED"] = "false"
 # 测试环境关闭嵌入模型预热（避免下载模型）
 os.environ["EMBEDDING_PREWARM"] = "false"
 # 测试环境注入假 LLM Key（chat.py 的 _validate_llm_config 会校验 key 非空；

@@ -62,6 +62,31 @@ export interface WikiSyncStats {
   imported_files?: number | null;
 }
 
+/** J1：异步摄取/同步被受理（后端 202 + 作业 id，前端轮询 /jobs/{id}）。 */
+export interface WikiSyncAccepted {
+  job_id: string;
+  status: string;
+}
+
+/** 同步类接口返回：内联统计 或 异步作业受理（开关决定）。 */
+export type WikiSyncResponse = WikiSyncStats | WikiSyncAccepted;
+
+/** 通用后台作业（GET /jobs/{id}）。 */
+export interface JobInfo {
+  id: string;
+  kind: string;
+  status: "queued" | "running" | "done" | "failed" | "dead";
+  progress: number;
+  attempts: number;
+  max_attempts: number;
+  error?: string | null;
+  result: Record<string, unknown>;
+  payload?: Record<string, unknown>;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
 export interface WikiPage {
   id: string;
   space_id: string;

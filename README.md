@@ -7,6 +7,7 @@
 
 ## 目录
 
+- [🛠 本地开发环境（DEVELOPMENT）](DEVELOPMENT.md)
 - [📋 项目工作计划（PLAN）](PLAN.md)
 - [项目简介](#项目简介)
 - [核心特性](#核心特性)
@@ -209,6 +210,8 @@ copilot-lite/
 ## 快速开始
 
 > 全栈（P0-P3 已实现）：开发模式无需 Docker，一键启动前后端。P4 已具备 CI 与云端部署编排（预留）。
+>
+> 👉 **参与开发请看 [DEVELOPMENT.md](DEVELOPMENT.md)**（环境要求 / 启动 / 测试与排错）；云端部署见 [deploy/DEPLOY.md](deploy/DEPLOY.md)。
 
 ### 方式一：一键启动（推荐）
 
@@ -225,8 +228,7 @@ powershell -ExecutionPolicy Bypass -File scripts\dev_start.ps1
 # 1. 后端（终端 1）
 cd backend
 uv sync                              # 安装依赖（Python 3.12）
-uv run alembic upgrade head          # 数据库迁移
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload # 本地模式启动时自动建表，无需 alembic（见 DEVELOPMENT.md §2.4）
 
 # 2. 前端（终端 2）
 cd web && npm install && npm run dev # 访问 http://localhost:5173

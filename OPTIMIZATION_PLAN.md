@@ -33,8 +33,8 @@
 > ⏸ = 按需、不进路线图（等同冻结，不单列于 §11）。
 > **进度事实来源：§13**。`PLAN.md` 的 P5/P6 与 `ADMIN_PLAN.md` 的 N2/N3 均为**镜像**；调整进度时先改 §13。
 
-**当前基线**：后端 **393 用例 / 覆盖率 83.60%**、ruff 全过；前端 **112 用例**、build 零错误；CLI **15 用例**（沿用 `develop` 基线，R3 未改 CLI）。
-（数据为分支 `feat/rag-citation-source` @ `b813b79` 实测；R3 起点 `develop` @ `e772c7d` 为后端 380 / 83.39%、前端 107。）
+**当前基线**：后端 **394 用例 / 覆盖率 83.65%**、ruff 全过；前端 **125 用例**、build 零错误；CLI **15 用例**（沿用 `develop` 基线，R3 未改 CLI）。
+（数据为 `fix/citation-jump-target` @ `1816bb7` 实测；R3 起点 `develop` @ `e772c7d` 为后端 380 / 83.39%、前端 107。）
 
 ---
 
@@ -334,7 +334,11 @@
 - [ ] **合并 `feat/rag-citation-source`**（R3 / M5 引用来源标注：`app/rag/citations.py` + `SourceConnector.describe_sources` + Obsidian 身份解析 + `kb_search` 接线 + 前端标签/跳转，共 6 个提交 `0f76e0e..b813b79`）→ `develop`——**待维护者批准**。
   - 验收：后端 393 / 83.60%、`ruff` 全过；前端 112 / 19 文件、`build` 零错误（分支 tip 实测）。
   - 未做：真实模型端到端 + 浏览器点击跳转的目视复验（需运行服务与预置 Wiki 数据），已列入合并前人工复验清单。
-- [ ] **推送 `private-docs`**：含本轮累积记录（`docs/优化落地记录.md` R2 / R2.1 / R3 节、`docs/plans/` 两份 R3 设计与实施计划、R2 实施计划与预检修订、`面试准备/2026-09-15-流式截断与独白泄漏复盘.md`）——**待维护者确认**（按 §11 只推 GitHub）。
+- [ ] **合并 `fix/citation-jump-target`**（R3.1 + R3.2 修复：人工核验发现的四类问题——跳转落点不依赖列表、wiki 不降级为文档、同轮多次检索编号累加、正文 `[n]` 可点，四个提交 `14d7aa2..1816bb7`）→ **先合入 `feat/rag-citation-source`**（缺陷属 R3 引入、R3 尚未合并），再随 R3 一并进 `develop`——**待维护者批准**。
+  - 验收：后端 394 / 83.65%、`ruff` 全过；前端 125 / 20 文件、`build` 零错误（分支 tip 实测）。
+  - 回归用例：wiki 缺 `page_id` 必须不可点（`utils/citation.test.ts`）、目标不在列表仍能打开详情（`KbPanel.test.tsx`）、同轮两次 `kb_search` 编号连续且累加（`test_kb_tool.py`）、正文 `[n]` 可点且无对应引用不做死链（`ChatPanel.test.tsx`）。
+  - 已知边界：历史消息 citations 已落库不重算（旧消息需重新提问才有效）。
+- [ ] **推送 `private-docs`**：含本轮累积记录（`docs/优化落地记录.md` R2 / R2.1 / R3 / R3.1 / R3.2 节、`docs/plans/` 两份 R3 设计与实施计划、R2 实施计划与预检修订、`面试准备/2026-09-15-流式截断与独白泄漏复盘.md`、`面试准备/2026-09-16-引用溯源与跳转复盘.md`）——**待维护者确认**（按 §11 只推 GitHub）。
 
 
 ---
@@ -375,10 +379,10 @@
 
 ## 14. 验收总门槛
 
-> 本清单为**验收快照**（@ `b813b79` R3 分支 tip 实测；上一快照 @ `af9ed5f` R2 分支 tip），数字随基线推进可能滞后；`develop` 基线见 §1。
+> 本清单为**验收快照**（@ `1816bb7` R3.2 分支 tip 实测；上一快照 @ `af9ed5f` R2 分支 tip），数字随基线推进可能滞后；`develop` 基线见 §1。
 
-- [x] 后端 `pytest` 全绿且覆盖率 ≥ 80%（**393 / 83.60%**）
+- [x] 后端 `pytest` 全绿且覆盖率 ≥ 80%（**394 / 83.65%**）
 - [x] 后端 `ruff check .` 全过
-- [x] 前端 `npm test` 全绿（**112**）、`npm run build` 零错误
+- [x] 前端 `npm test` 全绿（**125**）、`npm run build` 零错误
 - [x] CLI `pytest` 全绿（**15**）、`ruff` 全过
 - [x] 删除操作全量软删除（`deleted_at`/`deleted_by`）且列表/检索已过滤（批次 L：已完成）

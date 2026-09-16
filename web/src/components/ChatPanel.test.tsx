@@ -108,7 +108,8 @@ describe("ChatPanel", () => {
       ],
     });
     expect(screen.getByText("来源：")).toBeInTheDocument();
-    expect(screen.getByText("[1]")).toBeInTheDocument();
+    // 两处都有：[n] 正文引用 + 来源行条目（正文 [n] 现在也可点）
+    expect(screen.getAllByText("[1]")).toHaveLength(2);
   });
 
   it("Wiki 引用显示类型标签并可点击跳转", async () => {
@@ -157,6 +158,60 @@ describe("ChatPanel", () => {
     expect(screen.queryByRole("button", { name: "查看来源 1" })).not.toBeInTheDocument();
     expect(screen.getByTitle("旧文档 > 第一章")).toHaveTextContent("[1]");
     expect(onOpenCitation).not.toHaveBeenCalled();
+  });
+
+  it("wiki 引用缺失 page_id 时不可点，且不误跳知识库", () => {
+    const onOpenCitation = vi.fn();
+    renderPanel({
+      onOpenCitation,
+      initialMessages: [
+        {
+          role: "assistant",
+          content: "答案 [1]",
+          extra: {
+            citations: [
+              {
+                index: 1,
+                chunk_id: "c1",
+                document_id: "d1",
+                source: "Wiki / 我的笔记 / 已删页面",
+                source_kind: "wiki" as const,
+              },
+            ],
+          },
+        },
+      ],
+    });
+    // 关键回归：有 document_id 也不能降级成文档按钮（否则会跳到知识库里的错文档）
+    expect(screen.queryByRole("button", { name: "查看来源 1" })).not.toBeInTheDocument();
+    expect(screen.getByTitle("Wiki / 我的笔记 / 已删页面（页面已删除或暂不可用）")).toHaveTextContent(
+      "[1]"
+    );
+    expect(onOpenCitation).not.toHaveBeenCalled();
+  });
+
+  it("正文里的 [n] 可点击跳转（模型把引用写进正文/自写来源清单）", async () => {
+    const onOpenCitation = vi.fn();
+    renderPanel({
+      onOpenCitation,
+      initialMessages: [
+        {
+          role: "assistant",
+          content: "每周清空一次 [1]；另外 [9] 没有对应来源",
+          extra: {
+            citations: [
+              { index: 1, chunk_id: "c1", document_id: "d1", source: "文档 / a.pdf" },
+            ],
+          },
+        },
+      ],
+    });
+    const inline = screen.getByRole("link", { name: "[1]" });
+    fireEvent.click(inline);
+    expect(onOpenCitation).toHaveBeenCalledTimes(1);
+    expect(onOpenCitation.mock.calls[0][0].index).toBe(1);
+    // 无对应引用的编号不做死链（保持纯文本）
+    expect(screen.queryByRole("link", { name: "[9]" })).not.toBeInTheDocument();
   });
 
   it("有待确认操作时展示确认按钮并调用 confirmChat", async () => {

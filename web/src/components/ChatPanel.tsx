@@ -29,6 +29,7 @@ import {
 } from "../api";
 import { ACCEPT_EXTENSIONS } from "../constants";
 import type { ChatMessage, Citation, SessionFile } from "../types";
+import { CITE_HREF_PREFIX, linkifyCitations, resolveCitationTarget } from "../utils/citation";
 import { renderMarkdown } from "../utils/markdown";
 import ModelSelect from "./ModelSelect";
 import TrajectoryPanel from "./TrajectoryPanel";
@@ -135,6 +136,25 @@ export default function ChatPanel({
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
+
+  /** 引用激活（来源行与正文 [n] 共用）：可跳则交给上层，否则只提示。 */
+  const activateCitation = useCallback(
+    (c: Citation) => {
+      if (resolveCitationTarget(c) && onOpenCitation) onOpenCitation(c);
+      else message.info(`[${c.index}] ${c.source}`);
+    },
+    [onOpenCitation]
+  );
+
+  /** 正文内的引用链接（由 linkifyCitations 生成）点击 → 拦截跳转，不走页面锚点。 */
+  const onContentClick = (e: React.MouseEvent<HTMLElement>, citations: Citation[]) => {
+    const anchor = (e.target as HTMLElement).closest?.(`a[href^="${CITE_HREF_PREFIX}"]`);
+    if (!anchor) return;
+    e.preventDefault();
+    const index = Number(anchor.getAttribute("href")!.slice(CITE_HREF_PREFIX.length));
+    const cite = citations.find((c) => c.index === index);
+    if (cite) activateCitation(cite);
+  };
 
   // 仅在用户停留底部时自动跟随，避免上翻阅读历史时被新 chunk 强行拽回
   useEffect(() => {
@@ -339,7 +359,19 @@ export default function ChatPanel({
               {m.role === "assistant" && !m.content && busy ? (
                 <span>▍</span>
               ) : (
-                <span dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
+                <span
+                  onClick={(e) => onContentClick(e, m.extra?.citations ?? [])}
+                  dangerouslySetInnerHTML={{
+                    __html: renderMarkdown(
+                      m.role === "assistant"
+                        ? linkifyCitations(
+                            m.content,
+                            (m.extra?.citations ?? []).map((c) => c.index)
+                          )
+                        : m.content
+                    ),
+                  }}
+                />
               )}
               {m.role === "assistant" && (m.extra?.citations?.length ?? 0) > 0 && (
                 <div className="citations">
@@ -347,13 +379,9 @@ export default function ChatPanel({
                     来源：
                   </span>
                   {m.extra!.citations!.map((c) => {
-                    // 可跳转条件：Wiki 页面已解析出 page_id，或有文档 id（旧数据两者皆无 → 纯文本）
-                    const navigable = !!(c.wiki?.page_id || c.document_id);
-                    const onActivate = () => {
-                      if (navigable && onOpenCitation) onOpenCitation(c);
-                      else message.info(`[${c.index}] ${c.source}`);
-                    };
-                    return navigable ? (
+                    // 可跳转判据与 App 一致：wiki 缺 page_id 时不可点（不降级到文档）
+                    const target = resolveCitationTarget(c);
+                    return target ? (
                       <a
                         key={c.index}
                         className="cite"
@@ -363,19 +391,27 @@ export default function ChatPanel({
                         title={c.source}
                         onClick={(e) => {
                           e.stopPropagation();
-                          onActivate();
+                          activateCitation(c);
                         }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            onActivate();
+                            activateCitation(c);
                           }
                         }}
                       >
                         [{c.index}]
                       </a>
                     ) : (
-                      <span key={c.index} className="cite" title={c.source}>
+                      <span
+                        key={c.index}
+                        className="cite"
+                        title={
+                          c.source_kind === "wiki"
+                            ? `${c.source}（页面已删除或暂不可用）`
+                            : c.source
+                        }
+                      >
                         [{c.index}]
                       </span>
                     );

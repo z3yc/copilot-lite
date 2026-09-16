@@ -31,6 +31,7 @@ import { clearToken, fetchMessages, fetchProfile, getToken } from "./api";
 import { SiderNavContext } from "./contexts/SiderNav";
 import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
 import { keyboardActivate } from "./utils/a11y";
+import { resolveCitationTarget, type CitationTarget } from "./utils/citation";
 import ApiKeyOnboarding from "./components/ApiKeyOnboarding";
 import AdminPanel from "./components/AdminPanel";
 import ChatPanel from "./components/ChatPanel";
@@ -46,9 +47,7 @@ import type { ChatMessage, Citation, Profile } from "./types";
 const { Sider, Content } = Layout;
 
 /** 引用跳转目标（App 层一次性状态：切换页签 → 目标面板消费后清空） */
-type OpenTarget =
-  | { kind: "wiki"; pageId: string; spaceId?: string }
-  | { kind: "doc"; docId: string };
+type OpenTarget = CitationTarget;
 
 // 侧栏可拖拽调宽范围与默认值（宽度记忆到 localStorage）
 const SIDER_MIN = 240;
@@ -172,24 +171,20 @@ export default function App() {
   }, []);
 
   // 退出管理后台/个人主页，回到工作区（点侧栏页签时调用，避免页签成为死控件）
-  // 引用点击：Wiki 引用 → 切 Wiki 页签打开页面；文档引用 → 切知识库展开文档详情
+  // 引用点击：Wiki → 切 Wiki 页签打开页面；文档 → 切知识库展开文档详情
+  // 判据收敛在 resolveCitationTarget（wiki 缺 page_id 时不跳，不降级到文档）
   const openCitation = useCallback((c: Citation) => {
-    if (c.wiki?.page_id) {
-      setShowAdmin(false);
-      setShowProfile(false);
+    const target = resolveCitationTarget(c);
+    if (!target) return;
+    setShowAdmin(false);
+    setShowProfile(false);
+    if (target.kind === "wiki") {
       setTab("wiki");
-      setOpenTarget({
-        kind: "wiki",
-        pageId: c.wiki.page_id,
-        spaceId: c.wiki.space_id || undefined,
-      });
-    } else if (c.document_id) {
-      setShowAdmin(false);
-      setShowProfile(false);
+    } else {
       setTab("kb");
       setActiveCat("all"); // 复位分类过滤，目标文档可能不在当前分类
-      setOpenTarget({ kind: "doc", docId: c.document_id });
     }
+    setOpenTarget(target);
   }, []);
 
   const closeOverlays = useCallback(() => {

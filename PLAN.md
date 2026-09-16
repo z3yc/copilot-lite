@@ -29,7 +29,7 @@ P5 部署面试 ░░░░░░░░░░   0%（文档已就绪，云端�
 P6 收敛交付 █████░░░░░  50%（R0、R2、R3、R4 已完成；R1 见 P5；见 OPTIMIZATION_PLAN §13）
 ```
 
-**Git 现状**：`feat/mcp-foundation` 后端 **479 用例 / 覆盖率 84.39%**、`ruff` 全过；前端 **125 用例**、build 零错误；CLI **15 用例**（R4 未改前端/CLI，基线沿用 R3）；CI/CD 由本机 Jenkins 承载（见 `docs/CICD_PLAN.md`）。
+**Git 现状**：`develop` @ `4c8f4a6`（R4 合并后）后端 **479 用例 / 覆盖率 84.39%**、`ruff` 全过；前端 **125 用例**、build 零错误；CLI **15 用例**（R4 未改前端/CLI，基线沿用 R3）；已推 GitHub + Gitee；CI/CD 由本机 Jenkins 承载（见 `docs/CICD_PLAN.md`）。
 **范围基准**：本轮已收敛为 **R0-R7**（`OPTIMIZATION_PLAN.md` §13），冻结项见该文件 §11；需求准入规则见 `DEMO_SCRIPT.md`。
 
 ---
@@ -133,7 +133,7 @@ P6 收敛交付 █████░░░░░  50%（R0、R2、R3、R4 已完�
 - [x] **R0** 计划收敛（本批交付）：三份计划改造 + 冻结清单（带重启条件）+ `DEMO_SCRIPT.md`
 - [x] **R2** Q1 trajectory 可观测
 - [x] **R3** M5 引用来源标注（含跳转四修 R3.1/R3.2；合并 `2e818e5`，后端 394 / 83.65%、前端 125）
-- [x] **R4** P-F1 MCP 地基 + `fund_tool`（`feat/mcp-foundation`：自建基金净值 MCP server + 通用 stdio client + 行情适配缓存 + `fund_query`；真机对话实测通过；后端 479 / 84.39%）
+- [x] **R4** P-F1 MCP 地基 + `fund_tool`（`feat/mcp-foundation` → `develop` `4c8f4a6`：自建基金净值 MCP server + 通用 stdio client + 行情适配缓存 + `fund_query`；真机对话实测通过；合并后树上后端 479 / 84.39%；已推 GitHub + Gitee）
 - [ ] **R5** J3 评测门槛进 Jenkins + Q5 双引擎对照报告
 - [ ] **R6** N2 质量看板（N2.1-N2.6 + N2.8）
 - [ ] **R7** 基金自用闭环（P-F2/F3/F4,必做）

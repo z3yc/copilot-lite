@@ -33,7 +33,7 @@
 > ⏸ = 按需、不进路线图（等同冻结，不单列于 §11）。
 > **进度事实来源：§13**。`PLAN.md` 的 P5/P6 与 `ADMIN_PLAN.md` 的 N2/N3 均为**镜像**；调整进度时先改 §13。
 
-**当前基线**：后端 **479 用例 / 覆盖率 84.39%**、ruff 全过；前端 **125 用例**、build 零错误；CLI **15 用例**（R4 未改 CLI/前端）。
+**当前基线**：后端 **479 用例 / 覆盖率 84.39%**、ruff 全过；前端 **125 用例**、build 零错误；CLI **15 用例**（R4 未改 CLI/前端）。基线实测点：`develop` @ **`4c8f4a6`**（R4 合并后）。
 （数据为 `develop` @ `ce6ab15`（R3 + 工具链修复后）实测；R3 起点 `develop` @ `e772c7d` 为后端 380 / 83.39%、前端 107。）
 
 ---
@@ -361,6 +361,10 @@
   - 回归用例：wiki 缺 `page_id` 必须不可点（`utils/citation.test.ts`）、目标不在列表仍能打开详情（`KbPanel.test.tsx`）、同轮两次 `kb_search` 编号连续且累加（`test_kb_tool.py`）、正文 `[n]` 可点且无对应引用不做死链（`ChatPanel.test.tsx`）。
   - 已知边界：历史消息 citations 已落库不重算（旧消息需重新提问才有效）。
 - [x] **推送 `private-docs`**（R3 全套记录：`docs/优化落地记录.md` R3/R3.1/R3.2、`docs/plans/2026-09-16-r3-citation-source{,-design}.md`、`面试准备/2026-09-16-引用溯源与跳转复盘.md`）@ `fb4dc1a` → **仅 GitHub**（维护者 2026-09-16 批准）。含一次改名：计划文档由 `2026-09-15-*` 纠正为实际落盘日期 `2026-09-16-*` 并同步引用。
+- [x] **合并 `feat/mcp-foundation`**（R4 / P-F1 MCP 地基：`app/mcp/` 注册表与通用 stdio client + `app/mcp_servers/fund_quotes/` 自建 server + `app/funds/quotes.py` 适配缓存 + `fund_query` 工具 + 三个真机修复，共 **13 个提交** `e22e4d3..556e6ea`）→ `develop`（合并提交 **`4c8f4a6`**，维护者 2026-09-16 批准；未走 PR，按 §11「是否走 PR 由维护者按改动规模决定」）。本地功能分支已删除（与 R2/R3 一致；该分支未推远端）。
+  - 验收（**合并后的树上复跑**）：后端 **479 / 84.39%**、`ruff check .` 全过；前端/CLI 未改（沿用 R3 基线 125 / 15）。
+  - 真机验证：真 MCP 子进程 + 真东财数据 + 真模型，「000001 最新单位净值是多少？」→ 回答含净值/净值日期且声明非实时；缓存表落库；退出后无残留子进程。
+- [x] **推送 R4**：`develop` @ `4c8f4a6` 已推 GitHub + Gitee（`1972233..4c8f4a6`）；`private-docs` @ `e29778b` 已推 **仅 GitHub**（维护者 2026-09-16 批准）；推送前自检：`git push --dry-run origin private-docs` 被 `pre-push` 守卫拒绝、`git ls-remote origin private-docs` 为空（未泄露）。
 
 
 ---
@@ -387,7 +391,7 @@
 - [x] **R2** Q1 trajectory 落库与前端展示
 - [x] **R3** M5 引用来源标注（`feat/rag-citation-source` + `fix/citation-jump-target` → `develop` `2e818e5`：标签纯函数 + 连接器身份 seam + 前端跳转与编号修正；合并后树上后端 394 / 83.65%、前端 125 / build 零错误）
 - [x] **R3 工具链/规范修复**：`scripts/dev_backend.ps1`（强制 venv + 端口占用检查 + 启动自证，防再跑旧代码）+ `GIT_WORKFLOW.md` 守卫安装纠正（`core.hooksPath` 相对路径在 worktree 中静默失效）——`ce6ab15`/`1e5c297`
-- [x] **R4** P-F1 MCP 地基与 `fund_tool`（`feat/mcp-foundation` @ `cda56df`，共 12 个提交：MCP 注册表与配置三件套 → 行情缓存表与迁移 → 自建基金净值 server → 通用 stdio client → 行情适配与缓存 → `fund_query` 工具 → 三个真机修复；后端 **479 / 84.39%**、`ruff` 全过）
+- [x] **R4** P-F1 MCP 地基与 `fund_tool`（`feat/mcp-foundation` → `develop` 合并提交 **`4c8f4a6`**，共 13 个提交：MCP 注册表与配置三件套 → 行情缓存表与迁移 → 自建基金净值 server → 通用 stdio client → 行情适配与缓存 → `fund_query` 工具 → 三个真机修复；**合并后树上**后端 **479 / 84.39%**、`ruff` 全过）
       - 真机验收：超管登录 → 问「000001 最新单位净值是多少？」→ 路由 `tools_agent` → `fund_query` 真调 MCP 子进程 → 东财真实净值 → 回答含「净值 1.25（净值日期 2026-09-15）」并声明「第三方数据可能延迟，不代表实时」；缓存表落库 `1.2500 / prev 1.2350 / 1.2100%`（来源 `mcp:fund-quotes`）。
       - 真机修复一：**stdio 会话改由专用任务持有**（anyio 取消域必须由创建它的任务退出；旧实现用 `wait_for` 在另一个任务关闭 → 退出失败被 `except` 吃掉 → 子进程泄漏，已补跨任务关闭回归用例）。
       - 真机修复二：**路由补基金认知**（关键词兜底 + Supervisor/Tools/Orchestrator 三处提示词；否则落到无工具的 `chat_agent`，模型只能答「我无法获取实时数据」）——`PROMPT_VERSION 1.3.0`。

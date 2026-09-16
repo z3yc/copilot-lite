@@ -40,13 +40,40 @@ git push github private-docs       # 只推 GitHub
 git worktree remove ../copilot-lite-private
 ```
 
-## 防误推守卫（推荐安装）
+## 防误推守卫（**必须安装**）
 
 `scripts/git-hooks/pre-push` 会**拒绝把 `private-docs` 推到非 GitHub 远端**：
 
 ```bash
 cp scripts/git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
 ```
+
+### 踩过的坑：**不要用 `core.hooksPath`，除非用绝对路径**
+
+本仓曾设置 `git config core.hooksPath scripts/git-hooks`（相对路径）。Git 把相对 `hooksPath`
+**按工作树根目录**解析，于是：主工作树正常（`scripts/git-hooks/` 存在），但
+`git worktree add ../copilot-lite-private private-docs` 建出的私有工作树里该目录不存在
+→ Git **静默跳过全部钩子**（不报错、不告警），**防误推守卫在最需要它的那个工作树里恰好失效**。
+实测：在私有工作树 `git push --dry-run origin private-docs` 会直接放行到 Gitee。
+
+因此：
+
+- **不设 `core.hooksPath`**（回退到共用的 `.git/hooks/`，工作树之间自动共享，见下）；
+- 若确实要用 `core.hooksPath`，**必须写绝对路径**（如
+  `git config core.hooksPath /path/to/copilot-lite/.git/hooks`），或**每个工作树都放一份**
+  `scripts/git-hooks/pre-push`；
+- **自检命令**（换机器/新建工作树后必跑，预期被拒绝且退出码非 0）：
+
+  ```bash
+  cd ../copilot-lite-private
+  git push --dry-run origin private-docs   # 应输出 [pre-push] 拒绝：…
+  echo $?                                  # 非 0
+  git ls-remote --heads origin private-docs  # 应为空（未泄露）
+  ```
+
+> 为什么 `git init` 后的 `.git/hooks/` 能被多个工作树共享：`.git/hooks/` 属**公共目录**
+> （`git rev-parse --git-common-dir`），`git worktree add` 出来的工作树共用它；而 `hooksPath`
+> 是配置层面的重定向，会把这份共享**覆盖成各工作树自己的相对路径**。
 
 ## 约定与注意
 

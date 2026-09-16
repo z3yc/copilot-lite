@@ -309,3 +309,46 @@ async def fund_query(ctx: ToolContext, codes: list[str] | None = None) -> str:
 | Q0.6 `tools_agent` 改显式白名单 | `fund_tool` 按需挂白名单，不会被全量注入 |
 | Q0.7 trajectory 全量落库 | 对话路径的 `fund_tool` 调用进 trajectory；定时路径只在 `jobs` 留痕 |
 | Q0.8 双引擎对照评测 | `fund_tool` 两引擎共享，无需重复实现 |
+
+---
+
+## 15. R4 / F1 开工前锁定决策（2026-09-16）
+
+> 产出环节：`docs/plans/2026-09-16-r4-mcp-foundation.md`（实施计划）的开工前澄清。
+> 依据：§12「**F1 是「最便宜的失败点」**」——MCP server 选型/接口形状必须在开工前定稿，否则返工在 F2–F4。
+> **本节 15.1–15.9 与正文冲突时，以本节为准。**
+
+| # | 议题 | 锁定结论 | 理由 |
+|---|---|---|---|
+| 15.1 | MCP server 选型（§5.1/§12） | **自建最小 stdio server 为默认**：`app/mcp_servers/fund_quotes/`，官方 `mcp` SDK（FastMCP），数据源**东方财富 `f10/lsjz` 公开接口**（实测可用、无 Key）；client 配置驱动，改 `.env` 一行即可换任意第三方 server | 接缝真实性不打折（真子进程 + `initialize` + `tools/list` + `tools/call`）；不引 akshare（pandas/numpy 级）重依赖；数据源可控可 Fake；「换 server 只改适配器」这件事本身可被验证 |
+| 15.2 | 版本 pin | `mcp>=1.30,<2.0` | 1.30 依赖与本仓环境**零冲突**（httpx 0.28.1<1.0 / pydantic 2.13.4 / anyio 4.14.2 / pyjwt 2.13）；2.x 引入 `httpx2` 与拆包 `mcp-types`，无必要风险 |
+| 15.3 | 行情缓存（§5.4） | F1 即落 `fund_quotes` 表，**迁移只建这一张**；**增 `prev_nav` 列**（F3 当日盈亏用）；**该表不做软删除** | 缓存命中不打 MCP 可写成回归用例；重启不丢；多用户同源共享语义当场成立；表结构一次成型，F2/F3 只加表不加列。不软删的依据：公开行情缓存 = 临时表（AGENTS §6.11），无 `user_id`、`(code,nav_date)` 幂等 upsert |
+| 15.4 | F1 工具契约（§6） | 直接用**最终名** `fund_query(ctx, codes=None)`：F1 `codes` 非空查净值、为空如实回「尚未录入持仓」；F2 接上持仓后行为自然扩展，**工具名/参数/描述零变更** | 避免 F2 改 LLM 可见面（schema 变更要连带改 prompt/测试/缓存） |
+| 15.5 | server 位置 | `app/mcp_servers/fund_quotes/`，共用 backend venv，`python -m app.mcp_servers.fund_quotes` 拉起；client 默认 `cwd=backend 根`、`command` 留空回退 `sys.executable` | 真子进程 + stdio 已是真接缝；CI/测试零额外安装；避开 Windows `python` 商店桩 |
+| 15.6 | 脱敏复用 | `redact` / `redact_json_text` 从 `app/agent/trajectory.py` **抽出到 `app/core/redaction.py`**（原处 re-export 保持兼容） | 否则 infra(`app/mcp`) 需反向 import `app/agent`，违反 AGENTS §12 依赖方向 |
+| 15.7 | F1 不做 | **不建** `app/funds/service.py`（无业务逻辑可放，F2 再加）；**不落** `schedules`/`notifications`/webhook 与 `SCHEDULER_*`/`FUND_WATCH_TIME`/`FUND_REPORT_LLM`/`FUND_WEBHOOK_URL` 配置（F3/F4 再进三件套，避免「配了没人用」） | 修正 §2 表格中「F1 就有 service」的读法；YAGNI |
+| 15.8 | 播报模板（F3 预案） | 按仓库既有约定用 `str.format` 常量，**不照 §7.4 字面引 jinja2** | `app/core/prompts/__init__.py` 已记录「不引 jinja2 运行时依赖」的既有决策；F3 开工时最终确认 |
+| 15.9 | **其他 MCP 接入的接缝（本次新增硬要求）** | `app/mcp/` **完全不感知任何领域**；接入新 MCP = ①加一条 `MCP_SERVERS` 配置 ②写一个 adapter 注册进注册表（领域侧）——**client 零改动**；并有**非基金域**的接缝回归用例 | 见下方 15.10 |
+
+### 15.10 「方便其他 MCP 接入」的接口清单（F1 就要齐）
+
+| 接缝 | 形状 | 为将来留什么 |
+|---|---|---|
+| server 注册表 | `MCP_SERVERS` JSON 数组 → `MCPServerSettings(name/command/args/env/cwd/tool/adapter/enabled/timeout_seconds/max_items)` | 多 server 并存；单个可独立关停（`enabled`）与独立超时（`timeout_seconds`）；`cwd` 支持 npx/uvx 类 server |
+| 通用调用 | `await call_configured(name, arguments) -> {server, structured, text, is_error}` | 任何域的任何工具，client 一行不改；`structured` 优先、`text` 兜底（兼容只回文本的 server） |
+| **口径差异吸收** | 适配层 `_unwrap()` 兼容 `{"result": ...}` 包裹（FastMCP 对非 `dict[str,str…]` 返回值会自动包裹） | 第三方 server 口径不一（包裹/纯文本/字段名不同）在适配器一层吸收，**不污染工具层与 prompt** |
+| adapter 注册表 | `register_adapter(name, fn)` / `get_adapter(name)`；`MCP_SERVERS[].adapter` 引用 | 新领域 = 新 adapter，与 client/registry 解耦；启动自检「引用了未注册的 adapter → 拒绝启动」 |
+| 白名单与截断 | 只允许配置内 server；`tools/list` 的 description 截断 200 字符 | 第三方 server 的长描述/超量工具不会污染 prompt（Q2 工具白名单可直接复用 `MCP_SERVERS`） |
+| 接缝回归 | `tests/support/stub_generic_server.py`（`echo` 工具，**非基金域**）+ `tests/support/stub_mcp_server.py`（复用生产 `build_server`，真协议假数据） | 「新接一个 MCP 只加配置 + adapter」这条主张有**可执行证据**，不是口头承诺 |
+| 领域工具薄壳 | `fund_tool` 只做「取数 + 措辞」，不含 MCP 细节 | 换 server/换数据源，工具与 prompt 不动（P0.5） |
+
+### 15.11 测试口径补充（对 §11 的细化）
+
+| 层 | 做法 |
+|---|---|
+| 协议（真） | stub 子进程复用**生产 server 代码** `build_server(FakeProvider)` → 真 stdio + 真序列化，数据 canned（`STUB_MODE=dirty` 造脏数据） |
+| server 进程内 | `await build_server(fake).list_tools()/call_tool()` 直测（快，且覆盖 `app/mcp_servers/**`，不拖覆盖率） |
+| 数据源 | `httpx.MockTransport` 喂真实响应样本，**不联网** |
+| 缓存 | 真 PG：命中不打 MCP（Fake provider 计数）、过期重取、同 `(code,nav_date)` upsert 幂等 |
+| 脱敏 | `caplog` 断言 `env` 中的密钥值不出现在日志任何位置 |
+| 手工 | 真 server + 真东财 + 真 DeepSeek 问「000001 最新净值」 |

@@ -6,7 +6,7 @@ import pytest
 
 from app.core.constants import DEFAULT_USER_ID
 from app.tools import registry
-from app.tools.base import ToolContext
+from app.tools.base import ToolContext, _build_parameters, _coerce_value
 
 
 def test_tools_registered() -> None:
@@ -34,6 +34,48 @@ def test_schema_optional_types_mapped() -> None:
     assert props["priority"]["type"] == "integer"
     assert props["status"]["type"] == "string"
     assert props["tags"]["type"] == "array"
+
+
+def test_schema_resolves_string_annotations() -> None:
+    """回归（R4 真机踩坑）：`from __future__ import annotations` 会让注解变**字符串**。
+
+    直接用 `param.annotation` 时所有参数都退化成 string——表现为
+    `fund_query(codes=["000001"])` 按字符串传参，`"000001"` 被逐字符拆成 `["0","1"]`。
+    """
+
+    def _probe(ctx, codes: "list[str] | None" = None, top_k: "int" = 3) -> str:
+        """探针工具（注解写成字符串，等价于 future-import 的效果）。"""
+        return ""
+
+    props = _build_parameters(_probe)["properties"]
+    assert props["codes"]["type"] == "array"
+    assert props["codes"]["items"] == {"type": "string"}
+    assert props["top_k"]["type"] == "integer"
+
+
+def test_schema_declares_array_items() -> None:
+    """数组参数必须带 items 类型，否则 LLM 不知道该传字符串还是数字。"""
+    props = registry.get("todo_create").to_openai_schema()["function"]["parameters"][
+        "properties"
+    ]
+    assert props["tags"]["items"] == {"type": "string"}
+
+
+def test_array_param_accepts_llm_string_drift() -> None:
+    """LLM 常把数组写成字符串（单个值或逗号分隔）——宽容拆成列表，不让调用失败。"""
+    assert _coerce_value("000001", "array") == ["000001"]
+    assert _coerce_value("000001, 110022", "array") == ["000001", "110022"]
+    assert _coerce_value('["000001"]', "array") == ["000001"]
+    assert _coerce_value(["a", "b"], "array") == ["a", "b"]
+
+
+def test_fund_query_schema_is_array_of_codes() -> None:
+    """真实工具的 schema 也要能反映注解（防只有探针能过的假绿）。"""
+    props = registry.get("fund_query").to_openai_schema()["function"]["parameters"][
+        "properties"
+    ]
+    assert props["codes"]["type"] == "array"
+    assert props["codes"]["items"] == {"type": "string"}
 
 
 def test_schema_priority_semantics_in_description() -> None:

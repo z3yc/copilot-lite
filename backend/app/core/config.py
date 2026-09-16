@@ -12,6 +12,8 @@ from pathlib import Path
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.mcp.registry import MCPServerSettings
+
 # backend/app/core/config.py → parents[0]=core, [1]=app, [2]=backend
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
 
@@ -166,6 +168,17 @@ class Settings(BaseSettings):
     JOBS_TIMEOUT_SECONDS: float = 1800.0
     # 单作业最大尝试次数（耗尽后置 dead 死信，等待人工重试）
     JOBS_MAX_ATTEMPTS: int = 2
+
+    # ---- MCP 外部能力接入（批次 P / R4）----
+    # 总开关：关闭时领域工具如实提示「未配置行情源」并降级（不炸主链路）
+    MCP_ENABLED: bool = False
+    # server 注册表（管理员级；JSON 数组，示例见 deploy/.env.example）
+    # 接入新 MCP = 加一条配置 + 在领域侧注册适配器，client 无需改动（见 app/mcp/__init__.py）
+    MCP_SERVERS: list[MCPServerSettings] = []
+    # 单次 MCP 调用超时（秒；交互式工具不宜久等）
+    MCP_CALL_TIMEOUT_SECONDS: float = 10.0
+    # 行情缓存窗口（分钟）：窗口内同代码直接复用缓存，不重复调用 MCP
+    FUND_QUOTE_CACHE_MINUTES: int = 60
 
     @model_validator(mode="after")
     def _require_postgres(self) -> "Settings":

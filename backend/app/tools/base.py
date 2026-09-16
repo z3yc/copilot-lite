@@ -19,7 +19,7 @@ import logging
 import types
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Union, get_args, get_origin
+from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,20 +39,54 @@ _TYPE_MAP: dict[type, str] = {
 _CTX_PARAM = "ctx"
 
 
+def _strip_optional(annotation: Any) -> Any:
+    """剥掉 `| None` 外壳（`Optional[str]` / `list[str] | None` → 内层类型）。"""
+    origin = get_origin(annotation)
+    if origin in (Union, types.UnionType):
+        args = [a for a in get_args(annotation) if a is not type(None)]
+        if args:
+            return args[0]
+    return annotation
+
+
 def _json_type(annotation: Any) -> str:
     """注解 → JSON Schema 类型（支持 Optional[str]/int|None 等联合类型剥壳）。"""
     if annotation is inspect.Parameter.empty:
         return "string"
+    annotation = _strip_optional(annotation)
     origin = get_origin(annotation)
-    if origin is not None and origin in (Union, types.UnionType):
-        args = [a for a in get_args(annotation) if a is not type(None)]
-        if not args:
-            return "string"
-        annotation = args[0]  # 取唯一非 None 类型后继续解析（list[str] | None → array）
-        origin = get_origin(annotation)
     if origin is not None:
         return _TYPE_MAP.get(origin, "string")
     return _TYPE_MAP.get(annotation, "string")
+
+
+def _array_items_type(annotation: Any) -> str | None:
+    """数组参数的**元素**类型（不声明 items 时 LLM 不知道该传字符串还是数字）。"""
+    inner = _strip_optional(annotation)
+    if get_origin(inner) is not list:
+        return None
+    args = get_args(inner)
+    return _json_type(args[0]) if args else "string"
+
+
+def _resolved_annotations(func: Callable) -> dict[str, Any]:
+    """解析函数注解为真实类型（字符串注解 → 类型对象）。
+
+    文件写了 `from __future__ import annotations` 时，`param.annotation` 只是字符串
+    （如 `"list[str] | None"`），直接用会把**所有参数**退化成 string。
+    R4 真机踩坑：`fund_query(codes=["000001"])` 的 schema 变成 string，
+    模型于是按字符串传参，`"000001"` 被逐字符拆成 `["0","1"]`。
+    解析失败时回退原始注解，不影响注册（宁可为 string，也不能注册不上）。
+    """
+    try:
+        return get_type_hints(func)
+    except Exception:  # 注解无法解析不应阻断工具注册
+        logger.debug(
+            "工具注解解析失败，回退原始注解: %s",
+            getattr(func, "__name__", func),
+            exc_info=True,
+        )
+        return {}
 
 
 @dataclass
@@ -89,13 +123,19 @@ class Tool:
 def _build_parameters(func: Callable) -> dict:
     """从函数签名生成 JSON Schema（排除 ctx 参数）。"""
     sig = inspect.signature(func)
+    hints = _resolved_annotations(func)
     properties: dict[str, dict] = {}
     required: list[str] = []
     for name, param in sig.parameters.items():
         if name == _CTX_PARAM:
             continue
-        ptype = _json_type(param.annotation)
+        annotation = hints.get(name, param.annotation)
+        ptype = _json_type(annotation)
         prop: dict[str, Any] = {"type": ptype}
+        if ptype == "array":
+            items_type = _array_items_type(annotation)
+            if items_type:
+                prop["items"] = {"type": items_type}
         if param.default is not inspect.Parameter.empty:
             prop["default"] = param.default
         else:
@@ -143,11 +183,26 @@ def _coerce_value(value: Any, js_type: str) -> Any:
             if low in ("false", "0", "no", "off"):
                 return False
         raise TypeError(f"期望布尔值，收到 {value!r}")
-    if js_type in ("array", "object") and isinstance(value, str):
+    if js_type == "array":
+        if isinstance(value, (list, tuple)):
+            return list(value)
+        if isinstance(value, str):
+            text = value.strip()
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                # LLM 常把数组写成"逗号分隔字符串"或单个值（如 codes="000001"）：
+                # 宽容拆成列表，而不是让整个工具调用因类型漂移失败
+                return [part.strip() for part in text.split(",") if part.strip()]
+            if isinstance(parsed, list):
+                return parsed
+            return [parsed]
+        raise TypeError(f"期望数组，收到 {value!r}")
+    if js_type == "object" and isinstance(value, str):
         try:
             return json.loads(value)
         except json.JSONDecodeError as exc:
-            raise TypeError(f"期望 {js_type}，收到字符串 {value!r}") from exc
+            raise TypeError(f"期望 object，收到字符串 {value!r}") from exc
     return value
 
 

@@ -8,6 +8,15 @@ def test_prompt_version_present():
     assert prompts.PROMPT_VERSION.strip()
 
 
+def test_prompt_version_bumped_for_fund_notice():
+    """基金行情文案/路由认知落地后，版本必须 ≥ 1.2.0（AGENTS §18：变更可追溯）。
+
+    只断言下界而不钉死具体值：后续 prompt 迭代继续递增时不必回来改测试。
+    """
+    major, minor, *_ = (int(part) for part in prompts.PROMPT_VERSION.split("."))
+    assert (major, minor) >= (1, 2)
+
+
 def test_all_prompts_non_empty():
     for name in prompts.__all__:
         if name == "PROMPT_VERSION":

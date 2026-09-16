@@ -60,6 +60,25 @@ CREATE INDEX IF NOT EXISTS ix_eval_runs_dataset_id ON eval_runs (dataset_id);
 CREATE INDEX IF NOT EXISTS ix_eval_runs_status ON eval_runs (status);
 
 
+CREATE TABLE IF NOT EXISTS fund_quotes (
+	id SERIAL NOT NULL, 
+	code VARCHAR(16) NOT NULL, 
+	nav_date DATE NOT NULL, 
+	nav NUMERIC(18, 4) NOT NULL, 
+	prev_nav NUMERIC(18, 4), 
+	change_pct NUMERIC(8, 4), 
+	source VARCHAR(64) NOT NULL, 
+	fetched_at TIMESTAMP WITHOUT TIME ZONE NOT NULL, 
+	created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now() NOT NULL, 
+	PRIMARY KEY (id), 
+	CONSTRAINT uq_fund_quotes_code_nav_date UNIQUE (code, nav_date)
+);
+
+CREATE INDEX IF NOT EXISTS ix_fund_quotes_code ON fund_quotes (code);
+
+CREATE INDEX IF NOT EXISTS ix_fund_quotes_fetched_at ON fund_quotes (fetched_at);
+
+
 CREATE TABLE IF NOT EXISTS jobs (
 	id UUID NOT NULL, 
 	kind VARCHAR(64) NOT NULL, 
@@ -389,6 +408,6 @@ CREATE TABLE IF NOT EXISTS alembic_version (
     CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
 );
 DELETE FROM alembic_version;
-INSERT INTO alembic_version (version_num) VALUES ('e7f8a9b0c1d2');
+INSERT INTO alembic_version (version_num) VALUES ('a4b5c6d7e8f9');
 
 COMMIT;

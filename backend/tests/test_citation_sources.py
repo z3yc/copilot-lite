@@ -80,3 +80,61 @@ def test_document_citation_page_none_when_absent():
     assert cite["source"] == "文档 / 报告.pdf"
     assert cite["source_kind"] == "document"
     assert cite["page"] is None
+
+
+# ---------------- 连接器来源身份汇总 ----------------
+
+
+class _GoodConnector:
+    name = "good"
+
+    async def describe_sources(self, db, user_id, document_ids):
+        return {"d1": {"kind": "wiki", "page_id": "p1"}}
+
+
+class _BoomConnector:
+    name = "boom"
+
+    async def describe_sources(self, db, user_id, document_ids):
+        raise RuntimeError("连接器故障")
+
+
+async def test_collect_source_meta_merges_and_tolerates_failure(monkeypatch):
+    """汇总来源身份：单个连接器故障不拖垮整体（增强不能拖垮主链路）。"""
+    from app.connectors import base as base_module
+
+    monkeypatch.setattr(
+        base_module, "_REGISTRY", {"good": _GoodConnector(), "boom": _BoomConnector()}
+    )
+    merged = await base_module.collect_source_meta(object(), "u1", ["d1"])
+    assert merged["d1"]["page_id"] == "p1"
+
+
+async def test_collect_source_meta_skips_without_session_or_ids():
+    """无 db 或无事发文档时零成本返回（不查库）。"""
+    from app.connectors import base as base_module
+
+    assert await base_module.collect_source_meta(None, "u1", ["d1"]) == {}
+    assert await base_module.collect_source_meta(object(), "u1", []) == {}
+
+
+async def test_default_connector_has_no_source_identity():
+    """SourceConnector 默认不提供来源身份（可选能力，连接器按需覆写）。"""
+    from app.connectors.base import SourceConnector
+
+    class _Bare(SourceConnector):
+        name = "bare"
+
+        async def create_space(self, db, user_id, name, *, server_path=None, source_type=None):
+            return None
+
+        async def import_archive(self, db, user_id, space, data):
+            return 0
+
+        async def import_files(self, db, user_id, space, items):
+            return 0
+
+        async def sync(self, db, user_id, space):
+            return {}
+
+    assert await _Bare().describe_sources(object(), "u1", ["d1"]) == {}

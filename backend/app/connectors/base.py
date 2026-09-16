@@ -8,8 +8,11 @@
 - 外部源始终是"单一事实源"，本系统索引可随时重建（read model）。
 """
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectorError(Exception):
@@ -46,6 +49,15 @@ class SourceConnector(ABC):
     async def sync(self, db, user_id, space) -> dict:
         """扫描连接器数据源并增量同步索引，返回统计。"""
 
+    async def describe_sources(self, db, user_id, document_ids: list[str]) -> dict[str, dict]:
+        """按 `document_id` 返回引用所需的来源身份（**可选能力**）。
+
+        默认返回空：不提供来源身份的连接器无需实现。
+        检索/工具层据此展示来源标签与跳转目标，**不感知具体来源**（AGENTS §12）。
+        返回形如 `{document_id: {"kind": "wiki", "page_id": ..., ...}}`。
+        """
+        return {}
+
 
 _REGISTRY: dict[str, SourceConnector] = {}
 
@@ -61,3 +73,20 @@ def get_connector(name: str) -> SourceConnector | None:
 
 def available_connectors() -> list[str]:
     return list(_REGISTRY)
+
+
+async def collect_source_meta(db, user_id, document_ids: list[str]) -> dict[str, dict]:
+    """汇总各连接器提供的来源身份（`document_id` → 身份 dict）。
+
+    增强能力：单个连接器失败只记警告并跳过——来源标注不能拖垮检索主链路
+    （AGENTS §10）。无 db 或无事发文档时零成本返回（不触发查询）。
+    """
+    if db is None or not document_ids:
+        return {}
+    merged: dict[str, dict] = {}
+    for connector in _REGISTRY.values():
+        try:
+            merged.update(await connector.describe_sources(db, user_id, document_ids) or {})
+        except Exception:
+            logger.warning("连接器 %s 来源身份解析失败", connector.name, exc_info=True)
+    return merged

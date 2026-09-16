@@ -109,7 +109,7 @@ kb_tool ──> app/rag/citations.py   # 纯函数：来源结构化 + 标签格
 | `WikiPanel.tsx` | 消费 `openTarget`（必要时切空间）→ `openPage` → `onOpened` |
 | `KbPanel.tsx` | 消费 `openTarget`（复位搜索/分类）→ 列表就绪后 `toggleDetail` → `onOpened` |
 
-**文档**：本设计 + `2026-09-15-r3-citation-source.md`（实施计划）+ `docs/优化落地记录.md` R3 小节。
+**文档**：本设计 + `2026-09-16-r3-citation-source.md`（实施计划）+ `docs/优化落地记录.md` R3 小节。
 
 ## 6. 测试与验收
 

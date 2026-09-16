@@ -1,7 +1,7 @@
 # R3 · M5 引用来源标注 实施计划
 
 > **REQUIRED SUB-SKILL:** 执行本计划时使用 superpowers:executing-plans（或在同一会话按任务逐条 TDD 执行）。
-> 设计依据：`2026-09-15-r3-citation-source-design.md`（同目录）。
+> 设计依据：`2026-09-16-r3-citation-source-design.md`（同目录）。
 > 分支：`feat/rag-citation-source`（自 `develop` 切出）；文档提交在 `private-docs` 工作区（`../copilot-lite-private`）。
 
 **Goal:** 引用条目区分「Wiki / 空间 / 页面」与「文档 / 页码」，并支持点击跳转到对应 Wiki 页面或文档详情。

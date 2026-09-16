@@ -41,9 +41,14 @@ import ProfilePage from "./components/ProfilePage";
 import SessionList from "./components/SessionList";
 import TodoPage from "./components/TodoPage";
 import WikiPanel from "./components/WikiPanel";
-import type { ChatMessage, Profile } from "./types";
+import type { ChatMessage, Citation, Profile } from "./types";
 
 const { Sider, Content } = Layout;
+
+/** 引用跳转目标（App 层一次性状态：切换页签 → 目标面板消费后清空） */
+type OpenTarget =
+  | { kind: "wiki"; pageId: string; spaceId?: string }
+  | { kind: "doc"; docId: string };
 
 // 侧栏可拖拽调宽范围与默认值（宽度记忆到 localStorage）
 const SIDER_MIN = 240;
@@ -59,6 +64,8 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [activeCat, setActiveCat] = useState<string>("all");
+  // 引用点击后的跳转目标（null = 无）；面板打开后经 onOpened 清空，防重复打开
+  const [openTarget, setOpenTarget] = useState<OpenTarget | null>(null);
   const [showProfile, setShowProfile] = useState(false);
   // 管理后台（仅管理员入口可见；后端 require_admin 强制鉴权）
   const [showAdmin, setShowAdmin] = useState(false);
@@ -165,6 +172,26 @@ export default function App() {
   }, []);
 
   // 退出管理后台/个人主页，回到工作区（点侧栏页签时调用，避免页签成为死控件）
+  // 引用点击：Wiki 引用 → 切 Wiki 页签打开页面；文档引用 → 切知识库展开文档详情
+  const openCitation = useCallback((c: Citation) => {
+    if (c.wiki?.page_id) {
+      setShowAdmin(false);
+      setShowProfile(false);
+      setTab("wiki");
+      setOpenTarget({
+        kind: "wiki",
+        pageId: c.wiki.page_id,
+        spaceId: c.wiki.space_id || undefined,
+      });
+    } else if (c.document_id) {
+      setShowAdmin(false);
+      setShowProfile(false);
+      setTab("kb");
+      setActiveCat("all"); // 复位分类过滤，目标文档可能不在当前分类
+      setOpenTarget({ kind: "doc", docId: c.document_id });
+    }
+  }, []);
+
   const closeOverlays = useCallback(() => {
     setShowAdmin(false);
     setShowProfile(false);
@@ -394,11 +421,15 @@ export default function App() {
                 busy={busy}
                 setBusy={setBusy}
                 onOpenSettings={() => openProfile("model")}
+                onOpenCitation={openCitation}
               />
             ) : tab === "kb" ? (
               <KbPanel activeCat={activeCat} onCatChange={setActiveCat} />
             ) : tab === "wiki" ? (
-              <WikiPanel />
+              <WikiPanel
+                openTarget={openTarget?.kind === "wiki" ? openTarget : null}
+                onOpened={() => setOpenTarget(null)}
+              />
             ) : (
               <TodoPage />
             )}

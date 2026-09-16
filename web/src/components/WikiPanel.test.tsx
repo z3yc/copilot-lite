@@ -74,6 +74,22 @@ describe("WikiPanel", () => {
     expect(mocked.fetchWikiPage).toHaveBeenCalledWith("p1");
   });
 
+  it("openTarget 指定页面时自动打开并回调 onOpened", async () => {
+    const onOpened = vi.fn();
+    render(<WikiPanel openTarget={{ pageId: "p2", spaceId: "s1" }} onOpened={onOpened} />);
+    expect(await screen.findByText("正文内容")).toBeInTheDocument();
+    expect(mocked.fetchWikiPage).toHaveBeenCalledWith("p2");
+    await waitFor(() => expect(onOpened).toHaveBeenCalled());
+  });
+
+  it("openTarget 指向其它空间时先切空间再打开页面", async () => {
+    render(<WikiPanel openTarget={{ pageId: "p9", spaceId: "s9" }} onOpened={vi.fn()} />);
+    await waitFor(() =>
+      expect(mocked.fetchWikiPages).toHaveBeenCalledWith("s9", undefined, 1, 20)
+    );
+    expect(mocked.fetchWikiPage).toHaveBeenCalledWith("p9");
+  });
+
   it("点击同步调用同步接口", async () => {
     mocked.syncWikiSpace.mockResolvedValue({
       added: 1,

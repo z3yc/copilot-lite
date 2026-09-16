@@ -66,6 +66,19 @@ uv sync                               # 安装依赖（首次会下载 3.12 解�
 uv run uvicorn app.main:app --reload  # 热重载，端口 8000
 ```
 
+Windows 上也可用封装脚本（**强制 venv + 端口占用检查 + 启动自证**）：
+
+```powershell
+# 仓库根目录：自动用 backend\.venv\Scripts\python.exe 启动，打印解释器路径与 kb_tool.py 时间
+powershell -ExecutionPolicy Bypass -File scripts\dev_backend.ps1
+powershell -ExecutionPolicy Bypass -File scripts\dev_backend.ps1 -NoReload   # 关热重载（排查/压测）
+powershell -ExecutionPolicy Bypass -File scripts\dev_backend.ps1 -Port 8001
+```
+
+> 踩过的坑：直接用系统 Python（`WindowsApps\...\python.exe -m uvicorn`）且不带 `--reload`
+> 启动，会导致「**改了代码完全没生效**」，排查半天才发现在跑旧代码/错解释器。
+> 自查方法：进程启动时间必须**晚于**所改文件的 mtime；端口被占用时先杀进程再重启。
+
 验证：
 
 ```bash

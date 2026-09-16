@@ -33,8 +33,8 @@
 > ⏸ = 按需、不进路线图（等同冻结，不单列于 §11）。
 > **进度事实来源：§13**。`PLAN.md` 的 P5/P6 与 `ADMIN_PLAN.md` 的 N2/N3 均为**镜像**；调整进度时先改 §13。
 
-**当前基线**：后端 **394 用例 / 覆盖率 83.65%**、ruff 全过；前端 **125 用例**、build 零错误；CLI **15 用例**（沿用 `develop` 基线，R3 未改 CLI）。
-（数据为 `develop` @ `2e818e5`（R3 合并后）实测；R3 起点 `develop` @ `e772c7d` 为后端 380 / 83.39%、前端 107。）
+**当前基线**：后端 **394 用例 / 覆盖率 83.65%**、ruff 全过；前端 **125 用例**、build 零错误；CLI **15 用例**（沿用旧基线，R3 未改 CLI）。
+（数据为 `develop` @ `ce6ab15`（R3 + 工具链修复后）实测；R3 起点 `develop` @ `e772c7d` 为后端 380 / 83.39%、前端 107。）
 
 ---
 
@@ -63,6 +63,22 @@
 | `fix(wiki)` 时区 500 | `last_synced_at` 写 naive UTC（PG/asyncpg 兼容） | +1 |
 | `fix(rag)` 嵌入离线缓存 | `EMBEDDING_CACHE_DIR` + `local_files_only` + 启动预热（51s→0.13s） | +2 |
 | `refactor(connectors)` 连接器化 | `app/wiki` → `app/connectors/obsidian` + `SourceConnector` 抽象 | — |
+
+### R3 · 引用来源标注（M5）+ 跳转修复（合并入 `develop` `2e818e5`，含两级合并 `853fdc7`/`2e818e5`）
+
+| 提交粒度 | 内容 | 测试 |
+|---|---|---|
+| `feat(rag)` 引用来源标签 | `app/rag/citations.py`：类型判定与标签格式化单点（`Wiki / 空间 / 页面` 与 `文档 / 文件名 / 标题路径 / 第 N 页`） | +7 |
+| `feat(connectors)` 来源身份 hook | `SourceConnector.describe_sources()` 默认空实现 + `collect_source_meta()` 汇总（单连接器失败只 WARNING） | 含上 |
+| `feat(connectors)` Obsidian 身份解析 | 单次 `WikiPage JOIN WikiSpace`（查询期解析，不重建索引）+ 强制 `user_id`/软删过滤，`user_id` 缺失 fail-closed | +2 |
+| `feat(rag)` `kb_search` 接线 | 一次批量解析 + `build_citation`；LLM 可见「来源」与落库 `source` 同口径 | 含 test_kb_tool |
+| `feat(web)` 类型标签与跳转 | `Citation` 增 `source_kind/page/wiki`；`App.openTarget` 一次性状态 + Wiki/Kb 面板消费 | 前端 +6 |
+| `fix(web)` wiki 不降级 | `resolveCitationTarget()`：wiki 缺 `page_id` 不跳（不降级为文档），判据两个组件共用 | 前端 +6 |
+| `fix(web)` 落点按 id 直开 | 跳转不再依赖「目标在当前列表」（分页/过滤会挡）——直接按 id 取详情，列表外渲染「引用来源」卡片 | 前端 +2 |
+| `fix(rag)` 引用编号累加 | 同轮多次 `kb_search` 编号跨调用连续 + `ctx.citations` 追加不覆盖（防正文 `[n]` 错位） | +1 |
+| `fix(web)` 正文 `[n]` 可点 | `linkifyCitations()`：只在有对应引用时转链、代码块不转、已有链接不破坏 + 事件委托复用同一激活逻辑 | 前端 +6 |
+| `chore(scripts)` 后端启动脚本 | `scripts/dev_backend.ps1`（强制 venv/端口占用检查/启动自证）+ `DEVELOPMENT.md` 启动说明 | — |
+| `docs(repo)` 守卫安装纠正 | `GIT_WORKFLOW.md`：`core.hooksPath` 相对路径在 worktree 中静默失效 → 改用共用 `.git/hooks` + 自检命令 | — |
 
 ### 已完成的分支工作（`feat/wiki-import-files` → … → `fix/wiki-delete-safety`，均已合入 `develop`）
 
@@ -157,7 +173,8 @@
 - ❄️ **M2 `kb_search` 增加可选 `scope`**：枚举 `all | docs | wiki`，**默认 all**；仅当用户**显式表达**范围（“只在我的 wiki 里”/“根据我上传的文档”）才收窄；无法判断一律 all。
 - ❄️ **M3 空结果自动回退**：收窄检索为空时**自动放宽到 all**，并如实告知用户已放宽范围——杜绝“猜错范围即漏答”。
 - ❄️ **M4 策略随 scope 联动**：`scope=wiki` 强制开双链邻居扩展；`scope=docs` 关闭该扩展（将现有 `WIKI_LINK_EXPANSION_ENABLED` 从全局开关细化为按 scope）。
-- 🟡 **M5 引用来源标注**：引用中明确区分 `Wiki/空间/页面` 与 `文档/页码`（方案 A 的补强，**可独立先做**，不依赖 M1）。**✅ 已完成（R3）**：`app/rag/citations.py` 统一标签口径 + `SourceConnector.describe_sources` 连接器身份 seam + 前端 `openTarget` 跨面板跳转。
+- 🟡 **M5 引用来源标注**：引用中明确区分 `Wiki/空间/页面` 与 `文档/页码`（方案 A 的补强，**可独立先做**，不依赖 M1）。**✅ 已完成（R3，`develop` `2e818e5`）**：`app/rag/citations.py` 统一标签口径 + `SourceConnector.describe_sources` 连接器身份 seam（查询期 JOIN，不重建索引）+ 前端 `openTarget` 跨面板跳转；**跳转四修（R3.1/R3.2）**：落点不依赖列表、wiki 不降级为文档、同轮检索引用编号累加、正文 `[n]` 可点。
+  - 已知边界（已入档）：历史消息的 `extra.citations` 不重算，旧消息需重新提问才有效；模型自造编号保持纯文本（不做死链）；流式期间 citations 未到，回答完成那刻才可点。
 - ❄️ **M6（可选）UI 知识范围选择器**：聊天框“知识范围”下拉或 `@wiki` 提及，提供零 LLM 猜测的确定性入口（方案 D，作为 scope 的上层输入）。
 
 ---
@@ -331,7 +348,7 @@
   - 真实模型端到端（运行中的服务，LangGraph 引擎）：Q1 `帮我看一下我的待办列表`（路由 tools→`todo_list`）与 Q2 `帮我看看wiki里有什么`（路由 kb→`kb_search`，启动后 19.4s 静默、期间发 1 次心跳、仍完整返回）均无英文独白，落库 `extra` 含 `tool_calls` + `trajectory`（Q2 另有 `citations`），流式拼接 == 落库 `content`，事件序列 `session,chunk,done` 无 `error`。
   - 合并后**控制者独立复验**：同一慢路径自然静默 **21.15s**（>15s 心跳阀值，心跳已发）而答案仍完整 1121 字、无英文独白、`extra` 三键齐全、流式与落库逐字节相等（1121==1121）。
 - [x] **推送**：R2 与流式三修合并后 `develop` 已推 GitHub + Gitee；`main` 待发布时合并（§13 R1）。
-- [x] **推送 R3**：`develop` @ `0be8cde` 已推 GitHub + Gitee；`private-docs` @ `22bbb50` 已推 **仅 GitHub**（维护者 2026-09-16 批准）。
+- [x] **推送 R3**：`develop` @ `ce6ab15` 已推 GitHub + Gitee；`private-docs` @ `fb4dc1a` 已推 **仅 GitHub**（维护者 2026-09-16 批准）。
 - [x] **推送守卫缺陷修复（本机配置，不入库）**：仓库本地 `core.hooksPath=scripts/git-hooks` 是**相对路径**，只对主工作树有效；`private-docs` 工作树里该目录不存在（`scripts/` 下只有 `dev_start.ps1`/`upload_all.ps1`）→ **所有钩子被静默跳过**，防误推 Gitee 的 `pre-push` 守卫实际处于关闭状态。已 `git config --unset core.hooksPath`（两个工作树都回退到 `.git/hooks/`，其中已安装同一守卫），自测：在 `private-docs` 工作树 `git push --dry-run origin private-docs` → `[pre-push] 拒绝…`，退出码 1；`git ls-remote origin private-docs` 为空（未泄漏）。
 - [x] **合并 `feat/rag-citation-source`**（R3 / M5 引用来源标注：`app/rag/citations.py` + `SourceConnector.describe_sources` + Obsidian 身份解析 + `kb_search` 接线 + 前端标签/跳转，共 6 个提交 `0f76e0e..b813b79`）→ `develop`（合并提交 `2e818e5`，维护者 2026-09-16 批准；未走 PR，按 §11「是否走 PR 由维护者按改动规模决定」）。分支已删除。
   - 验收（**合并后的树上复跑**）：后端 394 / 83.65%、`ruff` 全过；前端 125 / 20 文件、`build` 零错误。
@@ -339,7 +356,7 @@
 - [x] **合并 `fix/citation-jump-target`**（R3.1 + R3.2 修复：人工核验发现的四类问题——跳转落点不依赖列表、wiki 不降级为文档、同轮多次检索编号累加、正文 `[n]` 可点，共 7 个提交 `14d7aa2..f05ff7c`）→ **先合入 `feat/rag-citation-source`**（合并提交 `853fdc7`），再随 R3 一并进 `develop`（`2e818e5`）。分支已删除。
   - 回归用例：wiki 缺 `page_id` 必须不可点（`utils/citation.test.ts`）、目标不在列表仍能打开详情（`KbPanel.test.tsx`）、同轮两次 `kb_search` 编号连续且累加（`test_kb_tool.py`）、正文 `[n]` 可点且无对应引用不做死链（`ChatPanel.test.tsx`）。
   - 已知边界：历史消息 citations 已落库不重算（旧消息需重新提问才有效）。
-- [ ] **推送 `private-docs`**：含本轮累积记录（`docs/优化落地记录.md` R2 / R2.1 / R3 / R3.1 / R3.2 节、`docs/plans/` 两份 R3 设计与实施计划、R2 实施计划与预检修订、`面试准备/2026-09-15-流式截断与独白泄漏复盘.md`、`面试准备/2026-09-16-引用溯源与跳转复盘.md`）——**待维护者确认**（按 §11 只推 GitHub）。
+- [x] **推送 `private-docs`**（R3 全套记录：`docs/优化落地记录.md` R3/R3.1/R3.2、`docs/plans/2026-09-16-r3-citation-source{,-design}.md`、`面试准备/2026-09-16-引用溯源与跳转复盘.md`）@ `fb4dc1a` → **仅 GitHub**（维护者 2026-09-16 批准）。含一次改名：计划文档由 `2026-09-15-*` 纠正为实际落盘日期 `2026-09-16-*` 并同步引用。
 
 
 ---
@@ -355,7 +372,7 @@
 |---|---|---|---|---|
 | 0 | **R0** | 计划收敛（本文件改造 + `DEMO_SCRIPT.md` + 清理双份分叉） | 0.5 天 | ✅ 本批 |
 | 1 | **R2** | **Q1 trajectory**：全量落 `Message.extra` + 前端可见（`AGENT_TRACE_ENABLED`） | ~1 小时（同日完成） | 镜头 2 |
-| 2 | **R3** | **M5 引用来源标注**：区分 `Wiki/空间/页面` 与 `文档/页码` | ~2 天（同日完成） | ✅ 镜头 1 |
+| 2 | **R3** | **M5 引用来源标注**：区分 `Wiki/空间/页面` 与 `文档/页码`；含跳转四修（R3.1/R3.2：落点按 id 直开 / wiki 不降级 / 编号累加 / 正文 `[n]` 可点） | ~2 天（同日完成） | ✅ 镜头 1 |
 | 3 | **R4** | **P-F1 MCP 地基**：`app/mcp/` + `funds/quotes.py` + `fund_tool` | ~1 周 | 镜头 3 |
 | 4 | **R5** | **评测闭环**：J3 进 Jenkins 门槛 + Q5 双引擎对照报告（共用 `rag_eval`） | ~3 天 | 镜头 5 |
 | 5 | **R6** | **N2 质量看板**：N2.1-N2.6 + N2.8 | ~1.5 周 | 镜头 5 |
@@ -365,6 +382,7 @@
 - [x] **R0** 计划收敛（本批交付）：三份计划改造 + 冻结清单（带重启条件）+ `DEMO_SCRIPT.md`
 - [x] **R2** Q1 trajectory 落库与前端展示
 - [x] **R3** M5 引用来源标注（`feat/rag-citation-source` + `fix/citation-jump-target` → `develop` `2e818e5`：标签纯函数 + 连接器身份 seam + 前端跳转与编号修正；合并后树上后端 394 / 83.65%、前端 125 / build 零错误）
+- [x] **R3 工具链/规范修复**：`scripts/dev_backend.ps1`（强制 venv + 端口占用检查 + 启动自证，防再跑旧代码）+ `GIT_WORKFLOW.md` 守卫安装纠正（`core.hooksPath` 相对路径在 worktree 中静默失效）——`ce6ab15`/`1e5c297`
 - [ ] **R4** P-F1 MCP 地基与 `fund_tool`
 - [ ] **R5** J3 评测门槛进 Jenkins + Q5 双引擎对照报告
 - [ ] **R6** N2.1-N2.6、N2.8 质量看板
@@ -380,7 +398,7 @@
 
 ## 14. 验收总门槛
 
-> 本清单为**验收快照**（@ `1816bb7` R3.2 分支 tip 实测；上一快照 @ `af9ed5f` R2 分支 tip），数字随基线推进可能滞后；`develop` 基线见 §1。
+> 本清单为**验收快照**（@ `ce6ab15` `develop` tip 实测；上一快照 @ `1816bb7` R3.2 分支 tip），数字随基线推进可能滞后；`develop` 基线见 §1。
 
 - [x] 后端 `pytest` 全绿且覆盖率 ≥ 80%（**394 / 83.65%**）
 - [x] 后端 `ruff check .` 全过

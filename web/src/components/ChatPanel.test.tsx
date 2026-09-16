@@ -159,6 +159,36 @@ describe("ChatPanel", () => {
     expect(onOpenCitation).not.toHaveBeenCalled();
   });
 
+  it("wiki 引用缺失 page_id 时不可点，且不误跳知识库", () => {
+    const onOpenCitation = vi.fn();
+    renderPanel({
+      onOpenCitation,
+      initialMessages: [
+        {
+          role: "assistant",
+          content: "答案 [1]",
+          extra: {
+            citations: [
+              {
+                index: 1,
+                chunk_id: "c1",
+                document_id: "d1",
+                source: "Wiki / 我的笔记 / 已删页面",
+                source_kind: "wiki" as const,
+              },
+            ],
+          },
+        },
+      ],
+    });
+    // 关键回归：有 document_id 也不能降级成文档按钮（否则会跳到知识库里的错文档）
+    expect(screen.queryByRole("button", { name: "查看来源 1" })).not.toBeInTheDocument();
+    expect(screen.getByTitle("Wiki / 我的笔记 / 已删页面（页面已删除或暂不可用）")).toHaveTextContent(
+      "[1]"
+    );
+    expect(onOpenCitation).not.toHaveBeenCalled();
+  });
+
   it("有待确认操作时展示确认按钮并调用 confirmChat", async () => {
     mocked.confirmChat.mockResolvedValue({ reply: "已执行" });
     renderPanel({

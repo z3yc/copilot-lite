@@ -29,6 +29,7 @@ import {
 } from "../api";
 import { ACCEPT_EXTENSIONS } from "../constants";
 import type { ChatMessage, Citation, SessionFile } from "../types";
+import { resolveCitationTarget } from "../utils/citation";
 import { renderMarkdown } from "../utils/markdown";
 import ModelSelect from "./ModelSelect";
 import TrajectoryPanel from "./TrajectoryPanel";
@@ -347,13 +348,13 @@ export default function ChatPanel({
                     来源：
                   </span>
                   {m.extra!.citations!.map((c) => {
-                    // 可跳转条件：Wiki 页面已解析出 page_id，或有文档 id（旧数据两者皆无 → 纯文本）
-                    const navigable = !!(c.wiki?.page_id || c.document_id);
+                    // 可跳转判据与 App 一致：wiki 缺 page_id 时不可点（不降级到文档）
+                    const target = resolveCitationTarget(c);
                     const onActivate = () => {
-                      if (navigable && onOpenCitation) onOpenCitation(c);
+                      if (target && onOpenCitation) onOpenCitation(c);
                       else message.info(`[${c.index}] ${c.source}`);
                     };
-                    return navigable ? (
+                    return target ? (
                       <a
                         key={c.index}
                         className="cite"
@@ -375,7 +376,15 @@ export default function ChatPanel({
                         [{c.index}]
                       </a>
                     ) : (
-                      <span key={c.index} className="cite" title={c.source}>
+                      <span
+                        key={c.index}
+                        className="cite"
+                        title={
+                          c.source_kind === "wiki"
+                            ? `${c.source}（页面已删除或暂不可用）`
+                            : c.source
+                        }
+                      >
                         [{c.index}]
                       </span>
                     );

@@ -1,6 +1,7 @@
 """kb_search 工具测试：mock 混合检索，验证来源 JSON 结构。"""
 
 import json
+import uuid
 
 import pytest
 
@@ -103,6 +104,42 @@ async def test_kb_search_wiki_citation_is_navigable(db_session, monkeypatch) -> 
     assert ctx.citations[0]["source_kind"] == "wiki"
     assert ctx.citations[0]["wiki"]["page_id"] == "p9"
     assert json.loads(result)["结果"][0]["来源"] == "Wiki / 我的笔记 / 方法论"
+
+
+@pytest.mark.asyncio
+async def test_kb_search_accumulates_citations_across_calls(db_session, monkeypatch) -> None:
+    """同一轮多次 kb_search：编号跨调用**连续**、citations **追加不覆盖**。
+
+    回归背景：旧实现每次调用都从 1 开始编号且 `ctx.citations = ...` 覆盖写入，
+    模型正文引到 [8] 而库里只剩 5 条 → 引用编号错位/缺失，点 [n] 跳不到正确来源。
+    """
+    import app.tools.kb_tool as kb_module
+
+    doc_id = str(uuid.uuid4())  # 双链邻居扩展会解析 UUID，测试用合法 id
+    monkeypatch.setattr(
+        kb_module,
+        "hybrid_search",
+        FakeHybridSearch(
+            [
+                RetrievedChunk(
+                    chunk_id="cX",
+                    content="正文",
+                    meta={"document_title": "笔记.md", "headings": []},
+                    score=0.5,
+                    document_id=doc_id,
+                )
+            ]
+        ),
+    )
+    ctx = ToolContext(session=db_session, user_id=DEFAULT_USER_ID)
+
+    first = json.loads(await registry.execute("kb_search", '{"query": "A"}', ctx))
+    assert first["结果"][0]["编号"] == 1
+    assert [c["index"] for c in ctx.citations] == [1]
+
+    second = json.loads(await registry.execute("kb_search", '{"query": "B"}', ctx))
+    assert second["结果"][0]["编号"] == 2  # 连续编号（不从 1 重来）
+    assert [c["index"] for c in ctx.citations] == [1, 2]
 
 
 @pytest.mark.asyncio

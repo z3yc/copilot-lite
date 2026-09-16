@@ -17,16 +17,24 @@ from app.core.prompts.agent import (
     TOOLS_SYSTEM_PROMPT,
 )
 from app.core.prompts.chat import SUMMARY_PROMPT
+from app.core.prompts.fund import (
+    FUND_DATA_NOTICE,
+    FUND_NO_POSITION_NOTICE,
+    FUND_NO_SOURCE_NOTICE,
+)
 from app.core.prompts.memory import MEMORY_EXTRACT_PROMPT
 from app.core.prompts.rag import QUERY_REWRITE_PROMPT
 from app.core.prompts.todo import AI_PARSE_PROMPT
 
 # Prompt 资产版本：任何 prompt 文案/策略变更都递增（便于灰度与回溯）
-PROMPT_VERSION = "1.1.0"
+PROMPT_VERSION = "1.2.0"
 
 __all__ = [
     "AI_PARSE_PROMPT",
     "CHAT_SYSTEM_PROMPT",
+    "FUND_DATA_NOTICE",
+    "FUND_NO_POSITION_NOTICE",
+    "FUND_NO_SOURCE_NOTICE",
     "KB_SYSTEM_PROMPT",
     "MEMORY_EXTRACT_PROMPT",
     "ORCHESTRATOR_SYSTEM_PROMPT",

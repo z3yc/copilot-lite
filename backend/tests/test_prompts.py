@@ -8,6 +8,11 @@ def test_prompt_version_present():
     assert prompts.PROMPT_VERSION.strip()
 
 
+def test_prompt_version_bumped_for_fund_notice():
+    """新增基金行情文案后必须递增版本（AGENTS §18：变更可追溯/可灰度）。"""
+    assert prompts.PROMPT_VERSION == "1.2.0"
+
+
 def test_all_prompts_non_empty():
     for name in prompts.__all__:
         if name == "PROMPT_VERSION":

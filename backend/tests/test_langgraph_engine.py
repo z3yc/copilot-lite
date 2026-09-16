@@ -68,6 +68,17 @@ def test_keyword_route() -> None:
     assert _keyword_route("你好呀") == "chat"
 
 
+def test_keyword_route_knows_fund_queries() -> None:
+    """R4 回归：基金/净值/行情必须路由到 tools（否则 fund_query 永远不会被调用）。
+
+    真机实测：路由不认识基金 → 落到 chat_agent（无工具）→ 模型只能回答
+    「我无法获取实时数据」。
+    """
+    assert _keyword_route("000001 最新单位净值是多少？") == "tools"
+    assert _keyword_route("我的基金今天涨了吗") == "tools"
+    assert _keyword_route("查一下 110022 的净值") == "tools"
+
+
 # ---------- 路由分发 ----------
 
 

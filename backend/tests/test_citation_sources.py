@@ -1,5 +1,7 @@
 """引用构造：来源类型标签（Wiki / 文档）+ 可跳转身份。"""
 
+import uuid
+
 from app.rag.citations import build_citation, build_source_label
 from app.rag.retriever import RetrievedChunk
 
@@ -138,3 +140,95 @@ async def test_default_connector_has_no_source_identity():
             return {}
 
     assert await _Bare().describe_sources(object(), "u1", ["d1"]) == {}
+
+
+# ---------------- Obsidian 来源身份解析 ----------------
+
+
+async def _new_user(db) -> uuid.UUID:
+    from app.models import User
+
+    uid = uuid.uuid4()
+    db.add(User(id=uid, username=f"u{uid.hex[:10]}", password_hash=""))
+    await db.commit()
+    return uid
+
+
+async def _wiki_doc(db, uid, title: str = "方法论"):
+    from app.models import Document
+
+    doc = Document(user_id=uid, title=title, source_type="wiki", status="ready")
+    db.add(doc)
+    await db.commit()
+    return doc
+
+
+async def test_obsidian_describe_sources_returns_wiki_identity(db_session):
+    """命中 Wiki 页面时返回空间/页面身份（含可跳转 page_id）。"""
+    from app.connectors.obsidian import service as wiki_service
+    from app.models import WikiPage, WikiSpace
+
+    uid = await _new_user(db_session)
+    space = WikiSpace(owner_id=uid, name="我的笔记", source_type="upload", root_path="/tmp/x")
+    db_session.add(space)
+    await db_session.flush()
+    doc = await _wiki_doc(db_session, uid)
+    page = WikiPage(
+        user_id=uid,
+        space_id=space.id,
+        rel_path="笔记/方法论.md",
+        title="方法论",
+        slug="方法论",
+        document_id=doc.id,
+    )
+    db_session.add(page)
+    await db_session.commit()
+
+    meta = await wiki_service.describe_sources(db_session, uid, [str(doc.id)])
+    origin = meta[str(doc.id)]
+    assert origin["kind"] == "wiki"
+    assert origin["page_id"] == str(page.id)
+    assert origin["space_id"] == str(space.id)
+    assert origin["space_name"] == "我的笔记"
+    assert origin["rel_path"] == "笔记/方法论.md"
+    assert origin["title"] == "方法论"
+
+
+async def test_obsidian_describe_sources_filters_other_user_deleted_and_bad_input(db_session):
+    """跨用户/缺 user_id/页面软删/非法 id 一律不返回身份（AGENTS §6.3/§13）。"""
+    from app.connectors.obsidian import service as wiki_service
+    from app.core.soft_delete import soft_delete
+    from app.models import WikiPage, WikiSpace
+
+    owner = await _new_user(db_session)
+    other = await _new_user(db_session)
+    space = WikiSpace(owner_id=owner, name="私有", source_type="upload", root_path="/tmp/y")
+    db_session.add(space)
+    await db_session.flush()
+    doc = await _wiki_doc(db_session, owner, title="私密")
+    page = WikiPage(
+        user_id=owner,
+        space_id=space.id,
+        rel_path="a.md",
+        title="私密",
+        slug="a",
+        document_id=doc.id,
+    )
+    db_session.add(page)
+    await db_session.commit()
+
+    # 跨用户：无权者拿不到任何身份
+    assert await wiki_service.describe_sources(db_session, other, [str(doc.id)]) == {}
+    # user_id 缺失：fail-closed
+    assert await wiki_service.describe_sources(db_session, None, [str(doc.id)]) == {}
+    # 非法 document_id 不抛错
+    assert await wiki_service.describe_sources(db_session, owner, ["not-a-uuid"]) == {}
+    # 页面软删：不再提供身份（标签侧由 chunk meta 兜底）
+    await soft_delete(db_session, page, owner)
+    assert await wiki_service.describe_sources(db_session, owner, [str(doc.id)]) == {}
+    # 空间软删：同样不提供
+    await db_session.refresh(page)
+    page.deleted_at = None
+    await db_session.commit()
+    await soft_delete(db_session, space, owner)
+    assert await wiki_service.describe_sources(db_session, owner, [str(doc.id)]) == {}

@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Citation } from "../types";
-import { resolveCitationTarget } from "./citation";
+import { linkifyCitations, resolveCitationTarget } from "./citation";
 
 function cite(overrides: Partial<Citation>): Citation {
   return { index: 1, chunk_id: "c1", source: "来源", ...overrides };
@@ -57,5 +57,31 @@ describe("resolveCitationTarget", () => {
       })
     );
     expect(target).toEqual({ kind: "wiki", pageId: "p1", spaceId: undefined });
+  });
+});
+
+describe("linkifyCitations", () => {
+  it("存在对应引用时把 [n] 转成可点链接（保留方括号外观）", () => {
+    expect(linkifyCitations("见 [1] 与 [9]", [1])).toBe("见 [[1]](#cite-1) 与 [9]");
+  });
+
+  it("无对应引用的编号保持纯文本（不做死链）", () => {
+    expect(linkifyCitations("见 [7]", [1, 2])).toBe("见 [7]");
+  });
+
+  it("不动行内代码与围栏代码块内的 [n]", () => {
+    const md = "行内 `[1]` 与\n\n```python\nprint('[1]')\n```\n\n正文 [1]";
+    const out = linkifyCitations(md, [1]);
+    expect(out).toContain("行内 `[1]`");
+    expect(out).toContain("print('[1]')");
+    expect(out.endsWith("正文 [[1]](#cite-1)")).toBe(true);
+  });
+
+  it("不破坏已有的 Markdown 链接", () => {
+    expect(linkifyCitations("[1](https://x.test)", [1])).toBe("[1](https://x.test)");
+  });
+
+  it("无引用时不改写正文", () => {
+    expect(linkifyCitations("见 [1]", [])).toBe("见 [1]");
   });
 });

@@ -29,6 +29,7 @@ dependencies = [
     "ragas>=0.3.1",
     "langchain-community[vertexai]>=0.4.2",
     "langchain-google-vertexai>=3.2.4",
+    "mcp>=1.30,<2.0",
 ]
 
 [dependency-groups]

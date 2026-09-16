@@ -111,6 +111,54 @@ describe("ChatPanel", () => {
     expect(screen.getByText("[1]")).toBeInTheDocument();
   });
 
+  it("Wiki 引用显示类型标签并可点击跳转", async () => {
+    const onOpenCitation = vi.fn();
+    const citation = {
+      index: 1,
+      chunk_id: "c1",
+      document_id: "d1",
+      source: "Wiki / 我的笔记 / 方法论",
+      source_kind: "wiki" as const,
+      wiki: {
+        page_id: "p1",
+        space_id: "s1",
+        space_name: "我的笔记",
+        rel_path: "笔记/方法论.md",
+      },
+    };
+    renderPanel({
+      onOpenCitation,
+      initialMessages: [
+        { role: "assistant", content: "答案 [1]", extra: { citations: [citation] } },
+      ],
+    });
+    const link = screen.getByRole("button", { name: "查看来源 1" });
+    expect(link).toHaveTextContent("[1]");
+    expect(link).toHaveAttribute("title", "Wiki / 我的笔记 / 方法论");
+    fireEvent.click(link);
+    expect(onOpenCitation).toHaveBeenCalledTimes(1);
+    expect(onOpenCitation.mock.calls[0][0].wiki.page_id).toBe("p1");
+  });
+
+  it("旧格式引用（无跳转目标）只做文本展示，不给按钮语义", () => {
+    const onOpenCitation = vi.fn();
+    renderPanel({
+      onOpenCitation,
+      initialMessages: [
+        {
+          role: "assistant",
+          content: "答案 [1]",
+          extra: {
+            citations: [{ index: 1, chunk_id: "c1", source: "旧文档 > 第一章" }],
+          },
+        },
+      ],
+    });
+    expect(screen.queryByRole("button", { name: "查看来源 1" })).not.toBeInTheDocument();
+    expect(screen.getByTitle("旧文档 > 第一章")).toHaveTextContent("[1]");
+    expect(onOpenCitation).not.toHaveBeenCalled();
+  });
+
   it("有待确认操作时展示确认按钮并调用 confirmChat", async () => {
     mocked.confirmChat.mockResolvedValue({ reply: "已执行" });
     renderPanel({

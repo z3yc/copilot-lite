@@ -28,7 +28,7 @@ import {
   uploadSessionFile,
 } from "../api";
 import { ACCEPT_EXTENSIONS } from "../constants";
-import type { ChatMessage, SessionFile } from "../types";
+import type { ChatMessage, Citation, SessionFile } from "../types";
 import { renderMarkdown } from "../utils/markdown";
 import ModelSelect from "./ModelSelect";
 import TrajectoryPanel from "./TrajectoryPanel";
@@ -70,6 +70,8 @@ interface Props {
   setBusy: (b: boolean) => void;
   /** 未配置模型时，引导前往「个人主页 → 模型设置」 */
   onOpenSettings?: () => void;
+  /** 点击引用：跳到对应 Wiki 页面或知识库文档（无目标时组件内部降级为提示） */
+  onOpenCitation?: (c: Citation) => void;
 }
 
 export default function ChatPanel({
@@ -81,6 +83,7 @@ export default function ChatPanel({
   busy,
   setBusy,
   onOpenSettings,
+  onOpenCitation,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -343,28 +346,40 @@ export default function ChatPanel({
                   <span className="dim" style={{ fontSize: 12 }}>
                     来源：
                   </span>
-                  {m.extra!.citations!.map((c) => (
-                    <a
-                      key={c.index}
-                      className="cite"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`查看来源 ${c.index}`}
-                      title={c.snippet || c.source}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        message.info(`[${c.index}] ${c.source}`);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          message.info(`[${c.index}] ${c.source}`);
-                        }
-                      }}
-                    >
-                      [{c.index}]
-                    </a>
-                  ))}
+                  {m.extra!.citations!.map((c) => {
+                    // 可跳转条件：Wiki 页面已解析出 page_id，或有文档 id（旧数据两者皆无 → 纯文本）
+                    const navigable = !!(c.wiki?.page_id || c.document_id);
+                    const onActivate = () => {
+                      if (navigable && onOpenCitation) onOpenCitation(c);
+                      else message.info(`[${c.index}] ${c.source}`);
+                    };
+                    return navigable ? (
+                      <a
+                        key={c.index}
+                        className="cite"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`查看来源 ${c.index}`}
+                        title={c.source}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onActivate();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onActivate();
+                          }
+                        }}
+                      >
+                        [{c.index}]
+                      </a>
+                    ) : (
+                      <span key={c.index} className="cite" title={c.source}>
+                        [{c.index}]
+                      </span>
+                    );
+                  })}
                 </div>
               )}
               {m.role === "assistant" && m.extra?.trajectory && (

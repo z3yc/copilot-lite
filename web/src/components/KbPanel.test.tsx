@@ -58,4 +58,30 @@ describe("KbPanel", () => {
       expect(mocked.fetchDocs).toHaveBeenLastCalledWith(undefined, "pdf")
     );
   });
+
+  it("openTarget 指定文档时复位过滤并展开详情", async () => {
+    mocked.fetchDocDetail.mockResolvedValue({
+      id: "d2",
+      title: "笔记 B",
+      source_type: "md",
+      status: "ready",
+      chunk_count: 1,
+      chunks: [{ chunk_index: 0, content: "分块正文", headings: [], page: null }],
+    });
+    const onCatChange = vi.fn();
+    const onOpened = vi.fn();
+    render(
+      <KbPanel
+        activeCat="pdf"
+        onCatChange={onCatChange}
+        openTarget={{ docId: "d2" }}
+        onOpened={onOpened}
+      />
+    );
+
+    expect(await screen.findByText("#0")).toBeInTheDocument();
+    expect(mocked.fetchDocDetail).toHaveBeenCalledWith("d2");
+    expect(onCatChange).toHaveBeenCalledWith("all");
+    await waitFor(() => expect(onOpened).toHaveBeenCalled());
+  });
 });

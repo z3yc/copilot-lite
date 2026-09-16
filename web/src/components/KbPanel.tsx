@@ -43,9 +43,12 @@ function StatusTag({ status }: { status: string }) {
 interface Props {
   activeCat: string;
   onCatChange: (cat: string) => void;
+  /** 引用跳转目标（由 App 传入；一次性消费，展开后回调 onOpened 清空） */
+  openTarget?: { docId: string } | null;
+  onOpened?: () => void;
 }
 
-export default function KbPanel({ activeCat, onCatChange }: Props) {
+export default function KbPanel({ activeCat, onCatChange, openTarget, onOpened }: Props) {
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -54,6 +57,8 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
   const [loadingDocs, setLoadingDocs] = useState(true);
   const [errorDocs, setErrorDocs] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  // 引用跳转待打开文档（等列表就绪后再展开，防“详情渲染不出”）
+  const [pendingOpen, setPendingOpen] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // 加载（分类 + 内容级搜索，300ms 防抖）
@@ -93,6 +98,26 @@ export default function KbPanel({ activeCat, onCatChange }: Props) {
       setLoadingDetail(false);
     }
   };
+
+  // 引用跳转：先复位搜索，并让上层把分类切回「全部」（目标可能不在当前分类）
+  useEffect(() => {
+    if (!openTarget?.docId) return;
+    setSearch("");
+    if (activeCat !== "all") onCatChange("all");
+    setPendingOpen(openTarget.docId);
+    // 仅响应 App 传入的一次性目标（onCatChange/search 属被动联动）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTarget]);
+
+  // 列表就绪且含目标文档时才展开（详情渲染挂在列表卡片内）
+  useEffect(() => {
+    if (!pendingOpen || loadingDocs) return;
+    if (!docs.some((d) => d.id === pendingOpen)) return;
+    void toggleDetail(pendingOpen);
+    setPendingOpen(null);
+    onOpened?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingOpen, docs, loadingDocs]);
 
   const onUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;

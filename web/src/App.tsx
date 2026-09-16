@@ -424,7 +424,12 @@ export default function App() {
                 onOpenCitation={openCitation}
               />
             ) : tab === "kb" ? (
-              <KbPanel activeCat={activeCat} onCatChange={setActiveCat} />
+              <KbPanel
+                activeCat={activeCat}
+                onCatChange={setActiveCat}
+                openTarget={openTarget?.kind === "doc" ? openTarget : null}
+                onOpened={() => setOpenTarget(null)}
+              />
             ) : tab === "wiki" ? (
               <WikiPanel
                 openTarget={openTarget?.kind === "wiki" ? openTarget : null}

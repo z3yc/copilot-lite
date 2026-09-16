@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from mcp.server.fastmcp import FastMCP
 
 
@@ -13,7 +15,7 @@ def build_generic_server() -> FastMCP:
     server: FastMCP = FastMCP("generic-echo")
 
     @server.tool(name="echo")
-    async def echo(text: str) -> dict:
+    async def echo(text: str) -> dict[str, Any]:
         """原样回显文本（测试用，无业务含义）。"""
         return {"echo": text}
 

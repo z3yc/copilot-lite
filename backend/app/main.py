@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import app.models
+import app.tools  # 显式装配工具层：同时注册 MCP 领域适配器（启动自检依赖它）
 from app.api import api_router
 from app.core.config import settings
 from app.core.context import RequestContextMiddleware

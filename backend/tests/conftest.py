@@ -273,10 +273,10 @@ def _isolated_qdrant(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 async def _reset_mcp_clients():
-    """每个用例前后重置/关闭 MCP 句柄（防跨用例串会话与子进程泄漏）。"""
-    from app.mcp.client import close_mcp_clients, reset_mcp_clients
+    """每个用例前后关闭 MCP 会话（防跨用例串会话与子进程泄漏）。"""
+    from app.mcp.client import close_mcp_clients
 
-    reset_mcp_clients()
+    await close_mcp_clients()
     yield
     await close_mcp_clients()
 

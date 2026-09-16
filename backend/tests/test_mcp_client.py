@@ -1,5 +1,6 @@
 """通用 MCP client：真 stdio 协议（stub 子进程）+ 超时/重连/降级/脱敏/跨域复用。"""
 
+import asyncio
 import sys
 
 import pytest
@@ -100,6 +101,27 @@ async def test_timeout_drops_session_and_next_call_reconnects(monkeypatch) -> No
     monkeypatch.setattr(settings, "MCP_SERVERS", [_server(mode="ok", timeout=10.0)])
     out = await call_configured("fund-quotes", {"codes": ["000001"]})
     assert out["structured"]["quotes"][0]["code"] == "000001"
+
+
+async def test_close_from_another_task_terminates_session(monkeypatch) -> None:
+    """真机踩坑回归：关闭往往发生在**另一个任务**（如 lifespan shutdown）。
+
+    `stdio_client` 的 anyio 取消域必须在创建它的任务里退出——早期实现由请求任务
+    持有会话、又用 `asyncio.wait_for`（另起任务）关闭，退出失败被 `except` 吞掉，
+    表现为「看起来关了、子进程仍在」。本用例在另一个任务里关闭，
+    并在关闭前抓住拥有者任务，断言它确实结束、句柄表确实清空。
+    """
+    from app.mcp import client as client_mod
+
+    _configure(monkeypatch, _server())
+    await call_configured("fund-quotes", {"codes": ["000001"]})
+    owner = client_mod._owners["fund-quotes"]
+    assert owner.task is not None and not owner.task.done()
+
+    await asyncio.create_task(close_mcp_clients())  # 换一个任务关闭
+
+    assert owner.task.done()  # 拥有者任务已退出（anyio 取消域正常收尾 → 子进程已终止）
+    assert client_mod._owners == {}  # 句柄表已清空，无残留
 
 
 async def test_missing_codes_are_reported_not_fabricated(monkeypatch) -> None:

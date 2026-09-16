@@ -19,6 +19,8 @@ from app.core.envelope import EnvelopeMiddleware
 from app.core.errors import AppError, code_for_status, envelope
 from app.core.logging import setup_logging
 from app.core.security import hash_password
+from app.mcp.client import close_mcp_clients
+from app.mcp.registry import validate_configured_servers
 from app.models import Category, User
 from app.models.category import DEFAULT_CATEGORIES
 
@@ -107,6 +109,9 @@ async def lifespan(_: FastAPI):
     本地开发模式自动建表（零依赖，便于快速上手）；
     生产/云端模式使用 Alembic 迁移管理表结构。
     """
+    # MCP 配置自检：引用了未注册的适配器 → 直接拒绝启动
+    # （AGENTS §6/§7：坏配置要启动时就炸，不能等半夜播报才发现）
+    validate_configured_servers()
     if settings.RUN_MODE == "local":
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -117,6 +122,8 @@ async def lifespan(_: FastAPI):
     if settings.EMBEDDING_PREWARM:
         asyncio.create_task(_prewarm_embeddings())
     yield
+    # 终止 MCP server 子进程（防进程泄漏）
+    await close_mcp_clients()
     await engine.dispose()
 
 

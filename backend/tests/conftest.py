@@ -271,6 +271,16 @@ def _isolated_qdrant(tmp_path, monkeypatch):
     monkeypatch.setattr("app.rag.vector_store.get_qdrant_client", lambda: client)
 
 
+@pytest.fixture(autouse=True)
+async def _reset_mcp_clients():
+    """每个用例前后重置/关闭 MCP 句柄（防跨用例串会话与子进程泄漏）。"""
+    from app.mcp.client import close_mcp_clients, reset_mcp_clients
+
+    reset_mcp_clients()
+    yield
+    await close_mcp_clients()
+
+
 @pytest.fixture
 async def db_session():
     """提供独立的测试数据库会话（表已就绪，用后清理）。"""

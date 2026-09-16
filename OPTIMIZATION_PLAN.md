@@ -331,7 +331,8 @@
   - 真实模型端到端（运行中的服务，LangGraph 引擎）：Q1 `帮我看一下我的待办列表`（路由 tools→`todo_list`）与 Q2 `帮我看看wiki里有什么`（路由 kb→`kb_search`，启动后 19.4s 静默、期间发 1 次心跳、仍完整返回）均无英文独白，落库 `extra` 含 `tool_calls` + `trajectory`（Q2 另有 `citations`），流式拼接 == 落库 `content`，事件序列 `session,chunk,done` 无 `error`。
   - 合并后**控制者独立复验**：同一慢路径自然静默 **21.15s**（>15s 心跳阀值，心跳已发）而答案仍完整 1121 字、无英文独白、`extra` 三键齐全、流式与落库逐字节相等（1121==1121）。
 - [x] **推送**：R2 与流式三修合并后 `develop` 已推 GitHub + Gitee；`main` 待发布时合并（§13 R1）。
-- [ ] **推送 R3**：`develop` @ `2e818e5` 尚未推 GitHub / Gitee（本地领先 17 个提交）——**待维护者明确批准**（§11）。
+- [x] **推送 R3**：`develop` @ `0be8cde` 已推 GitHub + Gitee；`private-docs` @ `22bbb50` 已推 **仅 GitHub**（维护者 2026-09-16 批准）。
+- [x] **推送守卫缺陷修复（本机配置，不入库）**：仓库本地 `core.hooksPath=scripts/git-hooks` 是**相对路径**，只对主工作树有效；`private-docs` 工作树里该目录不存在（`scripts/` 下只有 `dev_start.ps1`/`upload_all.ps1`）→ **所有钩子被静默跳过**，防误推 Gitee 的 `pre-push` 守卫实际处于关闭状态。已 `git config --unset core.hooksPath`（两个工作树都回退到 `.git/hooks/`，其中已安装同一守卫），自测：在 `private-docs` 工作树 `git push --dry-run origin private-docs` → `[pre-push] 拒绝…`，退出码 1；`git ls-remote origin private-docs` 为空（未泄漏）。
 - [x] **合并 `feat/rag-citation-source`**（R3 / M5 引用来源标注：`app/rag/citations.py` + `SourceConnector.describe_sources` + Obsidian 身份解析 + `kb_search` 接线 + 前端标签/跳转，共 6 个提交 `0f76e0e..b813b79`）→ `develop`（合并提交 `2e818e5`，维护者 2026-09-16 批准；未走 PR，按 §11「是否走 PR 由维护者按改动规模决定」）。分支已删除。
   - 验收（**合并后的树上复跑**）：后端 394 / 83.65%、`ruff` 全过；前端 125 / 20 文件、`build` 零错误。
   - 真机验证：重启后 `/api/v1/health/ready` 为 ok；用户已人工复验「点引用跳转 + 正文 `[n]` 可点」。

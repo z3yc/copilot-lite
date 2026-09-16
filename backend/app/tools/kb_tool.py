@@ -10,6 +10,7 @@
 
 import json
 
+from app.connectors.base import collect_source_meta
 from app.core.config import settings
 from app.rag import (
     get_embedding_service,
@@ -18,6 +19,7 @@ from app.rag import (
     hybrid_search,
     multi_query_search,
 )
+from app.rag.citations import build_citation
 from app.tools.base import ToolContext, registry
 
 
@@ -57,32 +59,21 @@ async def kb_search(ctx: ToolContext, query: str, top_k: int = 3) -> str:
         results = await expand_neighbors(ctx.session, user_filter, results, query, top_k)
     payload = []
     citations: list[dict] = []
+    # 来源身份（Wiki 等连接器提供；解析失败不影响检索，AGENTS §10）
+    origins = await collect_source_meta(
+        ctx.session, user_filter, [r.document_id for r in results if r.document_id]
+    )
     for i, r in enumerate(results, start=1):
-        meta = r.meta or {}
-        headings = meta.get("headings") or []
-        title = meta.get("document_title", "未知文档")
-        source = title
-        if headings:
-            source += " > " + " > ".join(headings)
-        if meta.get("page"):
-            source += f"（第{meta['page']}页）"
+        cite = build_citation(i, r, origins.get(str(r.document_id)))
         payload.append(
             {
                 "编号": i,
                 "chunk_id": r.chunk_id,
-                "来源": source,
+                "来源": cite["source"],
                 "内容": r.content[:500],
             }
         )
-        citations.append(
-            {
-                "index": i,
-                "chunk_id": r.chunk_id,
-                "document_id": r.document_id,
-                "source": source,
-                "snippet": r.content[:160],
-            }
-        )
+        citations.append(cite)
     # 写入工具上下文，供上层落 Message.extra.citations（前端引用可点击）
     ctx.citations = citations
     return json.dumps(

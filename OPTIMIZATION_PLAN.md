@@ -34,7 +34,7 @@
 > **进度事实来源：§13**。`PLAN.md` 的 P5/P6 与 `ADMIN_PLAN.md` 的 N2/N3 均为**镜像**；调整进度时先改 §13。
 
 **当前基线**：后端 **394 用例 / 覆盖率 83.65%**、ruff 全过；前端 **125 用例**、build 零错误；CLI **15 用例**（沿用 `develop` 基线，R3 未改 CLI）。
-（数据为 `fix/citation-jump-target` @ `1816bb7` 实测；R3 起点 `develop` @ `e772c7d` 为后端 380 / 83.39%、前端 107。）
+（数据为 `develop` @ `2e818e5`（R3 合并后）实测；R3 起点 `develop` @ `e772c7d` 为后端 380 / 83.39%、前端 107。）
 
 ---
 
@@ -331,11 +331,11 @@
   - 真实模型端到端（运行中的服务，LangGraph 引擎）：Q1 `帮我看一下我的待办列表`（路由 tools→`todo_list`）与 Q2 `帮我看看wiki里有什么`（路由 kb→`kb_search`，启动后 19.4s 静默、期间发 1 次心跳、仍完整返回）均无英文独白，落库 `extra` 含 `tool_calls` + `trajectory`（Q2 另有 `citations`），流式拼接 == 落库 `content`，事件序列 `session,chunk,done` 无 `error`。
   - 合并后**控制者独立复验**：同一慢路径自然静默 **21.15s**（>15s 心跳阀值，心跳已发）而答案仍完整 1121 字、无英文独白、`extra` 三键齐全、流式与落库逐字节相等（1121==1121）。
 - [x] **推送**：R2 与流式三修合并后 `develop` 已推 GitHub + Gitee；`main` 待发布时合并（§13 R1）。
-- [ ] **合并 `feat/rag-citation-source`**（R3 / M5 引用来源标注：`app/rag/citations.py` + `SourceConnector.describe_sources` + Obsidian 身份解析 + `kb_search` 接线 + 前端标签/跳转，共 6 个提交 `0f76e0e..b813b79`）→ `develop`——**待维护者批准**。
-  - 验收：后端 393 / 83.60%、`ruff` 全过；前端 112 / 19 文件、`build` 零错误（分支 tip 实测）。
-  - 未做：真实模型端到端 + 浏览器点击跳转的目视复验（需运行服务与预置 Wiki 数据），已列入合并前人工复验清单。
-- [ ] **合并 `fix/citation-jump-target`**（R3.1 + R3.2 修复：人工核验发现的四类问题——跳转落点不依赖列表、wiki 不降级为文档、同轮多次检索编号累加、正文 `[n]` 可点，四个提交 `14d7aa2..1816bb7`）→ **先合入 `feat/rag-citation-source`**（缺陷属 R3 引入、R3 尚未合并），再随 R3 一并进 `develop`——**待维护者批准**。
-  - 验收：后端 394 / 83.65%、`ruff` 全过；前端 125 / 20 文件、`build` 零错误（分支 tip 实测）。
+- [ ] **推送 R3**：`develop` @ `2e818e5` 尚未推 GitHub / Gitee（本地领先 17 个提交）——**待维护者明确批准**（§11）。
+- [x] **合并 `feat/rag-citation-source`**（R3 / M5 引用来源标注：`app/rag/citations.py` + `SourceConnector.describe_sources` + Obsidian 身份解析 + `kb_search` 接线 + 前端标签/跳转，共 6 个提交 `0f76e0e..b813b79`）→ `develop`（合并提交 `2e818e5`，维护者 2026-09-16 批准；未走 PR，按 §11「是否走 PR 由维护者按改动规模决定」）。分支已删除。
+  - 验收（**合并后的树上复跑**）：后端 394 / 83.65%、`ruff` 全过；前端 125 / 20 文件、`build` 零错误。
+  - 真机验证：重启后 `/api/v1/health/ready` 为 ok；用户已人工复验「点引用跳转 + 正文 `[n]` 可点」。
+- [x] **合并 `fix/citation-jump-target`**（R3.1 + R3.2 修复：人工核验发现的四类问题——跳转落点不依赖列表、wiki 不降级为文档、同轮多次检索编号累加、正文 `[n]` 可点，共 7 个提交 `14d7aa2..f05ff7c`）→ **先合入 `feat/rag-citation-source`**（合并提交 `853fdc7`），再随 R3 一并进 `develop`（`2e818e5`）。分支已删除。
   - 回归用例：wiki 缺 `page_id` 必须不可点（`utils/citation.test.ts`）、目标不在列表仍能打开详情（`KbPanel.test.tsx`）、同轮两次 `kb_search` 编号连续且累加（`test_kb_tool.py`）、正文 `[n]` 可点且无对应引用不做死链（`ChatPanel.test.tsx`）。
   - 已知边界：历史消息 citations 已落库不重算（旧消息需重新提问才有效）。
 - [ ] **推送 `private-docs`**：含本轮累积记录（`docs/优化落地记录.md` R2 / R2.1 / R3 / R3.1 / R3.2 节、`docs/plans/` 两份 R3 设计与实施计划、R2 实施计划与预检修订、`面试准备/2026-09-15-流式截断与独白泄漏复盘.md`、`面试准备/2026-09-16-引用溯源与跳转复盘.md`）——**待维护者确认**（按 §11 只推 GitHub）。
@@ -363,7 +363,7 @@
 
 - [x] **R0** 计划收敛（本批交付）：三份计划改造 + 冻结清单（带重启条件）+ `DEMO_SCRIPT.md`
 - [x] **R2** Q1 trajectory 落库与前端展示
-- [x] **R3** M5 引用来源标注（`feat/rag-citation-source`：标签纯函数 + 连接器身份 seam + 前端跳转；后端 393 / 83.60%、前端 112 / build 零错误）
+- [x] **R3** M5 引用来源标注（`feat/rag-citation-source` + `fix/citation-jump-target` → `develop` `2e818e5`：标签纯函数 + 连接器身份 seam + 前端跳转与编号修正；合并后树上后端 394 / 83.65%、前端 125 / build 零错误）
 - [ ] **R4** P-F1 MCP 地基与 `fund_tool`
 - [ ] **R5** J3 评测门槛进 Jenkins + Q5 双引擎对照报告
 - [ ] **R6** N2.1-N2.6、N2.8 质量看板

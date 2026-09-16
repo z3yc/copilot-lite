@@ -24,7 +24,7 @@
 | K | 连接器生态与直连能力 | ❄️ 冻结（§11） |
 | M | 知识来源范围（RAG / Wiki 检索分流） | ✅ M1/M5 完成（M2/M3/M4/M6 ❄️ 冻结） |
 | N | 管理后台与质量看板 | 🟡 N0/N1 完成、N2 → R6；N2.7/N2.9/N3 ❄️ 冻结 |
-| P | 基金盯盘 + MCP 接入 | 🟡 F1 → R4、F2-F4 → R7（**已排期**） |
+| P | 基金盯盘 + MCP 接入 | 🟡 F1 ✅ 完成（R4）、F2-F4 → R7（**已排期**） |
 | Q | Agent 形态与可观测 | 🟡 Q1 ✅ 完成（R2）、Q5 → R5；Q2/Q3/Q4 ❄️ 冻结 |
 | Z | 暂缓项（B3/B5/C3/C4/D5/E5/L7） | ❄️ 冻结（§11） |
 
@@ -33,7 +33,7 @@
 > ⏸ = 按需、不进路线图（等同冻结，不单列于 §11）。
 > **进度事实来源：§13**。`PLAN.md` 的 P5/P6 与 `ADMIN_PLAN.md` 的 N2/N3 均为**镜像**；调整进度时先改 §13。
 
-**当前基线**：后端 **394 用例 / 覆盖率 83.65%**、ruff 全过；前端 **125 用例**、build 零错误；CLI **15 用例**（沿用旧基线，R3 未改 CLI）。
+**当前基线**：后端 **479 用例 / 覆盖率 84.39%**、ruff 全过；前端 **125 用例**、build 零错误；CLI **15 用例**（R4 未改 CLI/前端）。
 （数据为 `develop` @ `ce6ab15`（R3 + 工具链修复后）实测；R3 起点 `develop` @ `e772c7d` 为后端 380 / 83.39%、前端 107。）
 
 ---
@@ -202,7 +202,9 @@
 
 ### 9.2 分期（每期独立可交付、可验收）
 
-- 🟡 **P-F1 MCP 地基**：`app/mcp/`（stdio client + server 注册表 + 适配器注册表）+ `app/funds/quotes.py`（归一化/校验/缓存）+ `fund_tool`（对话查单支基金净值）。（见 §13 R4）
+- ✅ **P-F1 MCP 地基（R4 已完成）**：`app/mcp/`（server 配置/适配器注册表 + 通用 stdio client）+ `app/mcp_servers/fund_quotes/`（自建 server，东财公开接口，数据源可注入）+ `app/funds/quotes.py`（校验/归一化/缓存）+ `fund_tool`（对话查单支基金净值）。
+      _实现要点：`MCP_ENABLED`/`MCP_SERVERS`/`MCP_CALL_TIMEOUT_SECONDS`/`FUND_QUOTE_CACHE_MINUTES` 三件套 + 启动自检（引用未注册 adapter 直接拒绝启动）；会话由**专用任务**持有（anyio 取消域必须同任务退出）；外部数据逐条校验丢弃；`fund_quotes` 公开缓存表（无 user_id、刻意不软删）。_
+      _接缝：「接入新 MCP = 加一条配置 + 写一个 adapter」有可执行证据——`tests/test_mcp_client.py::test_client_is_domain_agnostic` 用**非基金域** server 验证 client 零改动。_
       _最早验证 MCP server 选型：不合适就换，不返工。_
 - 🟡 **P-F2 持仓**：`fund_positions` 表 + 迁移 + CRUD API + 前端录入 + 收益计算（`Decimal`，含 `prev_nav` 缺失/除零边界）。（见 §13 R7）
 - 🟡 **P-F3 调度闭环**：`schedules` 表 + `core/scheduler.py` ticker（原子抢占 + 幂等 + 可开关）+ `fund_watch` job handler + 站内 `notifications`。（见 §13 R7）
@@ -223,11 +225,13 @@
 
 ### 9.5 验收门槛
 
-- [ ] 后端 `pytest` 全绿且覆盖率 ≥80%、`ruff` 全过；前端 `npm test` + `build` 零错误；
-- [ ] 跨用户隔离回归（A 看不到 B 的持仓/通知/调度）；软删除可恢复且列表/统计已过滤；
-- [ ] MCP 适配层用 Fake client 测（不联网）；脏数据（负净值/日期非法/超范围）逐条丢弃并留日志；
-- [ ] webhook 失败**不影响站内记录**；日志无明文密钥（含 webhook token）；
-- [ ] 调度：到点触发 / 未到点不触发 / 开关关闭不跑 / 重复 tick 不重复执行（幂等）各有回归用例。
+> 标注「F1 ✅」的已随 R4 完成；其余属 F2–F4（R7）未开工。
+
+- [x] 后端 `pytest` 全绿且覆盖率 ≥80%、`ruff` 全过；前端 `npm test` + `build` 零错误；（**F1 ✅**：后端 479 / 84.39%、`ruff` 全过；未改前端/CLI，沿用 R3 基线 125 / build 零错误）
+- [ ] 跨用户隔离回归（A 看不到 B 的持仓/通知/调度）；软删除可恢复且列表/统计已过滤；（F1 无用户数据：`fund_quotes` 为公开行情缓存、无 `user_id`，已留**记录性断言** `test_public_data_has_no_user_scope` 防将来加维度时漏答「谁的持仓」；持仓/调度/通知的隔离属 F2/F3）
+- [x] MCP 适配层用 Fake client 测（不联网）；脏数据（负净值/日期非法/超范围）逐条丢弃并留日志；（**F1 ✅**：`tests/support/stub_mcp_server.py` 真协议 + 假数据；`test_fund_quotes.py` 14 个校验边界用例）
+- [ ] webhook 失败**不影响站内记录**；日志无明文密钥（含 webhook token）；（F1 ✅ 已覆盖「日志无密钥」：`test_env_secret_never_reaches_logs`；webhook 属 F4）
+- [ ] 调度：到点触发 / 未到点不触发 / 开关关闭不跑 / 重复 tick 不重复执行（幂等）各有回归用例。（属 F3）
 
 ---
 
@@ -366,14 +370,14 @@
 > 定稿依据：`docs/plans/2026-09-15-scope-convergence-design.md`（目标 C：面试优先 + 兼顾自用）（属 `private-docs` 分支）。
 > 准入规则：新需求必须能回答"进哪个镜头"（见 `DEMO_SCRIPT.md`）或"讲出什么数据",否则进 §11 冻结清单。
 
-**执行顺序（2026-09-15 调整：R1 挪到最后）**：R2 → R3 → R4 → R5 → R6 → R7 → **R1**（云上演示）。
+**执行顺序（2026-09-16 更新）**：R2 ✅ → R3 ✅ → R4 ✅ → R5 → R6 → R7 → **R1**（云上演示）。
 
 | 序 | 批次 | 事项 | 预估 | 验收位置 |
 |---|---|---|---|---|
 | 0 | **R0** | 计划收敛（本文件改造 + `DEMO_SCRIPT.md` + 清理双份分叉） | 0.5 天 | ✅ 本批 |
 | 1 | **R2** | **Q1 trajectory**：全量落 `Message.extra` + 前端可见（`AGENT_TRACE_ENABLED`） | ~1 小时（同日完成） | 镜头 2 |
 | 2 | **R3** | **M5 引用来源标注**：区分 `Wiki/空间/页面` 与 `文档/页码`；含跳转四修（R3.1/R3.2：落点按 id 直开 / wiki 不降级 / 编号累加 / 正文 `[n]` 可点） | ~2 天（同日完成） | ✅ 镜头 1 |
-| 3 | **R4** | **P-F1 MCP 地基**：`app/mcp/` + `funds/quotes.py` + `fund_tool` | ~1 周 | 镜头 3 |
+| 3 | **R4** | **P-F1 MCP 地基**：`app/mcp/` + `funds/quotes.py` + `fund_tool` | ~1 周（2026-09-16 完成） | ✅ 镜头 3 |
 | 4 | **R5** | **评测闭环**：J3 进 Jenkins 门槛 + Q5 双引擎对照报告（共用 `rag_eval`） | ~3 天 | 镜头 5 |
 | 5 | **R6** | **N2 质量看板**：N2.1-N2.6 + N2.8 | ~1.5 周 | 镜头 5 |
 | 6 | **R7** | **基金自用闭环（必做）**：P-F2 持仓 → P-F3 调度 → P-F4 通知 | ~1.5 周 | 自用价值 |
@@ -383,7 +387,11 @@
 - [x] **R2** Q1 trajectory 落库与前端展示
 - [x] **R3** M5 引用来源标注（`feat/rag-citation-source` + `fix/citation-jump-target` → `develop` `2e818e5`：标签纯函数 + 连接器身份 seam + 前端跳转与编号修正；合并后树上后端 394 / 83.65%、前端 125 / build 零错误）
 - [x] **R3 工具链/规范修复**：`scripts/dev_backend.ps1`（强制 venv + 端口占用检查 + 启动自证，防再跑旧代码）+ `GIT_WORKFLOW.md` 守卫安装纠正（`core.hooksPath` 相对路径在 worktree 中静默失效）——`ce6ab15`/`1e5c297`
-- [ ] **R4** P-F1 MCP 地基与 `fund_tool`
+- [x] **R4** P-F1 MCP 地基与 `fund_tool`（`feat/mcp-foundation` @ `cda56df`，共 12 个提交：MCP 注册表与配置三件套 → 行情缓存表与迁移 → 自建基金净值 server → 通用 stdio client → 行情适配与缓存 → `fund_query` 工具 → 三个真机修复；后端 **479 / 84.39%**、`ruff` 全过）
+      - 真机验收：超管登录 → 问「000001 最新单位净值是多少？」→ 路由 `tools_agent` → `fund_query` 真调 MCP 子进程 → 东财真实净值 → 回答含「净值 1.25（净值日期 2026-09-15）」并声明「第三方数据可能延迟，不代表实时」；缓存表落库 `1.2500 / prev 1.2350 / 1.2100%`（来源 `mcp:fund-quotes`）。
+      - 真机修复一：**stdio 会话改由专用任务持有**（anyio 取消域必须由创建它的任务退出；旧实现用 `wait_for` 在另一个任务关闭 → 退出失败被 `except` 吃掉 → 子进程泄漏，已补跨任务关闭回归用例）。
+      - 真机修复二：**路由补基金认知**（关键词兜底 + Supervisor/Tools/Orchestrator 三处提示词；否则落到无工具的 `chat_agent`，模型只能答「我无法获取实时数据」）——`PROMPT_VERSION 1.3.0`。
+      - 真机修复三：**工具层注解与数组参数**（`from __future__ import annotations` 会让 `param.annotation` 变字符串 → `codes` schema 退化成 string → 模型按字符串传参被逐字符拆成 `["0","1"]`；改为 `get_type_hints` 解析 + 数组补 `items` + 宽容接受 LLM 的字符串数组漂移）。
 - [ ] **R5** J3 评测门槛进 Jenkins + Q5 双引擎对照报告
 - [ ] **R6** N2.1-N2.6、N2.8 质量看板
 - [ ] **R7** P-F2 持仓 → P-F3 调度 → P-F4 通知（必做）
@@ -400,7 +408,7 @@
 
 > 本清单为**验收快照**（@ `ce6ab15` `develop` tip 实测；上一快照 @ `1816bb7` R3.2 分支 tip），数字随基线推进可能滞后；`develop` 基线见 §1。
 
-- [x] 后端 `pytest` 全绿且覆盖率 ≥ 80%（**394 / 83.65%**）
+- [x] 后端 `pytest` 全绿且覆盖率 ≥ 80%（**479 / 84.39%**；R3 快照为 394 / 83.65%）
 - [x] 后端 `ruff check .` 全过
 - [x] 前端 `npm test` 全绿（**125**）、`npm run build` 零错误
 - [x] CLI `pytest` 全绿（**15**）、`ruff` 全过

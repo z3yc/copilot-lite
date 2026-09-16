@@ -28,7 +28,8 @@ import {
   uploadSessionFile,
 } from "../api";
 import { ACCEPT_EXTENSIONS } from "../constants";
-import type { ChatMessage, SessionFile } from "../types";
+import type { ChatMessage, Citation, SessionFile } from "../types";
+import { CITE_HREF_PREFIX, linkifyCitations, resolveCitationTarget } from "../utils/citation";
 import { renderMarkdown } from "../utils/markdown";
 import ModelSelect from "./ModelSelect";
 import TrajectoryPanel from "./TrajectoryPanel";
@@ -70,6 +71,8 @@ interface Props {
   setBusy: (b: boolean) => void;
   /** 未配置模型时，引导前往「个人主页 → 模型设置」 */
   onOpenSettings?: () => void;
+  /** 点击引用：跳到对应 Wiki 页面或知识库文档（无目标时组件内部降级为提示） */
+  onOpenCitation?: (c: Citation) => void;
 }
 
 export default function ChatPanel({
@@ -81,6 +84,7 @@ export default function ChatPanel({
   busy,
   setBusy,
   onOpenSettings,
+  onOpenCitation,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -132,6 +136,25 @@ export default function ChatPanel({
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
+
+  /** 引用激活（来源行与正文 [n] 共用）：可跳则交给上层，否则只提示。 */
+  const activateCitation = useCallback(
+    (c: Citation) => {
+      if (resolveCitationTarget(c) && onOpenCitation) onOpenCitation(c);
+      else message.info(`[${c.index}] ${c.source}`);
+    },
+    [onOpenCitation]
+  );
+
+  /** 正文内的引用链接（由 linkifyCitations 生成）点击 → 拦截跳转，不走页面锚点。 */
+  const onContentClick = (e: React.MouseEvent<HTMLElement>, citations: Citation[]) => {
+    const anchor = (e.target as HTMLElement).closest?.(`a[href^="${CITE_HREF_PREFIX}"]`);
+    if (!anchor) return;
+    e.preventDefault();
+    const index = Number(anchor.getAttribute("href")!.slice(CITE_HREF_PREFIX.length));
+    const cite = citations.find((c) => c.index === index);
+    if (cite) activateCitation(cite);
+  };
 
   // 仅在用户停留底部时自动跟随，避免上翻阅读历史时被新 chunk 强行拽回
   useEffect(() => {
@@ -336,35 +359,63 @@ export default function ChatPanel({
               {m.role === "assistant" && !m.content && busy ? (
                 <span>▍</span>
               ) : (
-                <span dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
+                <span
+                  onClick={(e) => onContentClick(e, m.extra?.citations ?? [])}
+                  dangerouslySetInnerHTML={{
+                    __html: renderMarkdown(
+                      m.role === "assistant"
+                        ? linkifyCitations(
+                            m.content,
+                            (m.extra?.citations ?? []).map((c) => c.index)
+                          )
+                        : m.content
+                    ),
+                  }}
+                />
               )}
               {m.role === "assistant" && (m.extra?.citations?.length ?? 0) > 0 && (
                 <div className="citations">
                   <span className="dim" style={{ fontSize: 12 }}>
                     来源：
                   </span>
-                  {m.extra!.citations!.map((c) => (
-                    <a
-                      key={c.index}
-                      className="cite"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`查看来源 ${c.index}`}
-                      title={c.snippet || c.source}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        message.info(`[${c.index}] ${c.source}`);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          message.info(`[${c.index}] ${c.source}`);
+                  {m.extra!.citations!.map((c) => {
+                    // 可跳转判据与 App 一致：wiki 缺 page_id 时不可点（不降级到文档）
+                    const target = resolveCitationTarget(c);
+                    return target ? (
+                      <a
+                        key={c.index}
+                        className="cite"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`查看来源 ${c.index}`}
+                        title={c.source}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          activateCitation(c);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            activateCitation(c);
+                          }
+                        }}
+                      >
+                        [{c.index}]
+                      </a>
+                    ) : (
+                      <span
+                        key={c.index}
+                        className="cite"
+                        title={
+                          c.source_kind === "wiki"
+                            ? `${c.source}（页面已删除或暂不可用）`
+                            : c.source
                         }
-                      }}
-                    >
-                      [{c.index}]
-                    </a>
-                  ))}
+                      >
+                        [{c.index}]
+                      </span>
+                    );
+                  })}
                 </div>
               )}
               {m.role === "assistant" && m.extra?.trajectory && (

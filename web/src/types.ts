@@ -23,8 +23,15 @@ export interface Citation {
   index: number;
   chunk_id: string;
   document_id?: string;
+  /** 带类型的展示标签（`Wiki / 空间 / 页面` 或 `文档 / 文件名 / 第 N 页`） */
   source: string;
+  /** 旧数据无此字段 → 仅文本展示、不可跳转 */
+  source_kind?: "wiki" | "document";
+  /** 文档页码；Wiki/无页码为 null */
+  page?: number | null;
   snippet?: string;
+  /** `source_kind=wiki` 且解析成功时提供（前端跳转目标） */
+  wiki?: { page_id: string; space_id: string; space_name: string; rel_path: string };
 }
 
 /** Agent 轨迹单步：路由 / 节点 / 工具 / 回复（与后端 step 词汇表一一对应）。 */

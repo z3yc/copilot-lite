@@ -9,6 +9,7 @@ from app.connectors.base import (
     ConnectorError,
     SourceConnector,
     available_connectors,
+    collect_source_meta,
     get_connector,
     register_connector,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "ConnectorError",
     "SourceConnector",
     "available_connectors",
+    "collect_source_meta",
     "get_connector",
     "register_connector",
 ]

@@ -58,7 +58,13 @@ const { Dragger } = Upload;
 const PAGE_SIZE = 20;
 
 /** Wiki 管理：空间创建/删除、zip 导入、手动同步、页面浏览与双链面板。 */
-export default function WikiPanel() {
+interface Props {
+  /** 引用跳转目标（由 App 传入；一次性消费，打开后回调 onOpened 清空） */
+  openTarget?: { pageId: string; spaceId?: string } | null;
+  onOpened?: () => void;
+}
+
+export default function WikiPanel({ openTarget, onOpened }: Props) {
   const [spaces, setSpaces] = useState<WikiSpace[]>([]);
   const [activeSpace, setActiveSpace] = useState<string | undefined>();
   const [pages, setPages] = useState<WikiPage[]>([]);
@@ -114,25 +120,30 @@ export default function WikiPanel() {
     loadSpaces();
   }, [loadSpaces]);
 
-  const loadPages = useCallback(async () => {
-    setLoading(true);
-    setPagesError(null);
-    try {
-      const res = await fetchWikiPages(
-        activeSpace,
-        keyword.trim() || undefined,
-        page,
-        PAGE_SIZE
-      );
-      setPages(res.items);
-      setTotal(res.total);
-    } catch (err) {
-      console.error("加载页面失败", err);
-      setPagesError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeSpace, keyword, page]);
+  const loadPages = useCallback(
+    async (spaceId?: string) => {
+      // 允许显式传入空间（切空间后立即拉取）；onClick 直接传事件时回退当前空间
+      const target = typeof spaceId === "string" ? spaceId : activeSpace;
+      setLoading(true);
+      setPagesError(null);
+      try {
+        const res = await fetchWikiPages(
+          target,
+          keyword.trim() || undefined,
+          page,
+          PAGE_SIZE
+        );
+        setPages(res.items);
+        setTotal(res.total);
+      } catch (err) {
+        console.error("加载页面失败", err);
+        setPagesError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [activeSpace, keyword, page]
+  );
 
   useEffect(() => {
     loadPages();
@@ -263,6 +274,20 @@ export default function WikiPanel() {
       message.error(`${err}`);
     }
   };
+
+  // 引用跳转：打开目标页（跨空间时先切空间，左栏与详情保持一致）
+  useEffect(() => {
+    if (!openTarget) return;
+    const { pageId, spaceId } = openTarget;
+    if (spaceId && spaceId !== activeSpace) {
+      setActiveSpace(spaceId);
+      void loadPages(spaceId);
+    }
+    void openPage(pageId);
+    onOpened?.();
+    // 仅响应 App 传入的一次性目标；openPage/loadPages 为稳定回调或依赖已在内部处理
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTarget]);
 
   const resolveAndOpen = async (href: string) => {
     if (!activeSpace) return;
@@ -426,7 +451,7 @@ export default function WikiPanel() {
                 title="加载页面失败"
                 description={pagesError}
                 action={
-                  <Button size="small" onClick={loadPages}>
+                  <Button size="small" onClick={() => loadPages()}>
                     重试
                   </Button>
                 }

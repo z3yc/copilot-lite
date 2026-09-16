@@ -587,3 +587,45 @@ async def sync_space(db: AsyncSession, user_id, space: WikiSpace) -> dict:
     await db.commit()
     logger.info("Wiki 同步完成 space=%s stats=%s", space.name, stats)
     return stats
+
+
+async def describe_sources(db, user_id, document_ids: list[str]) -> dict[str, dict]:
+    """按 `document_id` 批量解析 Wiki 页面身份（引用标签 + 跳转目标）。
+
+    单次 JOIN 查询（`wiki_pages.document_id` 自带索引，非 N+1）；
+    强制 `user_id` 与软删过滤——跨用户 / 已删页面一律不返回（AGENTS §6.3/§13）。
+    `user_id` 缺失时 fail-closed（宁可不标注，也不跨用户泄露）。
+    """
+    if db is None or user_id is None:
+        return {}
+    ids: list[uuid.UUID] = []
+    for raw in document_ids or []:
+        try:
+            ids.append(uuid.UUID(str(raw)))
+        except (ValueError, AttributeError, TypeError):
+            continue
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(WikiPage, WikiSpace.name)
+            .join(WikiSpace, WikiPage.space_id == WikiSpace.id)
+            .where(
+                WikiPage.document_id.in_(ids),
+                WikiPage.user_id == uuid.UUID(str(user_id)),
+                WikiPage.deleted_at.is_(None),
+                WikiSpace.deleted_at.is_(None),
+            )
+        )
+    ).all()
+    return {
+        str(page.document_id): {
+            "kind": "wiki",
+            "page_id": str(page.id),
+            "space_id": str(page.space_id),
+            "space_name": space_name,
+            "rel_path": page.rel_path,
+            "title": page.title,
+        }
+        for page, space_name in rows
+    }

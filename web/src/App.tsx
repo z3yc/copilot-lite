@@ -31,6 +31,7 @@ import { clearToken, fetchMessages, fetchProfile, getToken } from "./api";
 import { SiderNavContext } from "./contexts/SiderNav";
 import { BRAND_PRIMARY, BRAND_RADIUS } from "./theme";
 import { keyboardActivate } from "./utils/a11y";
+import { resolveCitationTarget, type CitationTarget } from "./utils/citation";
 import ApiKeyOnboarding from "./components/ApiKeyOnboarding";
 import AdminPanel from "./components/AdminPanel";
 import ChatPanel from "./components/ChatPanel";
@@ -41,9 +42,12 @@ import ProfilePage from "./components/ProfilePage";
 import SessionList from "./components/SessionList";
 import TodoPage from "./components/TodoPage";
 import WikiPanel from "./components/WikiPanel";
-import type { ChatMessage, Profile } from "./types";
+import type { ChatMessage, Citation, Profile } from "./types";
 
 const { Sider, Content } = Layout;
+
+/** 引用跳转目标（App 层一次性状态：切换页签 → 目标面板消费后清空） */
+type OpenTarget = CitationTarget;
 
 // 侧栏可拖拽调宽范围与默认值（宽度记忆到 localStorage）
 const SIDER_MIN = 240;
@@ -59,6 +63,8 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [activeCat, setActiveCat] = useState<string>("all");
+  // 引用点击后的跳转目标（null = 无）；面板打开后经 onOpened 清空，防重复打开
+  const [openTarget, setOpenTarget] = useState<OpenTarget | null>(null);
   const [showProfile, setShowProfile] = useState(false);
   // 管理后台（仅管理员入口可见；后端 require_admin 强制鉴权）
   const [showAdmin, setShowAdmin] = useState(false);
@@ -165,6 +171,22 @@ export default function App() {
   }, []);
 
   // 退出管理后台/个人主页，回到工作区（点侧栏页签时调用，避免页签成为死控件）
+  // 引用点击：Wiki → 切 Wiki 页签打开页面；文档 → 切知识库展开文档详情
+  // 判据收敛在 resolveCitationTarget（wiki 缺 page_id 时不跳，不降级到文档）
+  const openCitation = useCallback((c: Citation) => {
+    const target = resolveCitationTarget(c);
+    if (!target) return;
+    setShowAdmin(false);
+    setShowProfile(false);
+    if (target.kind === "wiki") {
+      setTab("wiki");
+    } else {
+      setTab("kb");
+      setActiveCat("all"); // 复位分类过滤，目标文档可能不在当前分类
+    }
+    setOpenTarget(target);
+  }, []);
+
   const closeOverlays = useCallback(() => {
     setShowAdmin(false);
     setShowProfile(false);
@@ -394,11 +416,20 @@ export default function App() {
                 busy={busy}
                 setBusy={setBusy}
                 onOpenSettings={() => openProfile("model")}
+                onOpenCitation={openCitation}
               />
             ) : tab === "kb" ? (
-              <KbPanel activeCat={activeCat} onCatChange={setActiveCat} />
+              <KbPanel
+                activeCat={activeCat}
+                onCatChange={setActiveCat}
+                openTarget={openTarget?.kind === "doc" ? openTarget : null}
+                onOpened={() => setOpenTarget(null)}
+              />
             ) : tab === "wiki" ? (
-              <WikiPanel />
+              <WikiPanel
+                openTarget={openTarget?.kind === "wiki" ? openTarget : null}
+                onOpened={() => setOpenTarget(null)}
+              />
             ) : (
               <TodoPage />
             )}

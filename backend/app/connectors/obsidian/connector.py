@@ -30,5 +30,8 @@ class ObsidianConnector(SourceConnector):
     async def sync(self, db, user_id, space) -> dict:
         return await service.sync_space(db, user_id, space)
 
+    async def describe_sources(self, db, user_id, document_ids: list[str]) -> dict[str, dict]:
+        return await service.describe_sources(db, user_id, document_ids)
+
 
 connector = register_connector(ObsidianConnector())

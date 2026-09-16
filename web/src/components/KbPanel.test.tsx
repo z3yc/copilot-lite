@@ -84,4 +84,34 @@ describe("KbPanel", () => {
     expect(onCatChange).toHaveBeenCalledWith("all");
     await waitFor(() => expect(onOpened).toHaveBeenCalled());
   });
+
+  it("目标文档不在当前列表（分页/过滤截断）时仍直接打开详情", async () => {
+    // 场景：引用命中的文档在第 21 条以后 / 被分类过滤掉，不在 fetchDocs 返回的第一页里
+    mocked.fetchDocs.mockResolvedValue([DOCS[0]]);
+    mocked.fetchDocDetail.mockResolvedValue({
+      id: "d2",
+      title: "笔记 B",
+      source_type: "md",
+      status: "ready",
+      chunk_count: 1,
+      chunks: [{ chunk_index: 0, content: "分块正文", headings: [], page: null }],
+    });
+    const onOpened = vi.fn();
+    render(
+      <KbPanel
+        activeCat="all"
+        onCatChange={vi.fn()}
+        openTarget={{ docId: "d2" }}
+        onOpened={onOpened}
+      />
+    );
+
+    await screen.findByText("PDF A");
+    // 关键回归：不再以「目标出现在列表里」为前置条件
+    await waitFor(() => expect(mocked.fetchDocDetail).toHaveBeenCalledWith("d2"));
+    expect(await screen.findByText("#0")).toBeInTheDocument();
+    // 独立「引用来源」卡片（列表里没有它）
+    expect(screen.getByText("引用来源")).toBeInTheDocument();
+    await waitFor(() => expect(onOpened).toHaveBeenCalled());
+  });
 });

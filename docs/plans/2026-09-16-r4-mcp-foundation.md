@@ -2681,3 +2681,36 @@ git commit -m "docs(plan): R4/P-F1 完成记录——MCP 接缝、外部数据�
 - 唯一约束名 `uq_fund_quotes_code_nav_date` 在 Task 2 建模/迁移、Task 5 upsert 三处同名；
 - 适配器键 `fund_nav_v1` 在 Task 5 注册、Task 1/3/4 配置与测试引用同名；
 - 工具名 `fund_query` 在 Task 6 注册与断言一致；`TOOL_NAME="get_fund_nav"` 在 Task 3 定义、Task 4 配置引用一致。
+
+---
+
+## 执行期偏差与补记（2026-09-16 实施完成后追加）
+
+> 执行结果：**12 个提交** `e22e4d3..cda56df`（分支 `feat/mcp-foundation`），后端 **479 用例 / 84.39%**、`ruff` 全过，真机端到端通过。以下为本计划文本与实际实现不一致之处，以及**计划外由真机逼出**的修复。
+
+### A. 实现偏差（计划 → 实际）
+
+1. **会话关闭 API 收敛为单一 async 关闭**：Task 1 计划里 `reset_mcp_clients()`（同步清空）+ `close_mcp_clients()` 两个 API，实际只保留 `close_mcp_clients()`（async，取消拥有者任务）；`conftest.py` 前后各调一次即可。原因：句柄表持有**任务**，同步清空无法正确收尾（真机修复①后）。
+2. **`FastMCP.call_tool()` 进程内直测返回二元组**：计划里断言 `result["missing"]`，实际进程内直调返回 `(unstructured_content, structuredContent)`（返回注解为 `dict[str, Any]` 时 `wrap_output=False`，但仍走「both」分支）；测试加 `_structured()` 归一。**走 stdio 协议时 client 拿到的 `structuredContent` 是纯 dict**——由 `test_mcp_client.py` 的协议用例坐实，这不是「测试迁就实现」，而是两条路径的形状不同。
+3. **`_upsert_quotes(db, quotes, moment)` 多一个参数**：`fetched_at` 用**本次操作的时刻**而非适配器内部 `_utcnow()`。原因：同一次调用的「取数时间」与「缓存新鲜度判断」必须是同一刻度，否则注入时钟的调用方（测试、将来的定时任务）会得到自相矛盾的窗口。
+4. **测试时间戳统一走 `tests/support/timeutil.naive_utc()`**：ruff 0.16 的 `DTZ001` 禁止无 `tzinfo` 的 `datetime()` 构造；仓库既有写法是 `datetime.now(UTC).replace(tzinfo=None)`，测试需要定点时间故抽了助手。
+5. **`from __future__ import annotations` 保留**：`fund_tool.py` 保留了 future import（不改实现去迁就 bug），改为在 `_build_parameters` 用 `get_type_hints` 解析 —— 见真机修复③。
+
+### B. 计划漏项（真实约束，计划里没写）
+
+1. **`deploy/sql/init_postgres.sql` 产物必须同步**：仓库有 `tests/test_db_init_sql.py::test_artifact_in_sync`，新增表后立即失败；必须跑 `cd backend && uv run python scripts/db_init_sql.py` 重新生成（含 `alembic_version` 的 head 行）。→ 已作为独立提交 `803d029`。
+2. **`app/main.py` 需显式装配工具层**：`validate_configured_servers()` 依赖「适配器已注册」，而适配器由 `app.tools` → `app.funds.quotes` 触发注册。原先靠路由 import 链**偶然**满足；已改为显式 `import app.tools`（装配根显式化，防路由重构打断自检）。
+3. **ruff 0.16 规则面比预期宽**：`C408` / `DTZ001` / `FURB157` / `RUF100` / `BLE001`。其中 `BLE001` 在「同一 try 里前面已有更具体的 `except`」时**不报**（这解释了仓库既有裸 `except Exception` 为何能过）；确需裸捕获处按 AGENTS §4 写 `# noqa: BLE001 + 原因`。
+
+### C. 真机修复（计划外，单测全绿仍暴露）
+
+| # | 提交 | 缺陷 | 修法与回归 |
+|---|---|---|---|
+| ① | `d80cc31` | **子进程泄漏**：`stdio_client` 的 anyio 取消域必须在创建它的任务里退出；旧实现由**请求任务**持有会话、又用 `asyncio.wait_for`（另起任务）关闭 → 退出失败被 `_drop` 的 `except` 吞成 debug → 会话「看起来关了、进程仍在」。单测未暴露，因为 fixture 恰好在同一任务里关闭 | 会话改由**拥有者任务**持有（进出同任务）；请求方投队列 + `task.cancel()`，`gather(return_exceptions=True)` 收尾；新增 `test_close_from_another_task_terminates_session` |
+| ② | `1247424` | **路由不认识基金**：Supervisor 提示词与关键词兜底只覆盖待办/知识库 → 落到无工具的 `chat_agent`，模型只能答「我无法获取实时数据」 | 关键词加 `基金/净值/行情/持仓`；Supervisor / Tools / Orchestrator 三处提示词同步；`PROMPT_VERSION → 1.3.0`；新增 `test_keyword_route_knows_fund_queries` |
+| ③ | `cda56df` | **工具 schema 静默退化**：future-import 让 `param.annotation` 成字符串 → `codes` 的 JSON Schema 变成 `string` → 模型传 `"000001"` 被逐字符拆成 `["0","1"]`（真机报「格式不正确：0, 1」） | `_build_parameters` 用 `get_type_hints`；数组参数补 `items`；`_coerce_value` 宽容接受 LLM 的字符串数组漂移；新增 4 条 schema/容错用例 |
+
+### D. 基线更新
+
+- `OPTIMIZATION_PLAN.md`：§1 进度表 P 行、§1 当前基线（**479 / 84.39%**）、§9.2（P-F1 ✅）、§9.5 门槛逐条标注、§13 R4 勾选与证据、§13 执行顺序、§14 门槛数字 —— 已更新。
+- `PLAN.md`：P6 进度（50%）与清单 R4 勾选、Git 现状基线、当前执行顺序 —— 已更新。
